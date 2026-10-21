@@ -1,0 +1,12 @@
+[
+  { "id": "film",    "num": 1,  "art": "res://assets/art/card_01.jpg" },
+  { "id": "rabe",    "num": 2,  "art": "res://assets/art/card_02.jpg" },
+  { "id": "vautrin", "num": 3,  "art": "res://assets/art/card_03.jpg" },
+  { "id": "roster",  "num": 4,  "art": "res://assets/art/card_04.jpg" },
+  { "id": "medical", "num": 5,  "art": "res://assets/art/card_05.jpg" },
+  { "id": "letter",  "num": 6,  "art": "res://assets/art/card_06.jpg" },
+  { "id": "clipping","num": 7,  "art": "res://assets/art/card_07.jpg" },
+  { "id": "numbers", "num": 8,  "art": "res://assets/art/card_08.jpg" },
+  { "id": "verdict", "num": 9,  "art": "res://assets/art/card_09.jpg" },
+  { "id": "oral",    "num": 10, "art": "res://assets/art/card_10.jpg" }
+]

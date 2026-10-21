@@ -1,0 +1,15 @@
+# Godot 4 缓存目录
+.godot/
+
+# .NET 构建产物
+[Bb]in/
+[Oo]bj/
+*.user
+
+# IDE
+.idea/
+.vs/
+
+# 系统杂项
+*.tmp
+.DS_Store
