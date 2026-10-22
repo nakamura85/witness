@@ -19,6 +19,8 @@ public partial class Refugee : Node2D
     private float _targetX;
     private System.Random _rng = new();
     private float _retarget;
+    private SpriteActor _actor;
+    private float _phase;
 
     public Refugee(string id, string need, Silhouette.Kind kind, bool wander = false)
     {
@@ -28,10 +30,23 @@ public partial class Refugee : Node2D
         Wander = wander;
     }
 
+    /// <summary>旧 Silhouette.Kind → 手绘立绘 sprite 映射（v0.5 完整版）。</summary>
+    private static SpriteActor.Kind MapKind(Silhouette.Kind k) => k switch
+    {
+        Silhouette.Kind.Vautrin => SpriteActor.Kind.Vautrin,
+        Silhouette.Kind.Soldier => SpriteActor.Kind.Soldier,
+        Silhouette.Kind.Fitch => SpriteActor.Kind.Fitch,
+        Silhouette.Kind.FamilyAdult => SpriteActor.Kind.RefugeeMan,
+        Silhouette.Kind.RefugeeChild or Silhouette.Kind.FamilyChild => SpriteActor.Kind.Child,
+        _ => SpriteActor.Kind.RefugeeWoman,
+    };
+
     public override void _Ready()
     {
         _home = Position;
         _targetX = Position.X;
+        _actor = new SpriteActor(MapKind(Kind)) { Facing = Facing };
+        AddChild(_actor);
     }
 
     public bool Helped => Id != "" && GameState.I.S.Refugees.TryGetValue(Id, out var v) && v == 1;
@@ -49,39 +64,45 @@ public partial class Refugee : Node2D
             _targetX = _home.X + (float)(_rng.NextDouble() - 0.5) * 150f;
         }
         float dx = _targetX - Position.X;
-        if (Mathf.Abs(dx) > 4f)
+        bool moving = Mathf.Abs(dx) > 4f;
+        if (moving)
         {
             Position += new Vector2(Mathf.Sign(dx) * 26f * f, 0);
             Facing = Mathf.Sign(dx);
+            _phase += f * 8f;
         }
         Position = new Vector2(Position.X, Level.GroundY(Position.X)); // 贴着主地面走
+        _actor.Facing = Facing;
+        _actor.Moving = moving;
+        _actor.Phase = _phase;
     }
 
     public override void _Draw()
     {
-        if (Taken) return; // 被带走的妇女不再出现在画面里 —— 留白比惩罚更重
-
-        DrawSetTransform(Vector2.Zero, 0, new Vector2(Facing, 1));
-        SilhouetteSide.Draw(this, Kind);
-        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        if (Taken) // 被带走的妇女不再出现在画面里 —— 留白比惩罚更重
+        {
+            if (_actor != null) _actor.Visible = false;
+            return;
+        }
 
         // 需求徽记：碗（食物）/ 十字（药品）/ 毯（毯子）—— 画在头顶，不随朝向翻转
         if (Id != "" && Need != "" && !Helped)
         {
+            float h = (_actor != null ? _actor.Height : 96f) + 12f; // 立绘头顶上方
             var c = Silhouette.FadedRed;
             switch (Need)
             {
                 case "food": // 一只碗
-                    DrawArc(new Vector2(0, -52), 4.5f, 0.15f, Mathf.Pi - 0.15f, 12, c, 2.2f);
-                    DrawLine(new Vector2(-4.5f, -52), new Vector2(4.5f, -52), c, 2.2f);
+                    DrawArc(new Vector2(0, -h), 4.5f, 0.15f, Mathf.Pi - 0.15f, 12, c, 2.2f);
+                    DrawLine(new Vector2(-4.5f, -h), new Vector2(4.5f, -h), c, 2.2f);
                     break;
                 case "medicine": // 一道十字
-                    DrawRect(new Rect2(-1.4f, -58, 2.8f, 12), c);
-                    DrawRect(new Rect2(-6, -53.4f, 12, 2.8f), c);
+                    DrawRect(new Rect2(-1.4f, -h - 6, 2.8f, 12), c);
+                    DrawRect(new Rect2(-6, -h - 1.4f, 12, 2.8f), c);
                     break;
                 case "blanket": // 一叠毯子
-                    DrawRect(new Rect2(-6, -56, 12, 3), c);
-                    DrawRect(new Rect2(-5, -52, 10, 3), c);
+                    DrawRect(new Rect2(-6, -h - 4, 12, 3), c);
+                    DrawRect(new Rect2(-5, -h, 10, 3), c);
                     break;
             }
         }

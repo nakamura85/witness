@@ -67,10 +67,11 @@ public partial class WalkUi : CanvasLayer
     }
 }
 
-/// <summary>出城段的实际绘制：地平线 + 缓缓西行的背影。</summary>
+/// <summary>出城段的实际绘制：地平线 + 缓缓西行的背影（v0.5 手绘立绘深色调制，读作剪影）。</summary>
 public partial class WalkScene : Node2D
 {
     public float T;
+    private Texture2D _texVautrin;
 
     public override void _Draw()
     {
@@ -79,8 +80,14 @@ public partial class WalkScene : Node2D
             new Color(0.5f, 0.46f, 0.4f, 0.35f), 1.5f);
         // 缓缓西行的背影
         float x = Mathf.Lerp(120f, 1160f, Mathf.Min(T / 22f, 1f));
-        DrawSetTransform(new Vector2(x, 340), 0f, Vector2.One);
-        Silhouette.Draw(this, Silhouette.Kind.Vautrin);
-        DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
+        _texVautrin ??= ChromaKey.Cutout("res://assets/art/sprites/vautrin.jpg", 0.03f, 0.05f);
+        if (_texVautrin != null)
+        {
+            float h = 140f;
+            float w = h * _texVautrin.GetSize().X / _texVautrin.GetSize().Y;
+            float bob = Mathf.Abs(Mathf.Sin(T * 5.2f)) * 3f;
+            DrawTextureRect(_texVautrin, new Rect2(x - w / 2, 340 - h - bob, w, h), false,
+                new Color(0.16f, 0.14f, 0.12f, 0.92f));
+        }
     }
 }

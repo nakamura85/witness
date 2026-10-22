@@ -29,11 +29,18 @@ public partial class Patrol : Node2D
     private bool _distracted;         // 被石块声引开：离岗查看中
     private Vector2 _distractPoint;
     private float _distractT;
+    private SpriteActor _actor;
+
+    public override void _Ready()
+    {
+        _actor = new SpriteActor(SpriteActor.Kind.Soldier);
+        AddChild(_actor);
+    }
 
     private const float Range = 300f;      // 视野距离
     private const float HalfAngle = 0.5f;  // 视野半角（弧度）
     private const float Speed = 70f;
-    private const float EyeY = -30f;       // 眼睛高度（脚底原点）
+    private const float EyeY = -94f;       // 眼睛高度（脚底原点，对齐 108px 立绘的头部）
 
     public void Setup(Level level, Player player, Vector2[] points)
     {
@@ -62,6 +69,7 @@ public partial class Patrol : Node2D
         if (_points == null || _level == null || !_level.PlayPhase)
             return;
 
+        bool moving = false;
         // ---- 被引开：快步走向噪音点，到了就来回扫视，计时结束返回 ----
         if (_distracted)
         {
@@ -72,6 +80,7 @@ public partial class Patrol : Node2D
                 Position += new Vector2(step, 0);
                 Facing = toNoise.X >= 0 ? 1f : -1f;
                 _walkPhase += f * 10f;
+                moving = true;
                 _scan = 0f;
             }
             else
@@ -102,8 +111,15 @@ public partial class Patrol : Node2D
                 Position += dir * Speed * f;
                 Facing = dir.X >= 0 ? 1f : -1f;
                 _walkPhase += f * 9f;
+                moving = true;
                 _scan = 0f;
             }
+        }
+        if (_actor != null)
+        {
+            _actor.Facing = Facing;
+            _actor.Moving = moving;
+            _actor.Phase = _walkPhase;
         }
         float facing = (Facing > 0 ? 0f : Mathf.Pi) + _scan;
 
@@ -157,9 +173,5 @@ public partial class Patrol : Node2D
             pts.Add(new Vector2(0, EyeY) + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * Range);
         }
         DrawColoredPolygon(pts.ToArray(), coneColor);
-
-        DrawSetTransform(Vector2.Zero, 0, new Vector2(Facing, 1));
-        SilhouetteSide.Draw(this, Silhouette.Kind.Soldier, _walkPhase);
-        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }

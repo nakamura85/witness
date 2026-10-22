@@ -7,7 +7,7 @@ namespace Witness;
 /// v0.4 方案 B（无跳跃）：A/D 左右移动，E 互动翻越矮墙/瓦砾/窗台（PuzzleLogic.CanVault），
 /// S 蹲下潜行（降低被巡逻发现的概率，GDD §6.3）。
 /// 翻越是一段受控补间：攀住 → 起身 → 落到对面，期间物理停摆、播攀爬姿态。
-/// 卡通形象由 SilhouetteSide 绘制（侧视彩色卡通，脚底原点，FlipH 由 Facing 控制）。
+/// 卡通形象由 SpriteActor 手绘立绘呈现（脚底原点，FlipH 由 Facing 控制）。
 /// </summary>
 public partial class Player : CharacterBody2D
 {
@@ -28,9 +28,12 @@ public partial class Player : CharacterBody2D
     private bool _crouched;
     private float _phase; // 行走摆腿相位
     private CollisionShape2D _stand, _crouchShape;
+    private SpriteActor _actor;
 
     public Player()
     {
+        _actor = new SpriteActor(SpriteActor.Kind.Vautrin);
+        AddChild(_actor);
         _stand = new CollisionShape2D
         {
             Shape = new RectangleShape2D { Size = new Vector2(26, 52) },
@@ -51,6 +54,8 @@ public partial class Player : CharacterBody2D
     public override void _PhysicsProcess(double delta)
     {
         float f = (float)delta;
+        _actor.Facing = Facing;
+        _actor.Vaulting = Vaulting;
         if (Vaulting) { QueueRedraw(); return; } // 翻越补间期间物理停摆
 
         bool wantCrouch = Sneaking;
@@ -75,6 +80,10 @@ public partial class Player : CharacterBody2D
 
         if (IsOnFloor() && Mathf.Abs(Velocity.X) > 1f)
             _phase += f * 11f;
+        _actor.Moving = IsOnFloor() && Mathf.Abs(Velocity.X) > 1f;
+        _actor.Crouched = _crouched;
+        _actor.Airborne = Airborne;
+        _actor.Phase = _phase;
         QueueRedraw();
     }
 
@@ -112,11 +121,6 @@ public partial class Player : CharacterBody2D
 
     public override void _Draw()
     {
-        // 朝向翻转绘制侧视卡通形象
-        DrawSetTransform(new Vector2(0, 1), 0, new Vector2(Facing, 1));
-        SilhouetteSide.Draw(this, Silhouette.Kind.Vautrin, _phase, Airborne, _crouched, Vaulting);
-        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-
         // 蹲下时脚下画一圈淡色涟漪，提示潜行状态（克制，不做成状态条）
         if (Sneaking && !Vaulting)
             DrawArc(new Vector2(0, -2), 12f, 0, Mathf.Tau, 24,

@@ -131,6 +131,10 @@ public partial class Level : Node2D
     private float _steamT;                 // 蒸汽剩余时长（>0 时遮挡视野）
     private Vector2? _eMark;               // 世界空间 E 提示气泡位置
 
+    // ---- v0.5 手绘素材（平铺纹理 + 抠图物件）----
+    private Texture2D _texBrick, _texWood, _texRubble;
+    private Texture2D _texCrate, _texStone, _texDoor, _texValve;
+
     public Level(Main main) { _main = main; }
 
     /// <summary>巡逻兵据此判断是否行动（对话/结算期间全场静止）。</summary>
@@ -144,10 +148,18 @@ public partial class Level : Node2D
 
     /// <summary>世界坐标处冒出漫画对白气泡（关键剧情点，克制使用）。</summary>
     public void BubbleAt(Vector2 feetPos, string locKey)
-        => SpeechBubble.Show(this, feetPos + new Vector2(0, -66), Loc.I.T(locKey));
+        => SpeechBubble.Show(this, feetPos + new Vector2(0, -112), Loc.I.T(locKey));
 
     public override void _Ready()
     {
+        TextureRepeat = TextureRepeatEnum.Enabled; // 平铺纹理绘制需要
+        _texBrick = ChromaKey.Tile("res://assets/art/sprites/tile_brick.jpg", 0.08f, 0.15f);
+        _texWood = ChromaKey.Tile("res://assets/art/sprites/tile_wood.jpg", 0.08f, 0.15f);
+        _texRubble = ChromaKey.Tile("res://assets/art/sprites/tile_rubble.jpg", 0.08f, 0.15f);
+        _texCrate = ChromaKey.Cutout("res://assets/art/sprites/prop_crate.jpg", 0.04f, 0.08f);
+        _texStone = ChromaKey.Cutout("res://assets/art/sprites/prop_stone_pile.jpg", 0.04f, 0.08f);
+        _texDoor = ChromaKey.Cutout("res://assets/art/sprites/prop_door.jpg", 0.04f, 0.08f);
+        _texValve = ChromaKey.Cutout("res://assets/art/sprites/prop_valve.jpg", 0.04f, 0.08f);
         BuildWorld();
         _hud = new Hud();
         AddChild(_hud);
@@ -276,11 +288,33 @@ public partial class Level : Node2D
         AddChild(strip);
     }
 
-    /// <summary>侧视立面与建筑：金女立面图、绕行屋室内。</summary>
+    /// <summary>侧视立面与建筑：金女立面图、绕行屋室内、医院/教堂/城门手绘立面（v0.5）。</summary>
     private void BuildBackdrop()
     {
         AddSprite("res://assets/art/ginling_facade.jpg", new Vector2(2250, Ground - 240), 640f);
         AddSprite("res://assets/art/house_interior.jpg", new Vector2(2930, Ground - 120), 660f, top: Ground - 240);
+        AddCutoutSprite("building_hospital", new Vector2(5930, Ground), 560f);
+        AddCutoutSprite("building_church", new Vector2(6660, Ground), 470f);
+        AddCutoutSprite("building_citygate", new Vector2(7400, Ground), 620f);
+    }
+
+    /// <summary>白底建筑立面图：抠图后按「底部对齐地面」放置（替代程序矩形立面）。</summary>
+    private void AddCutoutSprite(string name, Vector2 bottomCenter, float width)
+    {
+        var path = $"res://assets/art/sprites/{name}.jpg";
+        if (!ResourceLoader.Exists(path)) return;
+        var tex = ChromaKey.Cutout(path, 0.04f, 0.14f);
+        if (tex == null) return;
+        var ts = tex.GetSize();
+        float s = width / ts.X;
+        var sp = new Sprite2D
+        {
+            Texture = tex,
+            ZIndex = -1,
+            Scale = new Vector2(s, s),
+            Position = new Vector2(bottomCenter.X, bottomCenter.Y - ts.Y * s / 2f),
+        };
+        AddChild(sp);
     }
 
     private void AddSprite(string path, Vector2 center, float width, float? top = null)
@@ -1061,10 +1095,8 @@ public partial class Level : Node2D
 
     private static readonly Color BrickGrey = new(0.42f, 0.44f, 0.43f, 0.94f);   // 南京青砖
     private static readonly Color BrickEdge = new(0.22f, 0.21f, 0.19f, 0.9f);
-    private static readonly Color StepStone = new(0.52f, 0.49f, 0.43f, 0.94f);
     private static readonly Color WoodBrown = new(0.46f, 0.35f, 0.23f, 0.95f);
     private static readonly Color WoodEdge = new(0.24f, 0.18f, 0.12f, 0.9f);
-    private static readonly Color RubbleGrey = new(0.45f, 0.43f, 0.39f, 0.95f);
 
     public override void _Draw()
     {
@@ -1075,9 +1107,6 @@ public partial class Level : Node2D
         }
         DrawRubbleMarks();
         DrawPuzzleProps();
-        DrawChurch();
-        DrawHospital();
-        DrawCityGate();
 
         // 操场集合点：虚线圆
         var edge = new Color(0.9f, 0.86f, 0.74f, 0.5f);
@@ -1091,21 +1120,20 @@ public partial class Level : Node2D
         DrawEMark();
     }
 
-    /// <summary>按高度/用途给地形块上色（砖/石/木）。</summary>
+    /// <summary>地形块手绘化：青砖/木板/瓦砾平铺纹理 + 顶面亮沿 + 深色描边（v0.5 替代纯色矩形）。</summary>
     private void FillByTerrain(Rect2 r)
     {
         bool woodHouse = r.Position.X >= 2660 && r.Position.X <= 2980 && r.Position.Y < Ground;
-        var fill = woodHouse ? WoodBrown : (r.Size.Y <= 50 ? StepStone : BrickGrey);
-        var edge = woodHouse ? WoodEdge : BrickEdge;
-        DrawRect(r, fill);
-        DrawRect(r, edge, false, 2f);
-        if (woodHouse && r.Size.X > 80)
-            for (float y = r.Position.Y + 8; y < r.End.Y - 4; y += 14)
-                DrawLine(new Vector2(r.Position.X + 3, y), new Vector2(r.End.X - 3, y), WoodEdge, 1f); // 木板纹
-        else if (!woodHouse && r.Size.Y > 60)
-            for (float y = r.Position.Y + 16; y < r.End.Y - 8; y += 22)
-                DrawLine(new Vector2(r.Position.X + 4, y), new Vector2(r.End.X - 4, y),
-                    new Color(edge, 0.35f), 1f); // 砖缝
+        bool rubble = r.Position.X >= 3400 && r.Position.X < 3800 && r.Position.Y < Ground;
+        var tex = woodHouse ? _texWood : (rubble ? _texRubble : _texBrick);
+        if (tex != null)
+            ChromaKey.DrawTiled(this, tex, r, woodHouse ? 0.20f : (rubble ? 0.40f : 0.22f));
+        else
+            DrawRect(r, woodHouse ? WoodBrown : BrickGrey);
+        // 顶面亮沿（可站立面的「台阶沿」读感）+ 外描边
+        DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, Mathf.Min(6f, r.Size.Y))),
+            new Color(0.88f, 0.85f, 0.76f, 0.5f));
+        DrawRect(r, woodHouse ? WoodEdge : BrickEdge, false, 2f);
     }
 
     /// <summary>瓦砾的碎片感：几道裂纹斜线。</summary>
@@ -1119,39 +1147,49 @@ public partial class Level : Node2D
         }
     }
 
-    /// <summary>解谜物件绘制：木箱 / 石块堆 / 门闩与木门 / 补给 / 阀门与蒸汽 / 飞石。</summary>
+    /// <summary>按宽度等比绘制抠图道具（底边中点锚定，保持纹理宽高比不被压扁）。</summary>
+    private void DrawProp(Texture2D tex, Vector2 bottomCenter, float width)
+    {
+        var ts = tex.GetSize();
+        if (ts.X < 1f) return;
+        float h = width * ts.Y / ts.X;
+        DrawTextureRect(tex, new Rect2(bottomCenter.X - width / 2f, bottomCenter.Y - h, width, h), false);
+    }
+
+    /// <summary>解谜物件绘制（v0.5 手绘贴图）：木箱 / 石块堆 / 门闩木门 / 补给 / 阀门与蒸汽 / 飞石。</summary>
     private void DrawPuzzleProps()
     {
-        // 可推木箱（木板条 + 描边）
+        // 可推木箱（手绘木箱贴图，带碰撞体同步移动）
         var cw = PuzzleLogic.CrateW;
-        var crateTop = _crateBody.Position + new Vector2(-cw / 2, -PuzzleLogic.CrateH / 2);
-        var crateRect = new Rect2(crateTop, new Vector2(cw, PuzzleLogic.CrateH));
-        DrawRect(crateRect, WoodBrown);
-        DrawRect(crateRect, WoodEdge, false, 2.4f);
-        DrawLine(crateTop + new Vector2(4, 10), crateTop + new Vector2(cw - 4, PuzzleLogic.CrateH - 10), WoodEdge, 2f);
-        DrawLine(crateTop + new Vector2(cw - 4, 10), crateTop + new Vector2(4, PuzzleLogic.CrateH - 10), WoodEdge, 2f);
+        var crateRect = new Rect2(_crateBody.Position + new Vector2(-cw / 2 - 4, -PuzzleLogic.CrateH / 2 - 5),
+            new Vector2(cw + 8, PuzzleLogic.CrateH + 9));
+        if (_texCrate != null)
+            DrawProp(_texCrate, _crateBody.Position + new Vector2(0, PuzzleLogic.CrateH / 2f), cw + 18f);
+        else { DrawRect(crateRect, WoodBrown); DrawRect(crateRect, WoodEdge, false, 2.4f); }
 
         // 石块堆
         var stoneC = new Color(0.5f, 0.49f, 0.45f);
         foreach (var pile in new[] { StonePile1, StonePile2 })
-        {
-            DrawCircle(pile + new Vector2(-7, -4), 6f, stoneC);
-            DrawCircle(pile + new Vector2(5, -5), 7f, stoneC * new Color(0.9f, 0.9f, 0.9f));
-            DrawCircle(pile + new Vector2(-1, -11), 5f, stoneC);
-        }
+            if (_texStone != null)
+                DrawProp(_texStone, pile, 88f);
+            else
+                DrawCircle(pile + new Vector2(0, -6), 7f, stoneC);
 
-        // 侧巷木门与门闩（拉开后画敞开的门洞）
+        // 侧巷木门与门闩（拉开后只余门洞暗影）
         if (!_boltOpen)
         {
-            DrawRect(DoorRect, new Color(0.36f, 0.26f, 0.16f, 0.98f));
-            DrawRect(DoorRect, WoodEdge, false, 2.2f);
-            DrawRect(new Rect2(DoorRect.Position.X - 6, DoorRect.Position.Y + 34, DoorRect.Size.X + 12, 7),
-                new Color(0.55f, 0.5f, 0.42f)); // 铁门闩
+            if (_texDoor != null)
+                DrawTextureRect(_texDoor, new Rect2(DoorRect.Position.X - 5, DoorRect.Position.Y - 7,
+                    DoorRect.Size.X + 10, DoorRect.Size.Y + 9), false);
+            else
+            {
+                DrawRect(DoorRect, new Color(0.36f, 0.26f, 0.16f, 0.98f));
+                DrawRect(DoorRect, WoodEdge, false, 2.2f);
+            }
         }
         else
         {
-            DrawRect(new Rect2(DoorRect.Position + new Vector2(0, 4), new Vector2(4, DoorRect.Size.Y - 4)),
-                new Color(0.36f, 0.26f, 0.16f, 0.9f)); // 敞开的门板贴边
+            DrawRect(DoorRect, new Color(0.16f, 0.13f, 0.10f, 0.85f)); // 敞开的门洞
         }
 
         // 巷内补给（一小袋米）
@@ -1163,13 +1201,15 @@ public partial class Level : Node2D
             DrawLine(SupplyPos + new Vector2(-11, -12), SupplyPos + new Vector2(11, -12), WoodEdge, 1.4f);
         }
 
-        // 蒸汽阀门（管道 + 手轮）
-        var pipeC = new Color(0.44f, 0.46f, 0.44f);
-        DrawRect(new Rect2(ValvePos.X - 8, ValvePos.Y - 70, 16, 70), pipeC);
-        DrawRect(new Rect2(ValvePos.X - 8, ValvePos.Y - 76, 60, 14), pipeC);
-        DrawArc(ValvePos + new Vector2(0, -46), 10f, 0, Mathf.Tau, 16, WoodEdge, 3f);
-        DrawLine(ValvePos + new Vector2(-10, -46), ValvePos + new Vector2(10, -46), WoodEdge, 2.4f);
-        DrawLine(ValvePos + new Vector2(0, -56), ValvePos + new Vector2(0, -36), WoodEdge, 2.4f);
+        // 蒸汽阀门（管道 + 手轮贴图）
+        if (_texValve != null)
+            DrawProp(_texValve, ValvePos, 64f);
+        else
+        {
+            var pipeC = new Color(0.44f, 0.46f, 0.44f);
+            DrawRect(new Rect2(ValvePos.X - 8, ValvePos.Y - 70, 16, 70), pipeC);
+            DrawArc(ValvePos + new Vector2(0, -46), 10f, 0, Mathf.Tau, 16, WoodEdge, 3f);
+        }
 
         // 蒸汽云（阀门拧开时喷涌，遮挡视线）
         if (_steamT > 0f)
@@ -1202,47 +1242,5 @@ public partial class Level : Node2D
         DrawArc(p, 11f, 0, Mathf.Tau, 18, BrickEdge, 1.8f);
         var font = ThemeDB.FallbackFont;
         DrawString(font, p + new Vector2(0, 5), "E", HorizontalAlignment.Center, -1, 15, BrickEdge);
-    }
-
-    /// <summary>教堂立面（红砖）：山墙 + 十字 + 玫瑰窗。</summary>
-    private void DrawChurch()
-    {
-        var brick = new Color(0.50f, 0.30f, 0.23f, 0.96f);
-        var trim = new Color(0.80f, 0.74f, 0.63f, 0.8f);
-        DrawRect(new Rect2(6500, 580, 320, Ground - 580), brick);
-        DrawColoredPolygon(new Vector2[]
-        {
-            new(6470, 580), new(6850, 580), new(6660, 468),
-        }, brick);
-        DrawRect(new Rect2(6500, 580, 320, Ground - 580), trim, false, 2f);
-        DrawLine(new Vector2(6660, 400), new Vector2(6660, 452), trim, 4f);   // 十字竖
-        DrawLine(new Vector2(6640, 416), new Vector2(6680, 416), trim, 4f);   // 十字横
-        DrawArc(new Vector2(6660, 640), 30f, 0, Mathf.Tau, 28, trim, 2.5f);  // 玫瑰窗
-    }
-
-    /// <summary>鼓楼医院立面（灰白主楼 + 红十字）。</summary>
-    private void DrawHospital()
-    {
-        var wall = new Color(0.62f, 0.64f, 0.59f, 0.96f);
-        var trim = new Color(0.32f, 0.32f, 0.29f, 0.8f);
-        DrawRect(new Rect2(5740, 480, 380, Ground - 480), wall);
-        DrawRect(new Rect2(5726, 462, 408, 18), wall);
-        DrawRect(new Rect2(5740, 480, 380, Ground - 480), trim, false, 2f);
-        var red = new Color(0.66f, 0.22f, 0.18f, 0.9f);
-        DrawRect(new Rect2(5912, 540, 24, 84), red);
-        DrawRect(new Rect2(5882, 570, 84, 24), red);
-    }
-
-    /// <summary>出城门楼（城砖 + 暖光门洞）。</summary>
-    private void DrawCityGate()
-    {
-        var brick = new Color(0.38f, 0.39f, 0.36f, 0.97f);
-        var trim = new Color(0.70f, 0.66f, 0.56f, 0.6f);
-        var light = new Color(0.91f, 0.85f, 0.66f, 0.95f);
-        DrawRect(new Rect2(7260, 430, 280, Ground - 430), brick);
-        DrawRect(new Rect2(7240, 414, 320, 18), brick);
-        DrawRect(new Rect2(7260, 430, 280, Ground - 430), trim, false, 2f);
-        DrawRect(new Rect2(7350, 640, 110, Ground - 640), light); // 门洞透光
-        DrawRect(new Rect2(7350, 640, 110, Ground - 640), trim, false, 2f);
     }
 }

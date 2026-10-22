@@ -48,6 +48,7 @@ public partial class PrologueLevel : Node2D
         { V4(TableTop), V4(ShelfL1), V4(ShelfL2), V4(StepMid) };
 
     private bool _hasBg;
+    private Texture2D _texWood;   // v0.5 手绘木纹平铺
     private Player _player;
     private Hud _hud;
     private IntroOverlay _intro;
@@ -64,6 +65,8 @@ public partial class PrologueLevel : Node2D
 
     public override void _Ready()
     {
+        TextureRepeat = TextureRepeatEnum.Enabled; // 木纹平铺绘制需要
+        _texWood = ChromaKey.Tile("res://assets/art/sprites/tile_wood.jpg", 0.08f, 0.15f);
         BuildRoom();
 
         _hud = new Hud();
@@ -324,36 +327,49 @@ public partial class PrologueLevel : Node2D
         }
     }
 
-    // ---- 房间绘制：彩色手绘（VH 式）木色平台 + 发光的时间线板 ----
+    // ---- 房间绘制：手绘木纹平铺（v0.5 完整版）+ 发光的时间线板 ----
 
     public override void _Draw()
     {
         var outline = new Color(0.18f, 0.16f, 0.13f);
-        var woodFloor = new Color(0.45f, 0.35f, 0.25f);
         var woodDark = new Color(0.36f, 0.28f, 0.20f);
-        var woodWarm = new Color(0.56f, 0.43f, 0.29f);
+        var topLight = new Color(0.90f, 0.86f, 0.74f, 0.45f);
 
-        // 地板：暖木 + 木板缝
-        DrawRect(FloorRect, woodFloor);
+        // 地板与木质平台：手绘木纹平铺贴图（素材缺失时纯色兜底）
+        if (_texWood != null)
+        {
+            ChromaKey.DrawTiled(this, _texWood, FloorRect, 0.22f);
+            ChromaKey.DrawTiled(this, _texWood, TableTop, 0.16f);
+            ChromaKey.DrawTiled(this, _texWood, ShelfL1, 0.16f);
+            ChromaKey.DrawTiled(this, _texWood, ShelfL2, 0.16f);
+            ChromaKey.DrawTiled(this, _texWood, StepMid, 0.20f);
+        }
+        else
+        {
+            var woodFloor = new Color(0.45f, 0.35f, 0.25f);
+            var woodWarm = new Color(0.56f, 0.43f, 0.29f);
+            DrawRect(FloorRect, woodFloor);
+            DrawRect(TableTop, woodWarm);
+            DrawRect(ShelfL1, woodWarm);
+            DrawRect(ShelfL2, woodWarm);
+            DrawRect(StepMid, woodDark);
+        }
+
+        // 地板木板缝 + 顶面描边
         for (float x = 60; x < RoomW; x += 90)
             DrawLine(new Vector2(x, Floor + 8), new Vector2(x, Floor + 28), woodDark, 1.6f);
         DrawLine(FloorRect.Position, FloorRect.Position + new Vector2(RoomW, 0), outline, 2.4f);
 
-        // 长桌：暖木桌面 + 深色桌腿
-        DrawRect(TableTop, woodWarm);
-        DrawRect(TableTop, outline, false, 2f);
+        // 各可翻越平台：顶面亮沿 + 外描边（VH 手绘感）
+        foreach (var r in new[] { TableTop, ShelfL1, ShelfL2, StepMid })
+        {
+            DrawLine(r.Position, r.Position + new Vector2(r.Size.X, 0), topLight, 3f);
+            DrawRect(r, outline, false, 1.8f);
+        }
+
+        // 长桌桌腿（深色实木）
         DrawRect(TableLegL, woodDark);
         DrawRect(TableLegR, woodDark);
-
-        // 书架层板
-        DrawRect(ShelfL1, woodWarm);
-        DrawRect(ShelfL1, outline, false, 1.8f);
-        DrawRect(ShelfL2, woodWarm);
-        DrawRect(ShelfL2, outline, false, 1.8f);
-
-        // 中继台（木箱）
-        DrawRect(StepMid, woodDark);
-        DrawRect(StepMid, outline, false, 1.8f);
 
         // 右墙时间线板：深色木框 + 纸色空槽位
         DrawRect(BoardRect, woodDark);
