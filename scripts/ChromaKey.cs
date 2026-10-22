@@ -49,12 +49,24 @@ public static class ChromaKey
         return tex;
     }
 
-    /// <summary>在 CanvasItem 的 _Draw 中按 scale 平铺绘制纹理（需要该节点 TextureRepeat=Enabled）。</summary>
+    /// <summary>在 CanvasItem 的 _Draw 中按 scale 平铺绘制纹理。
+    /// 手动循环而非 Godot 内置 tile:true，避免非无缝 tile 的接缝亮线；
+    /// 每条 tile 向右下 overlap 3px 覆盖接缝边界。</summary>
     public static void DrawTiled(CanvasItem ci, Texture2D tex, Rect2 r, float scale)
     {
-        ci.DrawSetTransform(r.Position, 0, new Vector2(scale, scale));
-        ci.DrawTextureRect(tex, new Rect2(Vector2.Zero, r.Size / scale), true);
-        ci.DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        var ts = tex.GetSize();
+        if (ts.X < 4 || ts.Y < 4) return;
+        float tileW = ts.X * scale;
+        float tileH = ts.Y * scale;
+        if (tileW < 4 || tileH < 4) return;
+        const float overlap = 3f;   // 每条 tile 向相邻 tile 延伸覆盖接缝
+        for (float y = r.Position.Y - overlap; y < r.End.Y + overlap; y += tileH - overlap)
+        {
+            for (float x = r.Position.X - overlap; x < r.End.X + overlap; x += tileW - overlap)
+            {
+                ci.DrawTextureRect(tex, new Rect2(x, y, tileW + overlap, tileH + overlap), false);
+            }
+        }
     }
 
     // ========== 描边 & 色调 ==========

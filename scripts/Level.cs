@@ -1127,14 +1127,60 @@ public partial class Level : Node2D
         bool woodHouse = r.Position.X >= 2660 && r.Position.X <= 2980 && r.Position.Y < Ground;
         bool rubble = r.Position.X >= 3400 && r.Position.X < 3800 && r.Position.Y < Ground;
         var tex = woodHouse ? _texWood : (rubble ? _texRubble : _texBrick);
-        if (tex != null)
-            ChromaKey.DrawTiled(this, tex, r, woodHouse ? 0.20f : (rubble ? 0.40f : 0.22f));
+        var edge = woodHouse ? WoodEdge : BrickEdge;
+
+        // v5c：区分"薄台阶"和"高墙"的可见高度，高墙只画顶面+前沿立面，后面让背景融合
+        const float thickThreshold = 44f;
+        if (r.Size.Y <= thickThreshold)
+        {
+            // 台阶：完整绘制（它们本来就薄，看起来是地面上的凸起）
+            if (tex != null) ChromaKey.DrawTiled(this, tex, r, woodHouse ? 0.20f : (rubble ? 0.40f : 0.22f));
+            else DrawRect(r, woodHouse ? WoodBrown : BrickGrey);
+            DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, Mathf.Min(6f, r.Size.Y))),
+                new Color(0.88f, 0.85f, 0.76f, 0.5f));
+            DrawRect(r, edge, false, 2f);
+        }
         else
-            DrawRect(r, woodHouse ? WoodBrown : BrickGrey);
-        // 顶面亮沿（可站立面的「台阶沿」读感）+ 外描边
-        DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, Mathf.Min(6f, r.Size.Y))),
-            new Color(0.88f, 0.85f, 0.76f, 0.5f));
-        DrawRect(r, woodHouse ? WoodEdge : BrickEdge, false, 2f);
+        {
+            // 高墙：只画顶面 + 前沿立面 4~6px 窄条 + 左边立壁（玩家看到的侧面）
+            // 其余 90% 的区域**用半透明遮罩**让背景露出来——看起来像废墟里的残垣，不是一堵完整的墙
+            float topH = 12f;                    // 顶面厚度
+            float frontFascia = 6f;               // 前沿立面（玩家正前方看到的那一条）
+
+            // 1) 顶面（完整宽）
+            var topRect = new Rect2(r.Position.X, r.Position.Y, r.Size.X, topH);
+            if (tex != null) ChromaKey.DrawTiled(this, tex, topRect, woodHouse ? 0.20f : (rubble ? 0.40f : 0.22f));
+            else DrawRect(topRect, woodHouse ? WoodBrown : BrickGrey);
+            DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, 4f)),
+                new Color(0.88f, 0.85f, 0.76f, 0.55f));
+            DrawRect(topRect, edge, false, 2f);
+
+            // 2) 前沿立面（玩家能看到的侧面窄条）——用更深色模拟阴影中的立面
+            var fasciaRect = new Rect2(r.Position.X, r.Position.Y + topH, r.Size.X,
+                Mathf.Min(frontFascia, r.Size.Y - topH));
+            if (fasciaRect.Size.Y > 2f)
+            {
+                DrawRect(fasciaRect, new Color(0.35f, 0.33f, 0.30f, 0.85f));
+                DrawRect(fasciaRect, edge, false, 1.6f);
+            }
+
+            // 3) 左边立壁（玩家看这堵墙的侧面）——完整画
+            float sideW = Mathf.Min(10f, r.Size.X);
+            var sideRect = new Rect2(r.Position.X - sideW + 2f, r.Position.Y, sideW, r.Size.Y);
+            if (tex != null) ChromaKey.DrawTiled(this, tex, sideRect, woodHouse ? 0.20f : (rubble ? 0.40f : 0.22f));
+            else DrawRect(sideRect, woodHouse ? WoodBrown : BrickGrey);
+            DrawRect(sideRect, edge, false, 1.6f);
+
+            // 4) 大面积立面区：**不画**——让背景露出来，再叠一层极淡的环境光
+            // 这样玩家从远处看会觉得"这里是废墟里的残垣"，而不是"这里有一堵完整的墙"
+            var backRect = new Rect2(r.Position.X, r.Position.Y + topH + frontFascia,
+                r.Size.X, r.Size.Y - topH - frontFascia);
+            if (backRect.Size.Y > 4f)
+            {
+                // 极淡的环境色，模拟残垣的轮廓存在但视觉上融入背景
+                DrawRect(backRect, new Color(0.20f, 0.18f, 0.14f, 0.12f));
+            }
+        }
     }
 
     /// <summary>平台旁的环境碎屑（v5b）：坍塌墙根碎砖 / 弹坑 / 散落木梁。
