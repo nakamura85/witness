@@ -7,15 +7,18 @@ namespace Witness;
 /// 1) 装配全局字体（内嵌 Noto CJK，缺失时退回系统字体）；
 /// 2) 管理屏幕切换：内容警告 → 标题 → 关卡 / 史料馆 / 结算。
 /// 所有界面都是代码构建的 Control/Node2D，不依赖额外场景文件。
+/// v5b：Swap 加 fade-to-black 过场（0.15s 遮黑 → 换屏 → 0.25s 淡入），模拟《勇敢的心》丝滑转场。
 /// </summary>
 public partial class Main : Node
 {
     private Node _current;
+    private ColorRect _fade;   // fade-to-black 用的全屏遮罩
 
     public override void _Ready()
     {
         SetupFont();
-        ShowContentWarning(); // 硬红线：每次启动整屏内容警告（GDD §6.5）
+        SetupFade();
+        ShowContentWarning();
     }
 
     private void SetupFont()
@@ -26,7 +29,6 @@ public partial class Main : Node
             font = GD.Load<FontFile>(bundled);
         if (font == null)
         {
-            // 兜底：直接用系统字体（仅影响本机预览；发布版应内嵌 Noto 字体，OFL 许可）
             var sys = new SystemFont();
             sys.FontNames = new[]
             {
@@ -38,18 +40,57 @@ public partial class Main : Node
         ThemeDB.FallbackFont = font;
     }
 
-    /// <summary>切换当前屏幕（旧屏幕直接释放）。Control 屏幕统一铺满视口（父节点是 Node，需自设锚点）。</summary>
+    private void SetupFade()
+    {
+        _fade = new ColorRect
+        {
+            Color = new Color(0.04f, 0.03f, 0.03f, 0f),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            ZIndex = 100,   // 顶层，盖住一切
+        };
+        _fade.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        AddChild(_fade);
+    }
+
+    /// <summary>v5b 丝滑转场：fade-to-black（0.15s 遮黑 → 换屏 → 0.25s 淡入）。</summary>
     private void Swap(Node next)
     {
-        if (_current != null)
+        // CanvasItem 子类（Node2D / Control）才有 Modulate
+        if (next is CanvasItem ci)
+            ci.Modulate = new Color(1, 1, 1, 1);
+
+        // 如果已有旧屏幕，先遮黑再换；首次启动没有旧屏幕，直接淡入
+        if (_current == null)
         {
-            _current.QueueFree();
-            _current = null;
+            _current = next;
+            AddChild(next);
+            if (next is Control c)
+                c.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+            _fade.Color = new Color(0.04f, 0.03f, 0.03f, 1f);
+            var t = CreateTween();
+            t.TweenProperty(_fade, "color:a", 0f, 0.35f).SetTrans(Tween.TransitionType.Sine);
+            return;
         }
+
+        // 已有旧屏幕：0.15s 遮黑 → callback 换屏 → 0.25s 淡入
+        var fade = _fade;
+        var oldScreen = _current;
         _current = next;
-        AddChild(next);
-        if (next is Control c)
-            c.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+
+        fade.Color = new Color(0.04f, 0.03f, 0.03f, 0f);
+        fade.Visible = true;
+        var tween = CreateTween();
+        tween.SetTrans(Tween.TransitionType.Sine);
+        tween.TweenProperty(fade, "color:a", 1f, 0.15f);
+        tween.TweenCallback(Callable.From(() =>
+        {
+            oldScreen.QueueFree();
+            AddChild(next);
+            if (next is Control c)
+                c.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        }));
+        tween.TweenInterval(0.05f);
+        tween.TweenProperty(fade, "color:a", 0f, 0.25f);
     }
 
     public void ShowContentWarning() => Swap(new ContentWarning(this));
