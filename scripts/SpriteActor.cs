@@ -82,18 +82,16 @@ public partial class SpriteActor : Node2D
         }
         else if (Moving)
         {
-            // 核心改变：用 sin 不用 abs —— 走路像走路，不是弹跳
-            float step = Mathf.Sin(Phase);        // 完整正弦步周期：+/- 交替
-            float sway = Mathf.Sin(Phase * 2f);    // 两倍频：重心左右转移
+            // v0.5d：单帧立绘不能做腿部交替动画，**不能靠上下/左右大幅位移假装走路**
+            // 那样只会让角色飘起来。这里把运动幅度压到几乎为零，
+            // 唯一能暗示"在走"的是脚下影子变形（_Draw 里处理）。
+            float step = Mathf.Sin(Phase);
+            float sway = Mathf.Sin(Phase * 2f);
 
-            // 横向重心转移：身体随脚步微摆（模拟双脚交替承重）
-            centerX = sway * 3.2f;
-
-            // 上下起伏：脚落地时沉、迈步时稍高（自然步行曲线）
-            bob = step * 1.8f;    // 不用 |sin|！沉下去是自然的
-
-            // 身体微转：换重心时身体跟着摆一点点
-            rot = sway * 0.045f * Facing;
+            // 重心转移压到 0.4px 以下（几乎看不见），只有仔细观察才会注意到
+            centerX = sway * 0.4f;
+            bob = step * 0.3f;
+            rot = sway * 0.012f * Facing;
         }
 
         // 应用

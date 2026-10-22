@@ -29,7 +29,7 @@ public static class ChromaKey
         if (_cache.TryGetValue(key, out var cached)) return cached;
         var img = LoadCropped(resPath, cropR, cropB, maxSize);
         if (img == null) return null;
-        FloodKey(img, 0.86f);
+        FloodKey(img, 0.78f);   // v0.5d：降低阈值抠更多浅色背景（建筑素材白墙多，0.86 太严只抠纯白）
         img = Trim(img);
         img = AddStroke(img, StrokeRadius);
         var tex = ImageTexture.CreateFromImage(img);

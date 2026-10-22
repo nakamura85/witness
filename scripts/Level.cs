@@ -1183,89 +1183,75 @@ public partial class Level : Node2D
         }
     }
 
-    /// <summary>平台旁的环境碎屑（v5b）：坍塌墙根碎砖 / 弹坑 / 散落木梁。
-    /// 让地形看起来像二战废墟的一部分，而不是凭空出现的方块。</summary>
+    /// <summary>平台旁的环境碎屑（v0.5d：全部压小、压淡、去描边，避免像大方块）。</summary>
     private void DrawTerrainDressing(Rect2 r)
     {
-        // 太矮的平台（<20px）不需要 dressing
-        if (r.Size.Y < 20f) return;
+        // 太矮的平台（<18px）不需要 dressing
+        if (r.Size.Y < 18f) return;
 
         bool woodHouse = r.Position.X >= 2660 && r.Position.X <= 2980 && r.Position.Y < Ground;
         bool rubble = r.Position.X >= 3400 && r.Position.X < 3800 && r.Position.Y < Ground;
-        bool isStep = r.Size.Y <= 60f;   // 台阶 vs 高墙
+        bool isStep = r.Size.Y <= 60f;
         float topY = r.Position.Y;
         float bottomY = Mathf.Min(r.Position.Y + r.Size.Y, Ground);
-        var edge = woodHouse ? WoodEdge : BrickEdge;
 
-        // --- 平台脚下的坍塌碎砖 / 弹坑 ---
-        // 主要发生在砖结构和瓦砾区，木台旁画散落的断梁
+        // --- 平台脚下的小碎粒（去描边，压淡 alpha，3~4px 极小颗粒）---
         if (!woodHouse)
         {
-            var rubColor = new Color(0.50f, 0.48f, 0.44f, 0.95f);
-            var brickRubble = new Color(0.72f, 0.56f, 0.48f, 0.9f);   // 红砖碎块
-            // 平台脚下沿地面散落几块碎砖（底部 2~3 块小矩形，向左右各延伸 12px）
+            // 极淡的散落小颗粒（alpha 0.55，无描边），像风化掉渣
+            var tinyDark = new Color(0.30f, 0.27f, 0.24f, 0.55f);
+            var tinyBrick = new Color(0.58f, 0.44f, 0.36f, 0.45f);
+            // 每个平台底部左右各散落 3 颗 3px 小颗粒（无描边）
             for (int side = -1; side <= 1; side += 2)
             {
-                float cx = r.Position.X + (side > 0 ? r.Size.X - 4f : 4f);
-                // 1~2 块碎砖
-                for (int k = 0; k < 2; k++)
+                float cx = r.Position.X + (side > 0 ? r.Size.X - 2f : 2f);
+                for (int k = 0; k < 3; k++)
                 {
-                    float bx = cx + side * (10 + k * 10);
-                    float by = bottomY - (3 + k * 3);
-                    if (bx < 0 || bx > WorldW - 20) continue;
-                    DrawRect(new Rect2(bx - 5f, by, 9f, 5f), brickRubble);
-                    DrawRect(new Rect2(bx - 5f, by, 9f, 5f), edge, false, 1.2f);
-                    DrawRect(new Rect2(bx - 3f, by - 4f, 7f, 4f), rubColor);
-                    DrawRect(new Rect2(bx - 3f, by - 4f, 7f, 4f), edge, false, 1.0f);
+                    float bx = cx + side * (8 + k * 7);
+                    float by = bottomY - 2f - k * 2f;
+                    if (bx < 0 || bx > WorldW - 10) continue;
+                    DrawCircle(new Vector2(bx, by), 1.6f, tinyDark);
+                    // 偶尔一颗红碎粒
+                    if (k == 1) DrawCircle(new Vector2(bx + side * 2f, by - 1f), 1.2f, tinyBrick);
                 }
             }
 
-            // 瓦砾区的弹坑（黑色小椭圆 + 裂纹放射）
+            // 瓦砾区的弹坑：更小更淡（仅暗色椭圆 + 2 条淡裂纹）
             if (rubble)
             {
                 float craterX = r.Position.X + r.Size.X * 0.55f;
-                float craterY = topY + r.Size.Y * 0.3f;
-                DrawSetTransform(new Vector2(craterX, craterY), 0, Vector2.One);
-                DrawEllipse(Vector2.Zero, 14f, 5f, new Color(0.18f, 0.15f, 0.12f, 0.7f));
-                DrawEllipse(Vector2.Zero, 6f, 2.2f, new Color(0.08f, 0.06f, 0.05f, 0.85f));
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-                // 辐射裂纹线
-                var crack = new Color(0.18f, 0.15f, 0.12f, 0.75f);
-                DrawLine(new Vector2(craterX - 14, craterY), new Vector2(craterX - 28, craterY - 6), crack, 1.6f);
-                DrawLine(new Vector2(craterX + 14, craterY), new Vector2(craterX + 30, craterY + 4), crack, 1.6f);
-                DrawLine(new Vector2(craterX - 6, craterY - 4), new Vector2(craterX - 12, craterY - 16), crack, 1.4f);
-                DrawLine(new Vector2(craterX + 4, craterY - 3), new Vector2(craterX + 10, craterY - 12), crack, 1.2f);
+                float craterY = topY + Mathf.Min(12f, r.Size.Y * 0.25f);
+                DrawEllipse(new Vector2(craterX, craterY), 8f, 3f,
+                    new Color(0.12f, 0.10f, 0.08f, 0.5f));
+                var faint = new Color(0.20f, 0.17f, 0.14f, 0.35f);
+                DrawLine(new Vector2(craterX - 8, craterY), new Vector2(craterX - 16, craterY - 3), faint, 1f);
+                DrawLine(new Vector2(craterX + 6, craterY + 2), new Vector2(craterX + 14, craterY + 5), faint, 1f);
             }
         }
 
-        // --- 木台旁的断梁/散落木板 ---
+        // --- 木台旁的断梁：更细更短 ---
         if (woodHouse && isStep)
         {
-            var beam = new Color(0.40f, 0.30f, 0.18f, 0.9f);
-            // 平台脚下侧倒一根断梁
+            var beam = new Color(0.38f, 0.28f, 0.16f, 0.55f);
             float bxy = r.Position.X + r.Size.X * 0.55f;
-            float by = bottomY - 6f;
-            DrawSetTransform(new Vector2(bxy, by), -0.35f, Vector2.One);
-            DrawRect(new Rect2(-20f, -4f, 40f, 8f), beam);
-            DrawRect(new Rect2(-20f, -4f, 40f, 8f), WoodEdge, false, 1.6f);
+            float by = bottomY - 4f;
+            DrawSetTransform(new Vector2(bxy, by), -0.30f, Vector2.One);
+            DrawRect(new Rect2(-12f, -2.5f, 24f, 5f), beam);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 
-        // --- 高墙（非台阶）加顶部坍塌缺口（几块砖掉了的锯齿边）---
+        // --- 高墙顶部坍塌缺口：更小、更窄 ---
         if (!isStep && r.Size.Y > 80f && !woodHouse)
         {
-            var broken = new Color(0.25f, 0.22f, 0.19f, 0.85f);
-            // 在墙顶部某段画 2~3 块缺失的砖位（暗色缺口）
+            var broken = new Color(0.18f, 0.15f, 0.12f, 0.5f);
             float gapStart = r.Position.X + r.Size.X * 0.35f;
-            float gapLen = Mathf.Min(40f, r.Size.X * 0.22f);
-            DrawRect(new Rect2(gapStart, topY - 2f, gapLen, 10f), broken);
-            // 缺口下方延伸几条竖向裂纹
-            var crack = new Color(0.25f, 0.20f, 0.16f, 0.6f);
-            for (int i = 0; i < 3; i++)
-            {
-                float cx = gapStart + 6 + i * 10;
-                DrawLine(new Vector2(cx, topY + 6), new Vector2(cx + (i - 1) * 4, topY + 38 + i * 8), crack, 1.4f);
-            }
+            float gapLen = Mathf.Min(24f, r.Size.X * 0.15f);
+            DrawRect(new Rect2(gapStart, topY - 1f, gapLen, 6f), broken);
+            var faintCrack = new Color(0.20f, 0.17f, 0.13f, 0.35f);
+            DrawLine(new Vector2(gapStart + 4, topY + 4),
+                new Vector2(gapStart + 2, topY + 22), faintCrack, 1f);
+            DrawLine(new Vector2(gapStart + gapLen - 4, topY + 4),
+                new Vector2(gapStart + gapLen - 2, topY + 18), faintCrack, 1f);
         }
     }
 
