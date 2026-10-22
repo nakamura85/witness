@@ -38,7 +38,7 @@ public partial class Main : Node
         ThemeDB.FallbackFont = font;
     }
 
-    /// <summary>切换当前屏幕（旧屏幕直接释放）。</summary>
+    /// <summary>切换当前屏幕（旧屏幕直接释放）。Control 屏幕统一铺满视口（父节点是 Node，需自设锚点）。</summary>
     private void Swap(Node next)
     {
         if (_current != null)
@@ -48,6 +48,8 @@ public partial class Main : Node
         }
         _current = next;
         AddChild(next);
+        if (next is Control c)
+            c.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
     }
 
     public void ShowContentWarning() => Swap(new ContentWarning(this));

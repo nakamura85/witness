@@ -10,6 +10,40 @@
 - **前置教学**：移动 → 拾取 → 归位，逐步引导，无失败无惩罚
 - **标题界面居中修复**：所有 UI 锚点统一排查
 
+## 游戏截图（实机运行）
+
+以下截图由自动化巡游脚本实机运行生成（`scripts/ShotTour.cs`），完整走完「标题 → 档案馆 → 源头关拾取/拼图 → 场景显现 → 史料馆」流程。
+
+**标题 · 见证者**
+
+![标题](docs/screenshots/02_title.png)
+
+**记忆档案馆 · 时间线大地图（Talos Principle 式 Hub）**
+
+![档案馆](docs/screenshots/03_hub.png)
+
+**试玩关「源头」· 工作间与史料碎片**
+
+![试玩关](docs/screenshots/04_tutorial.png)
+
+**时间线板 · 把碎片放回正确年代（Patrick's Parabox 式归位）**
+
+![时间线板](docs/screenshots/06_board.png)
+
+**放对之后 · 炭笔历史场景渐显（Viewfinder 时刻）**
+
+![1895 马关条约](docs/screenshots/07_scene_1895.png)
+
+![1910 日韩合并条约](docs/screenshots/08_scene_1910.png)
+
+**史料馆 · 通关解锁的档案卡**
+
+![史料馆](docs/screenshots/09_gallery.png)
+
+**关卡 01 · 南京 1937**
+
+![南京](docs/screenshots/11_nanjing.png)
+
 ## 内容警告
 
 本游戏取材于 1937 年南京的真实历史，包含战争、屠杀与性暴力的**记述与暗示**（均来自公开史料，不含血腥画面）。若你正处于创伤恢复期，请谨慎游玩。
@@ -85,9 +119,10 @@ witness/
 - **C# 脚本文件名必须与类名大小写完全一致**，否则 Godot 会静默跳过注册
 - `project.godot` 必须显式写 `[dotnet] project/assembly_name="witness"`，否则报「DLL 找不到」
 - headless 测试：`Godot_v4.7-stable_mono_win64.exe --headless --path . --script res://tests/SmokeTest.cs`（退出码 0 = 全部通过）
+- 自动截图巡游：把 `scripts/ShotTour.cs` 临时挂到 project.godot 的 [autoload] 再正常运行游戏，跑完自动退出并输出到 `docs/screenshots/`
 
 ## 致谢与说明
 
-- 美术：AI 生成炭笔/版画风插画（部分卡面右下角有「AI 生成」水印，后续将替换）
+- 美术：AI 生成炭笔/版画风插画（已清理生成水印）
 - 字体：优先加载 `assets/fonts/` 下的字体；未内嵌时自动回退系统字体（Microsoft YaHei UI 等）
 - 本项目为教育用途的非商业垂直切片；致敬所有在至暗时刻选择记录的人
