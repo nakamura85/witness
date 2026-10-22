@@ -82,16 +82,12 @@ public partial class SpriteActor : Node2D
         }
         else if (Moving)
         {
-            // v0.5d：单帧立绘不能做腿部交替动画，**不能靠上下/左右大幅位移假装走路**
-            // 那样只会让角色飘起来。这里把运动幅度压到几乎为零，
-            // 唯一能暗示"在走"的是脚下影子变形（_Draw 里处理）。
-            float step = Mathf.Sin(Phase);
-            float sway = Mathf.Sin(Phase * 2f);
-
-            // 重心转移压到 0.4px 以下（几乎看不见），只有仔细观察才会注意到
-            centerX = sway * 0.4f;
-            bob = step * 0.3f;
-            rot = sway * 0.012f * Facing;
+            // v0.5d：**绝对静止**——单帧立绘没法做腿部交替动画，
+            // 任何上下/左右位移都会让角色看起来"飘起来"。
+            // 只靠脚下影子变形（_Draw 里处理）暗示移动。
+            centerX = 0f;
+            bob = 0f;
+            rot = 0f;
         }
 
         // 应用

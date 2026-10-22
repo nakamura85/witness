@@ -1179,8 +1179,9 @@ public partial class Level : Node2D
     /// <summary>平台旁的环境碎屑（v0.5d：全部压小、压淡、去描边，避免像大方块）。</summary>
     private void DrawTerrainDressing(Rect2 r)
     {
-        // 太矮的平台（<18px）不需要 dressing
-        if (r.Size.Y < 18f) return;
+        // v0.5d2：**完全删掉机械碎砖**——每个平台脚下撒一排碎砖=无逻辑的装饰。
+        // 只保留瓦砾区弹坑和木台断梁——这些是叙事性点缀，不是每个平台都有。
+        if (r.Size.Y < 20f) return;
 
         bool woodHouse = r.Position.X >= 2660 && r.Position.X <= 2980 && r.Position.Y < Ground;
         bool rubble = r.Position.X >= 3400 && r.Position.X < 3800 && r.Position.Y < Ground;
@@ -1188,63 +1189,38 @@ public partial class Level : Node2D
         float topY = r.Position.Y;
         float bottomY = Mathf.Min(r.Position.Y + r.Size.Y, Ground);
 
-        // --- 平台脚下的小碎粒（去描边，压淡 alpha，3~4px 极小颗粒）---
-        if (!woodHouse)
+        // --- 仅瓦砾区弹坑（战争痕迹，叙事性） ---
+        if (rubble)
         {
-            // 极淡的散落小颗粒（alpha 0.55，无描边），像风化掉渣
-            var tinyDark = new Color(0.30f, 0.27f, 0.24f, 0.55f);
-            var tinyBrick = new Color(0.58f, 0.44f, 0.36f, 0.45f);
-            // 每个平台底部左右各散落 3 颗 3px 小颗粒（无描边）
-            for (int side = -1; side <= 1; side += 2)
-            {
-                float cx = r.Position.X + (side > 0 ? r.Size.X - 2f : 2f);
-                for (int k = 0; k < 3; k++)
-                {
-                    float bx = cx + side * (8 + k * 7);
-                    float by = bottomY - 2f - k * 2f;
-                    if (bx < 0 || bx > WorldW - 10) continue;
-                    DrawCircle(new Vector2(bx, by), 1.6f, tinyDark);
-                    // 偶尔一颗红碎粒
-                    if (k == 1) DrawCircle(new Vector2(bx + side * 2f, by - 1f), 1.2f, tinyBrick);
-                }
-            }
-
-            // 瓦砾区的弹坑：更小更淡（仅暗色椭圆 + 2 条淡裂纹）
-            if (rubble)
-            {
-                float craterX = r.Position.X + r.Size.X * 0.55f;
-                float craterY = topY + Mathf.Min(12f, r.Size.Y * 0.25f);
-                DrawEllipse(new Vector2(craterX, craterY), 8f, 3f,
-                    new Color(0.12f, 0.10f, 0.08f, 0.5f));
-                var faint = new Color(0.20f, 0.17f, 0.14f, 0.35f);
-                DrawLine(new Vector2(craterX - 8, craterY), new Vector2(craterX - 16, craterY - 3), faint, 1f);
-                DrawLine(new Vector2(craterX + 6, craterY + 2), new Vector2(craterX + 14, craterY + 5), faint, 1f);
-            }
+            float craterX = r.Position.X + r.Size.X * 0.55f;
+            float craterY = topY + Mathf.Min(14f, r.Size.Y * 0.3f);
+            DrawEllipse(new Vector2(craterX, craterY), 12f, 4f,
+                new Color(0.10f, 0.08f, 0.06f, 0.6f));
+            DrawEllipse(new Vector2(craterX, craterY), 5f, 1.8f,
+                new Color(0.05f, 0.04f, 0.03f, 0.8f));
+            var faint = new Color(0.18f, 0.15f, 0.12f, 0.4f);
+            DrawLine(new Vector2(craterX - 10, craterY), new Vector2(craterX - 20, craterY - 5), faint, 1.2f);
+            DrawLine(new Vector2(craterX + 8, craterY + 3), new Vector2(craterX + 18, craterY + 6), faint, 1.2f);
         }
 
-        // --- 木台旁的断梁：更细更短 ---
+        // --- 木台旁的断梁（场景特定装饰） ---
         if (woodHouse && isStep)
         {
-            var beam = new Color(0.38f, 0.28f, 0.16f, 0.55f);
+            var beam = new Color(0.38f, 0.28f, 0.16f, 0.5f);
             float bxy = r.Position.X + r.Size.X * 0.55f;
             float by = bottomY - 4f;
             DrawSetTransform(new Vector2(bxy, by), -0.30f, Vector2.One);
-            DrawRect(new Rect2(-12f, -2.5f, 24f, 5f), beam);
+            DrawRect(new Rect2(-10f, -2f, 20f, 4f), beam);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 
-        // --- 高墙顶部坍塌缺口：更小、更窄 ---
+        // --- 高墙顶部坍塌缺口（视觉线索：这里是残垣不是完整墙） ---
         if (!isStep && r.Size.Y > 80f && !woodHouse)
         {
-            var broken = new Color(0.18f, 0.15f, 0.12f, 0.5f);
+            var broken = new Color(0.15f, 0.12f, 0.10f, 0.5f);
             float gapStart = r.Position.X + r.Size.X * 0.35f;
             float gapLen = Mathf.Min(24f, r.Size.X * 0.15f);
             DrawRect(new Rect2(gapStart, topY - 1f, gapLen, 6f), broken);
-            var faintCrack = new Color(0.20f, 0.17f, 0.13f, 0.35f);
-            DrawLine(new Vector2(gapStart + 4, topY + 4),
-                new Vector2(gapStart + 2, topY + 22), faintCrack, 1f);
-            DrawLine(new Vector2(gapStart + gapLen - 4, topY + 4),
-                new Vector2(gapStart + gapLen - 2, topY + 18), faintCrack, 1f);
         }
     }
 

@@ -1,12 +1,12 @@
-tour start 17:28:20.456
-17:28:20.467  reset begin
-17:28:20.482  state reset ok
-17:28:21.076  frames40 ok
-17:28:26.605  collected=6
-17:28:27.583  buttons 1895=True 1910=True
-17:28:28.105  placed=6
-17:28:33.731  after tap1: done=False cards=0
-17:28:34.431  after tap2: done=False cards=0
-17:28:35.119  after tap3: done=False cards=0
-17:28:35.825  after tap4: done=True cards=2
-17:28:37.833  final: canvasLayers=0 done=True
+tour start 20:10:04.570
+20:10:04.587  reset begin
+20:10:04.607  state reset ok
+20:10:05.533  frames40 ok
+20:10:11.630  collected=6
+20:10:12.726  buttons 1895=True 1910=True
+20:10:13.246  placed=6
+20:10:18.932  after tap1: done=False cards=0
+20:10:19.635  after tap2: done=False cards=0
+20:10:20.336  after tap3: done=False cards=0
+20:10:21.032  after tap4: done=True cards=2
+20:10:23.033  final: canvasLayers=0 done=True
