@@ -8,5 +8,7 @@
   { "id": "clipping","num": 7,  "art": "res://assets/art/card_07.jpg" },
   { "id": "numbers", "num": 8,  "art": "res://assets/art/card_08.jpg" },
   { "id": "verdict", "num": 9,  "art": "res://assets/art/card_09.jpg" },
-  { "id": "oral",    "num": 10, "art": "res://assets/art/card_10.jpg" }
+  { "id": "oral",    "num": 10, "art": "res://assets/art/card_10.jpg" },
+  { "id": "treaty1895", "num": 11, "art": "res://assets/art/card_11.jpg" },
+  { "id": "treaty1910", "num": 12, "art": "res://assets/art/card_12.jpg" }
 ]

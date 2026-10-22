@@ -4,15 +4,17 @@ namespace Witness;
 
 /// <summary>
 /// 史料馆（个人记忆档案馆，企划书核心循环的长期层）：
-/// 10 个档案格，通关解锁的亮起可点开，未解锁的以「？？？」沉默存在。
+/// 12 个档案格，通关解锁的亮起可点开，未解锁的以「？？？」沉默存在。
 /// </summary>
 public partial class GalleryUi : CanvasLayer
 {
     private readonly Main _main;
+    private readonly bool _fromHub;
 
-    public GalleryUi(Main main)
+    public GalleryUi(Main main, bool fromHub = false)
     {
         _main = main;
+        _fromHub = fromHub;
         Layer = 40;
     }
 
@@ -46,7 +48,8 @@ public partial class GalleryUi : CanvasLayer
         grid.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
         box.AddChild(grid);
 
-        for (int num = 1; num <= 10; num++)
+        int total = CardDb.Load().Count;
+        for (int num = 1; num <= total; num++)
         {
             string cardId = $"card{num}";
             bool unlocked = GameState.I.S.CardsUnlocked.Contains(cardId);
@@ -72,7 +75,11 @@ public partial class GalleryUi : CanvasLayer
         back.AddThemeFontSizeOverride("font_size", 19);
         back.CustomMinimumSize = new Vector2(220, 44);
         back.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
-        back.Pressed += () => _main.ShowTitle();
+        back.Pressed += () =>
+        {
+            if (_fromHub) _main.ShowHub();
+            else _main.ShowTitle();
+        };
         box.AddChild(back);
     }
 }

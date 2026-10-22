@@ -32,8 +32,11 @@ public class WitnessState
     public bool Caught;                                       // 两次被发现 → 被押送
     public List<string> Carried = new();                      // Beat3 带出的证据 id
     public HashSet<string> TornMarked = new();                // 记录时被打断 → 残缺标记（结算卡面注明）
-    public HashSet<string> CardsUnlocked = new();             // 已解锁史料卡（card1..card10，跨局持久）
-    public bool Finished;                                     // 是否通关过本关
+    public HashSet<string> CardsUnlocked = new();             // 已解锁史料卡（card1..card12，跨局持久）
+    public bool Finished;                                     // 是否通关过本关（南京 1937）
+    public bool PrologueDone;                                 // 是否通关「源头 1895–1910」
+    public HashSet<string> PrologueCollected = new();         // 已拾取的史料碎片 id
+    public HashSet<string> ProloguePlaced = new();            // 已放回时间线的碎片 id
 
     /// <summary>关卡内可收集的 6 件证据（对应史料卡 1-6）。</summary>
     public static readonly string[] EvidenceIds = { "film", "rabe", "vautrin", "roster", "medical", "letter" };
@@ -100,4 +103,15 @@ public class WitnessState
     /// <summary>卡 10 文案变体：帮助多 / 帮助少 / 一无所获（GDD §6.4 边界②）。</summary>
     public string OralVariant()
         => HelpedCount >= 5 ? "high" : HelpedCount >= 1 ? "mid" : "none";
+
+    /// <summary>「源头」关通关：点亮 1895/1910 节点，解锁条约史料卡 11/12。</summary>
+    public void ApplyPrologue()
+    {
+        PrologueDone = true;
+        CardsUnlocked.Add("card11");
+        CardsUnlocked.Add("card12");
+    }
+
+    /// <summary>档案馆已见证的章节数（共 5 章，供大地图进度显示）。</summary>
+    public int ChaptersWitnessed => (PrologueDone ? 1 : 0) + (Finished ? 1 : 0);
 }

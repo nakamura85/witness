@@ -87,13 +87,14 @@ public partial class SettlementUi : CanvasLayer
 
         // —— 第三栏：你的见证 ——
         int lostCount = lostItems.Count;
+        int totalCards = CardDb.Load().Count;
         var stats = new List<string>
         {
             Loc.I.Tf("set_helped", s.HelpedCount),
             Loc.I.Tf("set_recorded", s.RecordedCount),
             Loc.I.Tf("set_lost_count", lostCount),
             "",
-            Loc.I.Tf("set_unlocked", s.CardsUnlocked.Count),
+            Loc.I.Tf("set_unlocked", s.CardsUnlocked.Count, totalCards),
             "",
             Loc.I.T("set_what_left"),
         };

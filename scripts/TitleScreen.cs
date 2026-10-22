@@ -40,13 +40,15 @@ public partial class TitleScreen : Control
             AddChild(shade);
         }
 
-        // 左侧文字栏
+        // 居中文字栏（v0.2 修正：原 CenterLeft 锚点导致画面偏左上）
+        var center = new CenterContainer();
+        center.SetAnchorsPreset(LayoutPreset.FullRect);
+        AddChild(center);
+
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 14);
-        box.SetAnchorsPreset(LayoutPreset.CenterLeft);
-        box.Position = new Vector2(90, -170);
         box.CustomMinimumSize = new Vector2(560, 340);
-        AddChild(box);
+        center.AddChild(box);
 
         var title = new Label
         {
@@ -81,6 +83,7 @@ public partial class TitleScreen : Control
         // 语言选择器
         var langRow = new HBoxContainer();
         langRow.AddThemeConstantOverride("separation", 12);
+        langRow.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
         var langLabel = new Label();
         langLabel.AddThemeFontSizeOverride("font_size", 16);
         langLabel.AddThemeColorOverride("font_color", new Color(0.66f, 0.62f, 0.54f));
@@ -99,12 +102,14 @@ public partial class TitleScreen : Control
         langRow.AddChild(_lang);
         box.AddChild(langRow);
 
-        // 版本脚注
+        // 版本脚注（v0.2：底部居中）
         _ver = new Label();
         _ver.AddThemeFontSizeOverride("font_size", 13);
         _ver.AddThemeColorOverride("font_color", new Color(0.5f, 0.47f, 0.4f));
-        _ver.SetAnchorsPreset(LayoutPreset.BottomLeft);
-        _ver.Position = new Vector2(90, -34);
+        _ver.SetAnchorsPreset(LayoutPreset.BottomWide);
+        _ver.OffsetTop = -34;
+        _ver.OffsetBottom = -12;
+        _ver.HorizontalAlignment = HorizontalAlignment.Center;
         AddChild(_ver);
 
         UpdateTexts();
@@ -116,6 +121,7 @@ public partial class TitleScreen : Control
         var b = new Button();
         b.AddThemeFontSizeOverride("font_size", 20);
         b.CustomMinimumSize = new Vector2(280, 44);
+        b.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
         parent.AddChild(b);
         return b;
     }
