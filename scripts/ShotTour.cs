@@ -47,7 +47,7 @@ public partial class ShotTour : Node
             // 关闭幕间 → 进入 Play（教学提示出现）再截「教学」画面
             await Tap("advance");
             await Frames(30); Shot("04_tutorial");
-            Input.ActionPress("move_down"); await Frames(25); Input.ActionRelease("move_down");
+            Input.ActionPress("jump"); await Frames(25); Input.ActionRelease("jump");
             await Frames(10);
 
             // 按类型查找玩家与相机（运行时创建的 C# 节点不叫 "Player"）
@@ -60,11 +60,11 @@ public partial class ShotTour : Node
             }
             GD.Print($"TOUR: player={(player != null)} cam={(cam != null)}");
 
-            // 依次传送至 6 个碎片点拾取（E）
+            // 依次传送至 6 个碎片点拾取（E）——横版布局：地面×2 / 桌上 / 桌下 / 层板1 / 层板2
             Vector2[] spots =
             {
-                new(500, 110), new(1000, 120), new(120, 420),
-                new(1380, 420), new(120, 780), new(1370, 780),
+                new(120, 660), new(1900, 660), new(1000, 560),
+                new(1150, 660), new(300, 460), new(230, 360),
             };
             for (int i = 0; i < spots.Length; i++)
             {
@@ -76,8 +76,8 @@ public partial class ShotTour : Node
             }
             Log($"collected={GameState.I.S.PrologueCollected.Count}");
 
-            // 到长桌前开板
-            if (player != null) player.Position = new Vector2(720, 838);
+            // 到右墙时间线板前开板（交互点 BoardPos）
+            if (player != null) player.Position = new Vector2(2190, 660);
             cam?.ResetSmoothing();
             await Frames(12);
             await Tap("interact");

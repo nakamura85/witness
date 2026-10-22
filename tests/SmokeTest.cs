@@ -100,6 +100,12 @@ public partial class SmokeTest : SceneTree
         p.Finished = true;
         Check("ChaptersWitnessed = 2（源头+南京）", p.ChaptersWitnessed == 2);
 
+        // 5.5 横版地形（v0.3：GroundY 取该 x 处最高的可循行台面）
+        Check("横版地形：主地面 y=800", Level.GroundY(100f) == 800f);
+        Check("横版地形：台阶顶 y=665", Level.GroundY(1000f) == 665f);
+        Check("横版地形：台阶外回到主地面", Level.GroundY(3000f) == 800f);
+        Check("横版地形：金女门前主地面", Level.GroundY(2200f) == 800f);
+
         // 6. 史料卡数据库：12 张
         Check("史料卡共 12 张", CardDb.Load().Count == 12);
 

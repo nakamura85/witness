@@ -1,11 +1,12 @@
+using System.Collections.Generic;
 using Godot;
 
 namespace Witness;
 
 /// <summary>
 /// 巡逻兵（压迫性系统，不是可战斗的敌人 —— 呈现伦理铁律）。
-/// 沿路径点巡逻 + 视野锥侦测：
-/// - 玩家在锥内且无墙体遮挡 → 曝露值上升（屏息减速）；
+/// v0.3 横版：沿路径点左右巡逻 + 水平视野锥侦测：
+/// - 玩家在锥内且无地形遮挡 → 曝露值上升（蹲下减速）；
 /// - 曝露满 → 发出 SpottedPlayer 信号（Level 决定后果：没收证据 / 被押送）。
 /// </summary>
 public partial class Patrol : Node2D
@@ -14,20 +15,22 @@ public partial class Patrol : Node2D
 
     public float Aggression = 1.0f;   // C2 选择「上前阻挡」后提升（巡逻记住了你的脸）
     public bool SeeingPlayer { get; private set; }
+    public float Facing { get; private set; } = 1f;  // 1 右 / -1 左
 
     private Level _level;
     private Player _player;
     private Vector2[] _points;
     private int _idx = 1;
     private float _wait;
-    private float _baseFacing;
     private float _scan;
     private float _exposure;
     private float _t;
+    private float _walkPhase;
 
-    private const float Range = 280f;      // 视野距离
-    private const float HalfAngle = 0.55f; // 视野半角（弧度）
+    private const float Range = 300f;      // 视野距离
+    private const float HalfAngle = 0.5f;  // 视野半角（弧度）
     private const float Speed = 70f;
+    private const float EyeY = -30f;       // 眼睛高度（脚底原点）
 
     public void Setup(Level level, Player player, Vector2[] points)
     {
@@ -35,7 +38,8 @@ public partial class Patrol : Node2D
         _player = player;
         _points = points;
         Position = points[0];
-        _baseFacing = (points[1] - points[0]).Angle();
+        float d = Mathf.Sign(points[1].X - points[0].X);
+        Facing = d == 0 ? 1f : d;
     }
 
     public override void _PhysicsProcess(double delta)
@@ -45,11 +49,11 @@ public partial class Patrol : Node2D
         if (_points == null || _level == null || !_level.PlayPhase)
             return;
 
-        // ---- 沿路径点移动，停留时左右扫视 ----
+        // ---- 沿路径点左右移动，停留时扫视 ----
         if (_wait > 0f)
         {
             _wait -= f;
-            _scan = Mathf.Sin(_t * 2.1f) * 0.6f;
+            _scan = Mathf.Sin(_t * 2.1f) * 0.28f;
         }
         else
         {
@@ -64,13 +68,14 @@ public partial class Patrol : Node2D
             {
                 var dir = to.Normalized();
                 Position += dir * Speed * f;
-                _baseFacing = to.Angle();
+                Facing = dir.X >= 0 ? 1f : -1f;
+                _walkPhase += f * 9f;
                 _scan = 0f;
             }
         }
-        var facing = _baseFacing + _scan;
+        float facing = (Facing > 0 ? 0f : Mathf.Pi) + _scan;
 
-        // ---- 侦测：距离 + 视野角 + 视线（墙体遮挡）----
+        // ---- 侦测：距离 + 视野角 + 视线（地形遮挡）----
         bool raw = Detect(facing);
         if (raw)
             _exposure += f * (_player.Sneaking ? 0.4f : 1.2f) * Aggression;
@@ -89,14 +94,14 @@ public partial class Patrol : Node2D
     private bool Detect(float facing)
     {
         if (_player == null) return false;
-        var eye = GlobalPosition + new Vector2(0, -20);
+        var eye = GlobalPosition + new Vector2(0, EyeY);
         var toP = _player.GlobalPosition - eye;
         if (toP.Length() > Range) return false;
 
         float diff = Mathf.Wrap(toP.Angle() - facing, -Mathf.Pi, Mathf.Pi);
         if (Mathf.Abs(diff) > HalfAngle) return false;
 
-        // 视线被墙（layer 1）挡住则看不见
+        // 视线被地形（layer 1）挡住则看不见
         var query = PhysicsRayQueryParameters2D.Create(eye, _player.GlobalPosition, 1);
         var hit = GetWorld2D().DirectSpaceState.IntersectRay(query);
         return hit.Count == 0;
@@ -109,14 +114,17 @@ public partial class Patrol : Node2D
         var coneColor = alert
             ? new Color(0.55f, 0.20f, 0.16f, 0.16f)
             : new Color(0.91f, 0.86f, 0.75f, 0.07f);
-        var pts = new System.Collections.Generic.List<Vector2> { new(0, -20) };
+        float center = (Facing > 0 ? 0f : Mathf.Pi) + _scan;
+        var pts = new List<Vector2> { new(0, EyeY) };
         for (int i = 0; i <= 10; i++)
         {
-            float a = _baseFacing + _scan - HalfAngle + (2f * HalfAngle) * i / 10f;
-            pts.Add(new Vector2(0, -20) + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * Range);
+            float a = center - HalfAngle + (2f * HalfAngle) * i / 10f;
+            pts.Add(new Vector2(0, EyeY) + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * Range);
         }
         DrawColoredPolygon(pts.ToArray(), coneColor);
 
-        Silhouette.Draw(this, Silhouette.Kind.Soldier);
+        DrawSetTransform(Vector2.Zero, 0, new Vector2(Facing, 1));
+        SilhouetteSide.Draw(this, Silhouette.Kind.Soldier, _walkPhase);
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }

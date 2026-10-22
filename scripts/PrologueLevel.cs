@@ -4,36 +4,51 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// 第一章 · 源头 1895–1910（试玩关）：
-/// 档案馆工作间里散落着六枚史料碎片——3 枚属于《马关条约》（1895），
-/// 3 枚属于《日韩合并条约》（1910）。教学流程：移动 → 拾取 → 归位时间线板
-/// → 炭笔历史场景显现 → 尾声指向 1931/1937。没有巡逻，没有失败，
-/// 只有一间安静的房间和一段必须从源头讲起的历史。
+/// 第一章 · 源头 1895–1910（试玩关）—— v0.3 横版（side-scroll）：
+/// 档案馆工作间改为侧视房间，地面带高低差 —— 长桌可以跳上去，书架两层可以攀，
+/// 桌下与地板散落着六枚史料碎片（3 枚《马关条约》1895 / 3 枚《日韩合并条约》1910）。
+/// 教学流程：移动 → 跳跃攀爬拾取 → 右墙时间线板归位 → 炭笔历史场景显现 → 尾声指向 1931/1937。
+/// 没有巡逻，没有失败，只有一间安静的房间和一段必须从源头讲起的历史。
 /// </summary>
 public partial class PrologueLevel : Node2D
 {
     private readonly Main _main;
 
-    // 以下坐标与 prologue_bg.jpg 的构图对齐：居中大长桌（约 220,200 → 1223,794），
-    // 四周留木地板走道供行走与拾取。
-    private static readonly Vector2 BoardTable = new(720, 770);              // 长桌南缘交互点
-    private static readonly Rect2 TableRect = new(220, 200, 1003, 594);      // 长桌（兼碰撞）
-    private static readonly Vector2 PlayerSpawn = new(750, 835);             // 桌前地板
+    // 横版工作间：宽 2400，地板顶面 y=660（脚底原点）
+    private const float RoomW = 2400f;
+    private const float RoomH = 760f;
+    private const float Floor = 660f;
+
+    private static readonly Vector2 BoardPos = new(2190, Floor);          // 时间线板交互点（右墙前）
+    private static readonly Rect2 BoardRect = new(2230, 300, 130, 330);   // 时间线板（右墙上）
+    private static readonly Vector2 PlayerSpawn = new(600, Floor);
     private static readonly Vector2[] FragmentSpots =
     {
-        new(500, 110), new(1000, 120),   // 桌上方地板
-        new(120, 420), new(1380, 420),   // 桌左右走道
-        new(120, 780), new(1370, 780),   // 桌下两角
+        new(120, Floor),    // 地面左角
+        new(1900, Floor),   // 地面右段
+        new(1000, 560),     // 长桌面上（跳上桌面）
+        new(1150, Floor),   // 长桌底下（从桌下走过）
+        new(300, 460),      // 书架第一层
+        new(230, 360),      // 书架第二层（桌面 → 层板1 → 层板2）
     };
 
-    private bool _hasBg;                 // 底图存在时不做实心填色
+    // 横版平台地形：地板 / 长桌板 / 桌腿 / 书架层板 / 中继台
+    private static readonly Rect2 FloorRect = new(0, Floor, RoomW, RoomH - Floor);
+    private static readonly Rect2 TableTop = new(700, 560, 800, 24);
+    private static readonly Rect2 TableLegL = new(730, 584, 26, Floor - 584);
+    private static readonly Rect2 TableLegR = new(1444, 584, 26, Floor - 584);
+    private static readonly Rect2 ShelfL1 = new(150, 460, 300, 24);
+    private static readonly Rect2 ShelfL2 = new(150, 360, 200, 24);
+    private static readonly Rect2 StepMid = new(500, 560, 70, Floor - 560); // 上书架的中继台
+
+    private bool _hasBg;
     private Player _player;
     private Hud _hud;
     private IntroOverlay _intro;
     private PrologueBoardUi _board;
 
     private readonly List<Fragment> _fragments = new();
-    private bool _tableActive;          // 全部拾取后长桌开始发光
+    private bool _boardActive;          // 全部拾取后时间线板开始发光
     private bool _boardOpened;
     private bool _moved;                // 教学节点①：是否已移动过
     private enum Phase { Intro, Play, Board, Scene, Outro }
@@ -56,42 +71,55 @@ public partial class PrologueLevel : Node2D
         _intro.Show(Loc.I.T("pro_date"), Loc.I.T("pro_intro"), "", () =>
         {
             SetPhase(Phase.Play);
-            _hud.ShowTutorial(Loc.I.T("tut2_move"));   // 教学①：移动
+            _hud.ShowTutorial(Loc.I.T("tut2_move"));   // 教学①：移动与跳跃
             RefreshObjective();
         });
     }
 
     private void BuildRoom()
     {
-        // 档案馆工作间底图（素材缺失时用素纸色兜底）
-        if (ResourceLoader.Exists("res://assets/art/prologue_bg.jpg"))
+        // 档案馆工作间侧景底图（素材缺失时用素纸色兜底）
+        const string bgPath = "res://assets/art/workroom_side.jpg";
+        if (ResourceLoader.Exists(bgPath))
         {
             _hasBg = true;
-            var tex = GD.Load<Texture2D>("res://assets/art/prologue_bg.jpg");
-            var bg = new Sprite2D { Texture = tex, Centered = false };
-            var ts = tex.GetSize();
-            bg.Scale = new Vector2(1500f / ts.X, 900f / ts.Y);
+            var tex = GD.Load<Texture2D>(bgPath);
+            var bg = new Sprite2D
+            {
+                Texture = tex,
+                TextureRepeat = CanvasItem.TextureRepeatEnum.Enabled,
+                RegionEnabled = true,
+                RegionRect = new Rect2(0, 0, RoomW, RoomH),
+                Centered = false,
+                ZIndex = -1,
+            };
             AddChild(bg);
         }
         else
         {
-            var paper = new ColorRect { Color = new Color(0.87f, 0.82f, 0.71f), Size = new Vector2(1500, 900) };
+            var paper = new ColorRect { Color = new Color(0.87f, 0.82f, 0.71f), Size = new Vector2(RoomW, RoomH) };
             AddChild(paper);
         }
 
-        // 房间四界 + 长桌
-        AddWall(new Rect2(0, 0, 1500, 26));
-        AddWall(new Rect2(0, 874, 1500, 26));
-        AddWall(new Rect2(0, 0, 26, 900));
-        AddWall(new Rect2(1474, 0, 26, 900));
-        AddWall(TableRect); // 时间线板长桌（兼碰撞）
+        // 房间四界 + 平台地形
+        AddWall(new Rect2(0, 0, RoomW, 20));       // 顶
+        AddWall(FloorRect);                        // 地板
+        AddWall(new Rect2(0, 0, 20, RoomH));       // 左墙
+        AddWall(new Rect2(RoomW - 20, 0, 20, RoomH)); // 右墙
+        AddWall(TableTop);
+        AddWall(TableLegL);
+        AddWall(TableLegR);
+        AddWall(ShelfL1);
+        AddWall(ShelfL2);
+        AddWall(StepMid);
 
         _player = new Player { Position = PlayerSpawn };
         AddChild(_player);
         var camera = new Camera2D
         {
             PositionSmoothingEnabled = true,
-            LimitLeft = 0, LimitTop = 0, LimitRight = 1500, LimitBottom = 900,
+            PositionSmoothingSpeed = 6f,
+            LimitLeft = 0, LimitTop = 0, LimitRight = (int)RoomW, LimitBottom = (int)RoomH,
         };
         _player.AddChild(camera);
         camera.MakeCurrent();
@@ -105,7 +133,7 @@ public partial class PrologueLevel : Node2D
             AddChild(f);
             _fragments.Add(f);
         }
-        _tableActive = PrologueLogic.AllPlaced(s) || s.PrologueCollected.Count >= PrologueLogic.FragmentIds.Length;
+        _boardActive = PrologueLogic.AllPlaced(s) || s.PrologueCollected.Count >= PrologueLogic.FragmentIds.Length;
     }
 
     private void AddWall(Rect2 r)
@@ -140,7 +168,7 @@ public partial class PrologueLevel : Node2D
         UpdatePickup();
         UpdateTable();
         _hud.SetSneak(_player.Sneaking);
-        if (_tableActive) QueueRedraw(); // 长桌呼吸光需要逐帧重绘
+        if (_boardActive) QueueRedraw(); // 时间线板呼吸光需要逐帧重绘
     }
 
     // ---- 教学②：拾取碎片 ----
@@ -170,7 +198,7 @@ public partial class PrologueLevel : Node2D
 
             if (n >= PrologueLogic.FragmentIds.Length)
             {
-                _tableActive = true;
+                _boardActive = true;
                 _hud.ShowTutorial(Loc.I.T("tut2_board"));  // 教学③：去找时间线板
                 _hud.Toast(Loc.I.T("pro_all_collected"));
             }
@@ -185,9 +213,9 @@ public partial class PrologueLevel : Node2D
 
     private void UpdateTable()
     {
-        if (_tableActive && !PrologueLogic.AllPlaced(GameState.I.S))
+        if (_boardActive && !PrologueLogic.AllPlaced(GameState.I.S))
         {
-            float d = BoardTable.DistanceTo(_player.Position);
+            float d = BoardPos.DistanceTo(_player.Position);
             if (d < 130f)
             {
                 _hud.ShowPrompt(Loc.I.T("pro_prompt_board"));
@@ -272,21 +300,40 @@ public partial class PrologueLevel : Node2D
         }
     }
 
-    // ---- 房间绘制：墙体 + 发光的长桌 ----
+    // ---- 房间绘制：炭笔平台 + 发光的时间线板 ----
 
     public override void _Draw()
     {
-        var ink = new Color(0.13f, 0.115f, 0.10f);
-        var edge = new Color(0.55f, 0.50f, 0.42f, 0.45f);
-        if (!_hasBg)
-            DrawRect(TableRect, ink);       // 仅兜底色时画实心桌面
-        DrawRect(TableRect, edge, false, 2f);
+        var ink = new Color(0.13f, 0.115f, 0.10f, 0.85f);
+        var edge = new Color(0.55f, 0.50f, 0.42f, 0.5f);
 
-        if (_tableActive)
+        // 平台地形（地板/桌面/书架/中继台）—— 底图上压炭笔
+        DrawRect(FloorRect, ink);
+        DrawRect(FloorRect, edge, false, 2f);
+        DrawRect(TableTop, ink);
+        DrawRect(TableTop, edge, false, 2f);
+        DrawRect(TableLegL, ink);
+        DrawRect(TableLegR, ink);
+        DrawRect(ShelfL1, ink);
+        DrawRect(ShelfL1, edge, false, 1.6f);
+        DrawRect(ShelfL2, ink);
+        DrawRect(ShelfL2, edge, false, 1.6f);
+        DrawRect(StepMid, ink);
+        DrawRect(StepMid, edge, false, 1.6f);
+
+        // 右墙时间线板
+        DrawRect(BoardRect, ink);
+        DrawRect(BoardRect, edge, false, 2f);
+        // 板上的空槽位线
+        var slot = new Color(0.55f, 0.50f, 0.42f, 0.4f);
+        for (int i = 0; i < 3; i++)
+            DrawRect(new Rect2(BoardRect.Position + new Vector2(14, 26 + i * 92), new Vector2(102, 76)), slot, false, 1.4f);
+
+        if (_boardActive)
         {
-            // 时间线板在桌上微微发光（呼吸）
+            // 时间线板微微发光（呼吸）
             float pulse = 0.30f + 0.25f * Mathf.Sin((float)Time.GetTicksMsec() / 400.0f);
-            var glow = new Rect2(TableRect.Position + new Vector2(-10, -10), TableRect.Size + new Vector2(20, 20));
+            var glow = new Rect2(BoardRect.Position + new Vector2(-10, -10), BoardRect.Size + new Vector2(20, 20));
             DrawRect(glow, new Color(0.93f, 0.89f, 0.78f, pulse));
         }
     }

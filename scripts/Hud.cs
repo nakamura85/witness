@@ -11,6 +11,7 @@ public partial class Hud : CanvasLayer
 {
     private Label _date, _sneak, _objective, _supplies, _prompt, _toast, _tutorial;
     private RecordRing _ring;
+    private ArrowHint _arrow;
     private float _toastT;
 
     public Hud() { Layer = 10; }
@@ -21,6 +22,9 @@ public partial class Hud : CanvasLayer
         root.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         root.MouseFilter = Control.MouseFilterEnum.Ignore;
         AddChild(root);
+
+        _arrow = new ArrowHint();
+        AddChild(_arrow);
 
         var paper = new Color(0.91f, 0.86f, 0.75f);
         var faded = new Color(0.72f, 0.68f, 0.58f);
@@ -99,6 +103,10 @@ public partial class Hud : CanvasLayer
 
     public void SetSneak(bool on) => _sneak.Visible = on;
 
+    /// <summary>屏幕边缘方向箭头（横版目标指引，替代俯视红圈）。</summary>
+    public void SetArrow(bool on, Vector2 screenPos, float angle)
+        => _arrow.Set(on, screenPos, angle);
+
     /// <summary>短提示：浮现 → 停留 → 淡出（克制，不弹窗）。</summary>
     public void Toast(string text)
     {
@@ -122,6 +130,45 @@ public partial class Hud : CanvasLayer
             _toastT -= (float)delta;
             if (_toastT <= 0f)
                 _toast.Modulate = new Color(1, 1, 1, 0);
+        }
+    }
+
+    /// <summary>纸色小箭头：目标在屏幕外时出现在边缘并指向目标（克制，不闪烁）。</summary>
+    private partial class ArrowHint : Control
+    {
+        private bool _on;
+        private float _angle;
+
+        public ArrowHint()
+        {
+            MouseFilter = Control.MouseFilterEnum.Ignore;
+            Size = new Vector2(48, 48);
+            PivotOffset = new Vector2(24, 24);
+            Visible = false;
+        }
+
+        public void Set(bool on, Vector2 screenPos, float angle)
+        {
+            _on = on;
+            _angle = angle;
+            Visible = on;
+            if (on)
+            {
+                Position = screenPos - new Vector2(24, 24);
+                Rotation = angle;
+            }
+            QueueRedraw();
+        }
+
+        public override void _Draw()
+        {
+            if (!_on) return;
+            var paper = new Color(0.91f, 0.86f, 0.75f, 0.9f);
+            // 指向 +x 的燕尾箭头，绕中心旋转
+            DrawColoredPolygon(new Vector2[]
+            {
+                new(40, 24), new(14, 10), new(21, 24), new(14, 38),
+            }, paper);
         }
     }
 }

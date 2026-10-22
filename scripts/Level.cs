@@ -4,26 +4,78 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// 关卡01：南京 1937 —— 世界搭建与五幕节拍（Beat）的总编排。
-/// 地图为代码搭建的炭笔风俯视场景：墙体=StaticBody2D（兼碰撞与绘制），
-/// 角色=Silhouette 剪影，巡逻=视野锥，证据=发光纸页。
-/// 五幕：0 沦陷前夜（护送一家人）→ 1 城破（记录教学+收留抉择）→
-/// 2 沦陷之夜（巡逻下收集+阻挡抉择+物资分配）→ 3 记忆的重量（三件取舍+出城）→ 4 结算。
+/// 关卡01：南京 1937 —— v0.3 横版（side-scroll）重建。
+/// 参考横板叙事玩法：主路线横向推进，台阶/瓦砾/绕行屋（上楼翻越高墙），
+/// 背景 2 层视差保持纵深，镜头横向跟随。
+/// 五幕节拍保留：0 沦陷前夜（护送一家人到金女）→ 1 城破（记录教学+缴械士兵抉择）→
+/// 2 沦陷之夜（巡逻下收集+门口抉择）→ 3 记忆的重量（取舍+出城）→ 4 结算。
 /// </summary>
 public partial class Level : Node2D
 {
     private readonly Main _main;
 
+    // ---- 世界常量（横版长条：宽 7600，地面顶面 y=800）----
+    private const float WorldW = 7600f;
+    private const float WorldH = 900f;
+    private const float Ground = 800f;
+
     // ---- 世界关键坐标 ----
-    private static readonly Vector2 GateTalk = new(170, 930);      // 大门内（Beat1 士兵事件）
-    private static readonly Vector2 JinlingDoor = new(900, 860);   // 金女主楼大门
-    private static readonly Vector2 AssemblyPoint = new(1350, 950);// 操场集合点（被抓押送至此）
-    private static readonly Vector2 PlayerSpawn = new(220, 1010);
+    private static readonly Vector2 GateTalk = new(2100, Ground);   // 金女大门内（Beat1 士兵事件）
+    private static readonly Vector2 JinlingDoor = new(2250, Ground);// 金女主楼大门
+    private static readonly Vector2 AssemblyPoint = new(5450, Ground); // 集合点（被抓押送至此）
+    private static readonly Vector2 PlayerSpawn = new(140, Ground);
+    private static readonly Vector2 CityGate = new(7410, Ground);   // 出城门洞
+
+    /// <summary>
+    /// 横版地形表（碰撞与绘制共用）。Walkable=true 的平台是家人 NPC 可循行的地面线
+    /// （GroundY 取其中最高台面）；其余为障碍/高台（需要跳跃或绕行）。
+    /// </summary>
+    private static readonly (Rect2 Rect, bool Walkable)[] Terrain =
+    {
+        // 主地面（全图）
+        (new Rect2(0, Ground, WorldW, WorldH - Ground), true),
+        // 左右边界
+        (new Rect2(0, 0, 16, WorldH), false),
+        (new Rect2(WorldW - 16, 0, 16, WorldH), false),
+        // 起点后的台阶段（家人可循行，教学翻越）
+        (new Rect2(600, 755, 170, 45), true),
+        (new Rect2(770, 710, 170, 90), true),
+        (new Rect2(940, 665, 240, 135), true),
+        (new Rect2(1180, 710, 170, 90), true),
+        (new Rect2(1350, 755, 170, 45), true),
+        // 绕行屋（上楼翻越高墙）：二层地板 + 一层内堵墙 + 楼梯
+        (new Rect2(2660, 560, 600, 30), false),
+        (new Rect2(2920, 590, 60, Ground - 590), false),
+        (new Rect2(2660, 758, 42, 42), false),
+        (new Rect2(2702, 716, 42, 84), false),
+        (new Rect2(2744, 674, 42, 126), false),
+        (new Rect2(2786, 632, 42, 168), false),
+        (new Rect2(2828, 590, 92, 210), false),
+        // 城市瓦砾（跳跃段兼掩体）
+        (new Rect2(3420, 730, 120, 70), false),
+        (new Rect2(3600, 700, 150, 100), false),
+        // 委员会高台
+        (new Rect2(4700, 755, 130, 45), false),
+        (new Rect2(4830, 710, 470, Ground - 710), false),
+        // 鼓楼医院门前台阶
+        (new Rect2(5760, 760, 130, 40), false),
+        (new Rect2(5890, 720, 170, Ground - 720), false),
+        // 教堂高台
+        (new Rect2(6450, 750, 100, 50), false),
+        (new Rect2(6550, 700, 220, Ground - 700), false),
+    };
+
+    /// <summary>家人/环境难民的循行地面线：取该 x 处最高的 Walkable 台面。</summary>
+    public static float GroundY(float x)
+    {
+        float best = float.MaxValue;
+        foreach (var (r, walk) in Terrain)
+            if (walk && x >= r.Position.X && x <= r.End.X && r.Position.Y < best)
+                best = r.Position.Y;
+        return best;
+    }
 
     private Player _player;
-    private readonly List<Rect2> _walls = new();
-    private readonly List<Rect2> _covers = new();
-    private readonly List<Vector2> _doorMarks = new();
     private readonly List<EvidencePoint> _evidence = new();
     private readonly List<Refugee> _deepRefugees = new();
     private readonly List<Patrol> _patrols = new();
@@ -75,97 +127,137 @@ public partial class Level : Node2D
 
     private void BuildWorld()
     {
-        // 纸面底图（炭笔手绘校园图；素材缺失时用素纸色兜底）
-        if (ResourceLoader.Exists("res://assets/art/map_bg.jpg"))
-        {
-            var tex = GD.Load<Texture2D>("res://assets/art/map_bg.jpg");
-            var bg = new Sprite2D { Texture = tex, Centered = false };
-            var ts = tex.GetSize();
-            bg.Scale = new Vector2(2600f / ts.X, 1700f / ts.Y);
-            AddChild(bg);
-        }
-        else
-        {
-            var paper = new ColorRect { Color = new Color(0.87f, 0.82f, 0.71f), Size = new Vector2(2600, 1700) };
-            AddChild(paper);
-        }
+        BuildParallax();
+        BuildGroundStrip();
+        BuildBackdrop();
 
-        // 墙体（碰撞 + 绘制共用）
-        AddWall(new Rect2(0, 0, 2600, 26));      // 北界
-        AddWall(new Rect2(0, 1674, 2600, 26));   // 南界
-        AddWall(new Rect2(2574, 0, 26, 1700));   // 东界
-        AddWall(new Rect2(0, 0, 26, 830));       // 西墙（大门缺口 830-950）
-        AddWall(new Rect2(0, 950, 26, 750));
-        AddWall(new Rect2(700, 500, 400, 300));  // 金陵女子文理学院主楼
-        AddWall(new Rect2(1250, 400, 250, 250)); // 宿舍楼
-        AddWall(new Rect2(1750, 300, 300, 200)); // 安全区委员会办公室
-        AddWall(new Rect2(1900, 900, 350, 250)); // 教堂（马吉神父住处）
-        AddWall(new Rect2(2200, 300, 300, 300)); // 鼓楼医院
+        foreach (var (r, _) in Terrain)
+            AddWall(r);
 
-        foreach (var c in new[] { (500, 1200), (1120, 1150), (1600, 600), (2000, 1300), (760, 300), (1500, 1500) })
-            _covers.Add(new Rect2(c.Item1, c.Item2, 60, 40)); // 掩体（GDD §6.3）
-
-        _doorMarks.AddRange(new[]
-        {
-            new Vector2(900, 806), new Vector2(1855, 506),
-            new Vector2(2210, 452), new Vector2(1955, 906),
-        });
-
-        // 玩家：明妮·魏特琳
+        // 玩家：明妮·魏特琳（镜头横向跟随）
         _player = new Player { Position = PlayerSpawn };
         AddChild(_player);
         var camera = new Camera2D
         {
             PositionSmoothingEnabled = true,
-            LimitLeft = 0, LimitTop = 0, LimitRight = 2600, LimitBottom = 1700,
+            PositionSmoothingSpeed = 6f,
+            LimitLeft = 0, LimitTop = 0, LimitRight = (int)WorldW, LimitBottom = (int)WorldH,
         };
         _player.AddChild(camera);
         camera.MakeCurrent();
 
-        // 证据点（6 件，对应史料卡 1-6）
-        AddEvidence("roster", new Vector2(900, 845));    // 金女难民名册
-        AddEvidence("vautrin", new Vector2(770, 845));   // 魏特琳日记
-        AddEvidence("rabe", new Vector2(1855, 545));     // 拉贝日记
-        AddEvidence("letter", new Vector2(2005, 545));   // 委员会抗议信
-        AddEvidence("medical", new Vector2(2150, 450));  // 鼓楼医院病历
-        AddEvidence("film", new Vector2(1955, 855));     // 马吉胶片
+        // 证据点（6 件，对应史料卡 1-6）：roster/vautrin 在金女门口，其余在城市段各处
+        AddEvidence("roster", new Vector2(2350, 782));
+        AddEvidence("vautrin", new Vector2(2180, 782));
+        AddEvidence("rabe", new Vector2(5050, 692));    // 委员会高台
+        AddEvidence("letter", new Vector2(5210, 692));  // 委员会高台
+        AddEvidence("medical", new Vector2(5960, 702)); // 医院门前台阶
+        AddEvidence("film", new Vector2(6650, 682));    // 教堂高台
 
-        // 难民：6 位深度交互 + 6 位环境难民（GDD §7：12 名，深度交互 6 名）
-        AddDeep("r1", "food", new Vector2(1150, 1050));
-        AddDeep("r2", "medicine", new Vector2(980, 1180));
-        AddDeep("r3", "medicine", new Vector2(1620, 900));
-        AddDeep("r4", "blanket", new Vector2(820, 1300));
-        AddDeep("r5", "blanket", new Vector2(1350, 1300));
-        AddDeep("r6", "food", new Vector2(1720, 1150));
-        foreach (var p in new Vector2[]
-        {
-            new(600, 800), new(1050, 950), new(1500, 1000),
-            new(1250, 1450), new(1850, 1250), new(2250, 950),
-        })
-        {
-            AddChild(new Refugee("", "", Silhouette.Kind.Refugee, wander: true) { Position = p });
-        }
+        // 难民：6 位深度交互 + 3 位环境难民（GDD §7）
+        AddDeep("r1", "food", new Vector2(3350, Ground));
+        AddDeep("r2", "medicine", new Vector2(3760, Ground));
+        AddDeep("r3", "medicine", new Vector2(4400, Ground));
+        AddDeep("r4", "blanket", new Vector2(6380, Ground));
+        AddDeep("r5", "blanket", new Vector2(6220, Ground));
+        AddDeep("r6", "food", new Vector2(7150, Ground));
+        foreach (var x in new[] { 2750f, 4100f, 7250f })
+            AddChild(new Refugee("", "", Silhouette.Kind.Refugee, wander: true)
+                { Position = new Vector2(x, Ground) });
 
         // 逃难的一家（Beat0 护送目标）
-        _family = new Node2D { Position = new Vector2(300, 1060) };
+        _family = new Node2D { Position = new Vector2(330, Ground) };
         _family.AddChild(new Refugee("", "", Silhouette.Kind.FamilyAdult));
-        _family.AddChild(new Refugee("", "", Silhouette.Kind.FamilyChild) { Position = new Vector2(14, 6) });
+        _family.AddChild(new Refugee("", "", Silhouette.Kind.FamilyChild) { Position = new Vector2(26, 0) });
         AddChild(_family);
 
         // 缴械的中国士兵（Beat1，初始隐藏）
-        _soldiers = new Node2D { Position = new Vector2(150, 940), Visible = false };
+        _soldiers = new Node2D { Position = new Vector2(2060, Ground), Visible = false };
         for (int i = 0; i < 3; i++)
-            _soldiers.AddChild(new Refugee("", "", Silhouette.Kind.Refugee) { Position = new Vector2(i * 26 - 26, 0) });
+            _soldiers.AddChild(new Refugee("", "", Silhouette.Kind.Refugee) { Position = new Vector2(i * 30, 0) });
         AddChild(_soldiers);
 
         // 乔治·费奇（Beat2 末出现的带片人，真实历史人物）
-        _fitch = new Refugee("fitch", "", Silhouette.Kind.Fitch) { Position = new Vector2(2050, 970), Visible = false };
+        _fitch = new Refugee("fitch", "", Silhouette.Kind.Fitch) { Position = new Vector2(6800, Ground), Visible = false };
         AddChild(_fitch);
+    }
+
+    /// <summary>背景 2 层视差：远层城墙天际线 + 中层残破街景（保持纵深感）。</summary>
+    private void BuildParallax()
+    {
+        AddParallaxLayer("res://assets/art/skyline_far.jpg", 0.15f, new Vector2(800, 330));
+        AddParallaxLayer("res://assets/art/ruins_mid.jpg", 0.4f, new Vector2(800, 520));
+    }
+
+    private void AddParallaxLayer(string path, float scale, Vector2 center)
+    {
+        if (!ResourceLoader.Exists(path)) return;
+        var tex = GD.Load<Texture2D>(path);
+        var ts = tex.GetSize();
+        float w = 1600f;
+        var layer = new Parallax2D
+        {
+            ScrollScale = new Vector2(scale, 1f),
+            RepeatSize = new Vector2(w, 0),
+        };
+        var sprite = new Sprite2D
+        {
+            Texture = tex,
+            Position = center,
+            Scale = new Vector2(w / ts.X, w / ts.X),
+            ZIndex = -1,
+        };
+        layer.AddChild(sprite);
+        AddChild(layer);
+    }
+
+    /// <summary>主地面瓦砾街道条（可平铺纹理）。</summary>
+    private void BuildGroundStrip()
+    {
+        const string path = "res://assets/art/street_ground.jpg";
+        if (!ResourceLoader.Exists(path)) return;
+        var tex = GD.Load<Texture2D>(path);
+        var strip = new Sprite2D
+        {
+            Texture = tex,
+            TextureRepeat = CanvasItem.TextureRepeatEnum.Enabled,
+            RegionEnabled = true,
+            RegionRect = new Rect2(0, 0, WorldW, 220),
+            Centered = false,
+            Position = new Vector2(0, Ground - 10),
+            Scale = new Vector2(1f, 0.5f), // 显示高度 110
+            ZIndex = -1,
+        };
+        AddChild(strip);
+    }
+
+    /// <summary>侧视立面与建筑：金女立面图、绕行屋室内、教堂/医院/城门炭笔立面。</summary>
+    private void BuildBackdrop()
+    {
+        AddSprite("res://assets/art/ginling_facade.jpg", new Vector2(2250, Ground - 240), 640f);
+        AddSprite("res://assets/art/house_interior.jpg", new Vector2(2930, Ground - 120), 660f, top: Ground - 240);
+    }
+
+    private void AddSprite(string path, Vector2 center, float width, float? top = null)
+    {
+        if (!ResourceLoader.Exists(path)) return;
+        var tex = GD.Load<Texture2D>(path);
+        var ts = tex.GetSize();
+        var sprite = new Sprite2D
+        {
+            Texture = tex,
+            ZIndex = -1,
+            Scale = new Vector2(width / ts.X, width / ts.X),
+        };
+        if (top.HasValue)
+            sprite.Position = new Vector2(center.X, top.Value + width * ts.Y / ts.X / 2f);
+        else
+            sprite.Position = center;
+        AddChild(sprite);
     }
 
     private void AddWall(Rect2 r)
     {
-        _walls.Add(r);
         var body = new StaticBody2D { Position = r.GetCenter(), CollisionLayer = 1 };
         var shape = new CollisionShape2D();
         var rect = new RectangleShape2D { Size = r.Size };
@@ -214,7 +306,7 @@ public partial class Level : Node2D
         _c2Done = s.Choice2 != 0;
         if (_c2Done) _fitch.Visible = true;
 
-        // 教学浮字（GDD §5 Beat0-2 各带一条）
+        // 教学浮字（横版操作）
         switch (n)
         {
             case 0: _hud.ShowTutorial(Loc.I.T("tut_move")); break;
@@ -225,7 +317,6 @@ public partial class Level : Node2D
 
         if (n >= 4)
         {
-            // 直接重进结算（通关后读档的情形）
             SetPhase(Phase.Montage);
             _hud.Visible = false;
             StartMontage();
@@ -251,8 +342,9 @@ public partial class Level : Node2D
     private void SpawnPatrols()
     {
         if (_patrols.Count > 0) return; // 读档重入时避免重复
-        AddPatrol(new Vector2[] { new(600, 1050), new(1450, 1050), new(1450, 720), new(600, 720) });
-        AddPatrol(new Vector2[] { new(1550, 1300), new(2320, 1300), new(2320, 760), new(1550, 760) });
+        AddPatrol(new Vector2[] { new(3260, Ground), new(4600, Ground) });   // 城市瓦砾段
+        AddPatrol(new Vector2[] { new(5350, Ground), new(6400, Ground) });   // 医院段
+        AddPatrol(new Vector2[] { new(2680, Ground), new(2890, Ground) });   // 绕行屋一层
     }
 
     private void AddPatrol(Vector2[] pts)
@@ -269,6 +361,7 @@ public partial class Level : Node2D
         _phase = p;
         if (_player != null)
             _player.SetPhysicsProcess(p == Phase.Play); // 对话/结算期间全场静止
+        if (p != Phase.Play) _hud.SetArrow(false, Vector2.Zero, 0f);
     }
 
     // ================= 每帧逻辑 =================
@@ -285,6 +378,7 @@ public partial class Level : Node2D
         UpdateTriggers();
         UpdateRecording(f);
         UpdateInteract();
+        UpdateArrow();
         _hud.SetSneak(_player.Sneaking);
         RefreshObjectives();
     }
@@ -292,21 +386,75 @@ public partial class Level : Node2D
     private void UpdateFamily(float f)
     {
         if (_beat != 0 || !_familyFollowing) return;
-        if (_family.Position.DistanceTo(JinlingDoor) < 80)
+        if (Mathf.Abs(_family.Position.X - JinlingDoor.X) < 80)
         {
             _familyFollowing = false;
             SetPhase(Phase.Talk);
             _dialogue.ShowLine(Loc.I.T("npc_family"), Loc.I.T("npc_family_done"), () => StartBeat(1));
             return;
         }
-        if (_family.Position.DistanceTo(_player.Position) > 80)
-            _family.Position += (_player.Position - _family.Position).Normalized() * 190f * f;
+        // 横版跟随：水平追赶 + 贴合可循行地面线
+        float dx = _player.Position.X - _family.Position.X;
+        if (Mathf.Abs(dx) > 90)
+            _family.Position += new Vector2(Mathf.Sign(dx) * 200f * f, 0);
+        float gy = GroundY(_family.Position.X);
+        _family.Position = new Vector2(_family.Position.X,
+            Mathf.Lerp(_family.Position.Y, gy, Mathf.Min(1f, f * 8f)));
     }
 
     private void UpdateTriggers()
     {
         if (_beat == 1 && !_c1Done && _player.Position.DistanceTo(GateTalk) < 150) TriggerC1();
         if (_beat == 2 && !_c2Done && _player.Position.DistanceTo(JinlingDoor) < 150) TriggerC2();
+    }
+
+    // ---- 屏幕边缘方向箭头（替代俯视红圈目标点）----
+
+    private void UpdateArrow()
+    {
+        Vector2? target = CurrentTarget();
+        if (target == null) { _hud.SetArrow(false, Vector2.Zero, 0f); return; }
+
+        var sp = GetViewport().GetCanvasTransform() * target.Value;
+        var margin = 64f;
+        var inside = new Rect2(margin, margin,
+            GetViewport().GetVisibleRect().Size.X - margin * 2,
+            GetViewport().GetVisibleRect().Size.Y - margin * 2);
+        if (inside.HasPoint(sp)) { _hud.SetArrow(false, Vector2.Zero, 0f); return; }
+
+        var clamped = new Vector2(
+            Mathf.Clamp(sp.X, margin, GetViewport().GetVisibleRect().Size.X - margin),
+            Mathf.Clamp(sp.Y, margin, GetViewport().GetVisibleRect().Size.Y - margin));
+        float angle = (clamped - GetViewport().GetVisibleRect().Size / 2f).Angle();
+        _hud.SetArrow(true, clamped, angle);
+    }
+
+    private Vector2? CurrentTarget()
+    {
+        switch (_beat)
+        {
+            case 0: return _familyFollowing ? JinlingDoor : _family.Position;
+            case 1:
+                if ((EvidenceStatus)GameState.I.S.Evidence["roster"] == EvidenceStatus.Uncollected)
+                    return FindEvidence("roster").Position;
+                if (!_c1Done) return GateTalk;
+                return null;
+            case 2:
+                Vector2? best = null;
+                float bestD = float.MaxValue;
+                foreach (var ev in _evidence)
+                {
+                    if (!ev.Active) continue;
+                    if ((EvidenceStatus)GameState.I.S.Evidence[ev.Id] != EvidenceStatus.Uncollected) continue;
+                    float d = ev.Position.DistanceTo(_player.Position);
+                    if (d < bestD) { bestD = d; best = ev.Position; }
+                }
+                if (best != null) return best;
+                if (!_c2Done) return JinlingDoor;
+                if (_fitch.Visible && !_fitchTalked) return _fitch.Position;
+                return null;
+            default: return null;
+        }
     }
 
     // ---- 记录系统（核心动词）----
@@ -451,7 +599,8 @@ public partial class Level : Node2D
     {
         if (_phase != Phase.Play) return;
         SetPhase(Phase.Talk);
-        // 大门外跪着缴械的士兵 —— 首个道德选择（GDD Beat1）
+        // 大门内侧跪着缴械的士兵 —— 首个道德选择（GDD Beat1）
+        _soldiers.Visible = true;
         _dialogue.ShowChoice("", Loc.I.T("c1_title"),
             new[] { (Loc.I.T("c1_a"), true), (Loc.I.T("c1_b"), true) }, i =>
         {
@@ -469,13 +618,13 @@ public partial class Level : Node2D
         // 门口的史实场面：日军拉扯妇女，魏特琳挡在门前（GDD §4.1）
         if (_c2Group == null)
         {
-            _c2Group = new Node2D { Position = JinlingDoor + new Vector2(40, -50) };
+            _c2Group = new Node2D { Position = JinlingDoor + new Vector2(50, 0) };
             for (int i = 0; i < 3; i++)
                 _c2Group.AddChild(new Refugee("w" + (i + 1), "", Silhouette.Kind.Refugee)
                 {
-                    Position = new Vector2(i * 30 - 30, 0),
+                    Position = new Vector2(i * 32, 0),
                 });
-            _c2Group.AddChild(new Refugee("", "", Silhouette.Kind.Soldier) { Position = new Vector2(34, -22) });
+            _c2Group.AddChild(new Refugee("", "", Silhouette.Kind.Soldier) { Position = new Vector2(108, 0) });
             AddChild(_c2Group);
         }
         _dialogue.ShowChoice("", Loc.I.T("c2_title"),
@@ -595,6 +744,7 @@ public partial class Level : Node2D
                 if ((EvidenceStatus)s.Evidence[id] == EvidenceStatus.Uncollected)
                     s.Destroy(id);
             _player.Position = AssemblyPoint; // 被押送至集合点
+            _player.Velocity = Vector2.Zero;
             _hud.Toast(Loc.I.T("hud_caught"));
         }
     }
@@ -691,35 +841,79 @@ public partial class Level : Node2D
         }
     }
 
-    // ---- 地图绘制：炭黑块面 + 纸色描边 ----
+    // ---- 地形绘制：炭黑块面 + 纸色描边，叠加炭笔立面 ----
 
     public override void _Draw()
     {
-        var ink = new Color(0.13f, 0.115f, 0.10f);
-        var edge = new Color(0.55f, 0.50f, 0.42f, 0.45f);
+        var ink = new Color(0.13f, 0.115f, 0.10f, 0.85f);
+        var edge = new Color(0.55f, 0.50f, 0.42f, 0.5f);
 
-        foreach (var r in _walls)
+        foreach (var (r, _) in Terrain)
         {
             DrawRect(r, ink);
             DrawRect(r, edge, false, 2f);
         }
-        foreach (var r in _covers)
+
+        // 瓦砾的碎片感：几道炭笔斜线
+        var rub = new Color(0.30f, 0.27f, 0.23f, 0.7f);
+        foreach (var (x, y) in new[] { (3440, 760), (3480, 745), (3630, 745), (3680, 730), (3520, 790), (3710, 780) })
         {
-            DrawRect(r, new Color(0.20f, 0.18f, 0.16f));
-            DrawRect(r, edge, false, 1.5f);
+            DrawLine(new Vector2(x, y), new Vector2(x + 34, y - 12), rub, 2.2f);
+            DrawLine(new Vector2(x + 8, y + 8), new Vector2(x + 40, y + 2), rub, 1.6f);
         }
+
+        DrawChurch();
+        DrawHospital();
+        DrawCityGate();
+
         // 操场集合点：虚线圆
         for (int i = 0; i < 24; i++)
         {
             float a0 = i / 24f * Mathf.Tau;
             float a1 = (i + 0.5f) / 24f * Mathf.Tau;
-            DrawArc(AssemblyPoint, 90f, a0, a1, 6, edge, 2f);
+            DrawArc(AssemblyPoint + new Vector2(0, -60), 70f, a0, a1, 6, edge, 2f);
         }
-        // 大门门柱
-        DrawRect(new Rect2(6, 808, 20, 22), ink);
-        DrawRect(new Rect2(6, 950, 20, 22), ink);
-        // 各门口的纸片标记
-        foreach (var p in _doorMarks)
-            DrawRect(new Rect2(p.X - 14, p.Y - 4, 28, 8), new Color(0.93f, 0.89f, 0.78f, 0.5f));
+    }
+
+    /// <summary>教堂立面（炭笔）：山墙 + 十字 + 玫瑰窗。</summary>
+    private void DrawChurch()
+    {
+        var ink = new Color(0.16f, 0.14f, 0.12f, 0.92f);
+        var edge = new Color(0.55f, 0.50f, 0.42f, 0.55f);
+        DrawRect(new Rect2(6500, 580, 320, Ground - 580), ink);
+        DrawColoredPolygon(new Vector2[]
+        {
+            new(6470, 580), new(6850, 580), new(6660, 468),
+        }, ink);
+        DrawRect(new Rect2(6500, 580, 320, Ground - 580), edge, false, 2f);
+        DrawLine(new Vector2(6660, 400), new Vector2(6660, 452), ink, 4f);   // 十字竖
+        DrawLine(new Vector2(6640, 416), new Vector2(6680, 416), ink, 4f);   // 十字横
+        DrawArc(new Vector2(6660, 640), 30f, 0, Mathf.Tau, 28, edge, 2.5f);  // 玫瑰窗
+    }
+
+    /// <summary>鼓楼医院立面（炭笔）：主楼 + 檐口 + 洗褪的红十字。</summary>
+    private void DrawHospital()
+    {
+        var ink = new Color(0.16f, 0.14f, 0.12f, 0.92f);
+        var edge = new Color(0.55f, 0.50f, 0.42f, 0.55f);
+        DrawRect(new Rect2(5740, 480, 380, Ground - 480), ink);
+        DrawRect(new Rect2(5726, 462, 408, 18), ink);
+        DrawRect(new Rect2(5740, 480, 380, Ground - 480), edge, false, 2f);
+        var red = Silhouette.FadedRed;
+        DrawRect(new Rect2(5912, 540, 24, 84), red);
+        DrawRect(new Rect2(5882, 570, 84, 24), red);
+    }
+
+    /// <summary>出城门楼（炭笔）：城台 + 门洞。</summary>
+    private void DrawCityGate()
+    {
+        var ink = new Color(0.16f, 0.14f, 0.12f, 0.94f);
+        var edge = new Color(0.55f, 0.50f, 0.42f, 0.55f);
+        var paper = new Color(0.87f, 0.82f, 0.71f, 0.9f);
+        DrawRect(new Rect2(7260, 430, 280, Ground - 430), ink);
+        DrawRect(new Rect2(7240, 414, 320, 18), ink);
+        DrawRect(new Rect2(7260, 430, 280, Ground - 430), edge, false, 2f);
+        DrawRect(new Rect2(7350, 640, 110, Ground - 640), paper); // 门洞透光
+        DrawRect(new Rect2(7350, 640, 110, Ground - 640), edge, false, 2f);
     }
 }
