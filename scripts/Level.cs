@@ -288,14 +288,36 @@ public partial class Level : Node2D
         AddChild(strip);
     }
 
-    /// <summary>侧视立面与建筑：金女立面图、绕行屋室内、医院/教堂/城门手绘立面（v0.5）。</summary>
+    /// <summary>侧视立面与建筑：金女立面图、绕行屋室内、医院/教堂/城门。
+    /// 所有建筑素材统一走 ChromaKey.Cutout 抠白底+粗描边——不再有整张带白底的贴图冒出来。</summary>
     private void BuildBackdrop()
     {
-        AddSprite("res://assets/art/ginling_facade.jpg", new Vector2(2250, Ground - 240), 640f);
-        AddSprite("res://assets/art/house_interior.jpg", new Vector2(2930, Ground - 120), 660f, top: Ground - 240);
+        // v0.5d：原来这两张用 AddSprite()→GD.Load() 完全绕过 ChromaKey，导致整张带白底贴出
+        AddCutoutByPath("res://assets/art/ginling_facade.jpg", new Vector2(2250, Ground - 240), 640f);
+        AddCutoutByPath("res://assets/art/house_interior.jpg", new Vector2(2930, Ground - 120), 660f, top: Ground - 240);
         AddCutoutSprite("building_hospital", new Vector2(5930, Ground), 560f);
         AddCutoutSprite("building_church", new Vector2(6660, Ground), 470f);
         AddCutoutSprite("building_citygate", new Vector2(7400, Ground), 620f);
+    }
+
+    /// <summary>通用版 Cutout Sprite：给定完整路径，ChromaKey 抠白底+粗描边后按 center 或 top 定位（与旧 AddSprite 定位一致）。</summary>
+    private void AddCutoutByPath(string path, Vector2 center, float width, float? top = null)
+    {
+        if (!ResourceLoader.Exists(path)) return;
+        var tex = ChromaKey.Cutout(path, 0.04f, 0.14f);
+        if (tex == null) return;
+        var ts = tex.GetSize();
+        var sprite = new Sprite2D
+        {
+            Texture = tex,
+            ZIndex = -1,
+            Scale = new Vector2(width / ts.X, width / ts.X),
+        };
+        if (top.HasValue)
+            sprite.Position = new Vector2(center.X, top.Value + width * ts.Y / ts.X / 2f);
+        else
+            sprite.Position = center;
+        AddChild(sprite);
     }
 
     /// <summary>白底建筑立面图：抠图后按「底部对齐地面」放置（替代程序矩形立面）。</summary>
@@ -1121,7 +1143,9 @@ public partial class Level : Node2D
         DrawEMark();
     }
 
-    /// <summary>地形块手绘化：青砖/木板/瓦砾平铺纹理 + 顶面亮沿 + 深色描边（v0.5 替代纯色矩形）。</summary>
+    /// <summary>地形块手绘化。
+    /// v0.5d 统一逻辑：不管薄台阶还是高墙，都只画**顶面 10~12px 纹理条** + 前沿立面 2~6px 窄条，
+    /// 不画完整立面矩形——让平台看起来像"地面上多了一层砖"而不是"凭空冒出方块"。</summary>
     private void FillByTerrain(Rect2 r)
     {
         bool woodHouse = r.Position.X >= 2660 && r.Position.X <= 2980 && r.Position.Y < Ground;
@@ -1129,58 +1153,27 @@ public partial class Level : Node2D
         var tex = woodHouse ? _texWood : (rubble ? _texRubble : _texBrick);
         var edge = woodHouse ? WoodEdge : BrickEdge;
 
-        // v5c：区分"薄台阶"和"高墙"的可见高度，高墙只画顶面+前沿立面，后面让背景融合
-        const float thickThreshold = 44f;
-        if (r.Size.Y <= thickThreshold)
+        // v0.5d：统一改为只画顶面窄条+极淡立面，让所有高度的平台都"贴"在背景上
+        float topH = Mathf.Min(12f, r.Size.Y);   // 顶面纹理条高度（不超过平台总高）
+        float frontFascia = Mathf.Min(4f, r.Size.Y - topH);  // 前沿立面窄条（最多 4px）
+
+        // 1) 顶面完整宽 + 顶面亮沿 + 粗描边
+        var topRect = new Rect2(r.Position.X, r.Position.Y, r.Size.X, topH);
+        if (tex != null) ChromaKey.DrawTiled(this, tex, topRect, woodHouse ? 0.20f : (rubble ? 0.40f : 0.22f));
+        else DrawRect(topRect, woodHouse ? WoodBrown : BrickGrey);
+        DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, Mathf.Min(4f, topH))),
+            new Color(0.88f, 0.85f, 0.76f, 0.55f));
+        DrawRect(topRect, edge, false, 2f);
+
+        // 2) 前沿立面极淡窄条（不是完整立面！让背景露出来）
+        if (frontFascia > 1.5f && r.Size.Y > topH + 1f)
         {
-            // 台阶：完整绘制（它们本来就薄，看起来是地面上的凸起）
-            if (tex != null) ChromaKey.DrawTiled(this, tex, r, woodHouse ? 0.20f : (rubble ? 0.40f : 0.22f));
-            else DrawRect(r, woodHouse ? WoodBrown : BrickGrey);
-            DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, Mathf.Min(6f, r.Size.Y))),
-                new Color(0.88f, 0.85f, 0.76f, 0.5f));
-            DrawRect(r, edge, false, 2f);
+            var fasciaRect = new Rect2(r.Position.X, r.Position.Y + topH, r.Size.X, frontFascia);
+            DrawRect(fasciaRect, new Color(0.25f, 0.22f, 0.18f, 0.45f));  // 45% 透明度！不显眼
         }
-        else
-        {
-            // 高墙：只画顶面 + 前沿立面 4~6px 窄条 + 左边立壁（玩家看到的侧面）
-            // 其余 90% 的区域**用半透明遮罩**让背景露出来——看起来像废墟里的残垣，不是一堵完整的墙
-            float topH = 12f;                    // 顶面厚度
-            float frontFascia = 6f;               // 前沿立面（玩家正前方看到的那一条）
 
-            // 1) 顶面（完整宽）
-            var topRect = new Rect2(r.Position.X, r.Position.Y, r.Size.X, topH);
-            if (tex != null) ChromaKey.DrawTiled(this, tex, topRect, woodHouse ? 0.20f : (rubble ? 0.40f : 0.22f));
-            else DrawRect(topRect, woodHouse ? WoodBrown : BrickGrey);
-            DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, 4f)),
-                new Color(0.88f, 0.85f, 0.76f, 0.55f));
-            DrawRect(topRect, edge, false, 2f);
-
-            // 2) 前沿立面（玩家能看到的侧面窄条）——用更深色模拟阴影中的立面
-            var fasciaRect = new Rect2(r.Position.X, r.Position.Y + topH, r.Size.X,
-                Mathf.Min(frontFascia, r.Size.Y - topH));
-            if (fasciaRect.Size.Y > 2f)
-            {
-                DrawRect(fasciaRect, new Color(0.35f, 0.33f, 0.30f, 0.85f));
-                DrawRect(fasciaRect, edge, false, 1.6f);
-            }
-
-            // 3) 左边立壁（玩家看这堵墙的侧面）——完整画
-            float sideW = Mathf.Min(10f, r.Size.X);
-            var sideRect = new Rect2(r.Position.X - sideW + 2f, r.Position.Y, sideW, r.Size.Y);
-            if (tex != null) ChromaKey.DrawTiled(this, tex, sideRect, woodHouse ? 0.20f : (rubble ? 0.40f : 0.22f));
-            else DrawRect(sideRect, woodHouse ? WoodBrown : BrickGrey);
-            DrawRect(sideRect, edge, false, 1.6f);
-
-            // 4) 大面积立面区：**不画**——让背景露出来，再叠一层极淡的环境光
-            // 这样玩家从远处看会觉得"这里是废墟里的残垣"，而不是"这里有一堵完整的墙"
-            var backRect = new Rect2(r.Position.X, r.Position.Y + topH + frontFascia,
-                r.Size.X, r.Size.Y - topH - frontFascia);
-            if (backRect.Size.Y > 4f)
-            {
-                // 极淡的环境色，模拟残垣的轮廓存在但视觉上融入背景
-                DrawRect(backRect, new Color(0.20f, 0.18f, 0.14f, 0.12f));
-            }
-        }
+        // 3) 大面积立面区：完全不画——让背景纹理透出来，视觉上像地面的延续
+        // 4) 左边立壁（玩家看侧面时的边缘）：也不画——让背景自然过渡
     }
 
     /// <summary>平台旁的环境碎屑（v0.5d：全部压小、压淡、去描边，避免像大方块）。</summary>
