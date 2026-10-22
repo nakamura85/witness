@@ -69,7 +69,41 @@ public partial class SmokeTest : SceneTree
         for (int i = 2; i <= 5; i++) s.Refugees["r" + i] = 1;
         Check("帮助 5 人 → high", s.OralVariant() == "high");
 
-        // 5. 存档序列化往返（与 GameState.JsonOpts 完全一致的选项）
+        // 5. 源头关逻辑（v0.2：碎片拾取/归位/通关解锁）
+        var p = new WitnessState();
+        Check("源头关：初始未拾取", p.PrologueCollected.Count == 0 && p.ProloguePlaced.Count == 0 && !p.PrologueDone);
+        Check("源头关：6 枚碎片定义", PrologueLogic.FragmentIds.Length == 6);
+        Check("源头关：1895/1910 各 3 枚",
+            System.Linq.Enumerable.Count(PrologueLogic.FragmentIds, id => PrologueLogic.YearOf(id) == "1895") == 3
+            && System.Linq.Enumerable.Count(PrologueLogic.FragmentIds, id => PrologueLogic.YearOf(id) == "1910") == 3);
+        Check("碎片词条键存在", PrologueLogic.NameKey("1895a") == "pro_frag_1895a");
+        PrologueLogic.Collect(p, "1895a");
+        Check("拾取后 CanCollect=false", !PrologueLogic.CanCollect(p, "1895a"));
+        Check("未拾取 CanCollect=true", PrologueLogic.CanCollect(p, "1910a"));
+        Check("放错年代被拒绝", !PrologueLogic.Place(p, "1895a", "1910"));
+        Check("放错不计入 Placed", p.ProloguePlaced.Count == 0);
+        Check("放对年代成功", PrologueLogic.Place(p, "1895a", "1895"));
+        Check("重复放置被拒绝", !PrologueLogic.Place(p, "1895a", "1895"));
+        foreach (var id in PrologueLogic.FragmentIds) PrologueLogic.Collect(p, id);
+        Check("AllPlaced 未满", !PrologueLogic.AllPlaced(p));
+        PrologueLogic.Place(p, "1895b", "1895");
+        PrologueLogic.Place(p, "1895c", "1895");
+        PrologueLogic.Place(p, "1910a", "1910");
+        PrologueLogic.Place(p, "1910b", "1910");
+        PrologueLogic.Place(p, "1910c", "1910");
+        Check("AllPlaced 已满", PrologueLogic.AllPlaced(p));
+        p.ApplyPrologue();
+        Check("ApplyPrologue 置 PrologueDone", p.PrologueDone);
+        Check("ApplyPrologue 解锁 card11/card12",
+            p.CardsUnlocked.Contains("card11") && p.CardsUnlocked.Contains("card12"));
+        Check("ChaptersWitnessed = 1（仅源头）", p.ChaptersWitnessed == 1);
+        p.Finished = true;
+        Check("ChaptersWitnessed = 2（源头+南京）", p.ChaptersWitnessed == 2);
+
+        // 6. 史料卡数据库：12 张
+        Check("史料卡共 12 张", CardDb.Load().Count == 12);
+
+        // 7. 存档序列化往返（与 GameState.JsonOpts 完全一致的选项）
         var opts = new JsonSerializerOptions { IncludeFields = true, WriteIndented = true };
         s.Beat = 2;
         s.Choice1 = 1;
@@ -86,6 +120,15 @@ public partial class SmokeTest : SceneTree
         Check("存档往返：TornMarked", back.TornMarked.Contains("vautrin"));
         Check("存档往返：Carried", back.Carried.Count == 1 && back.Carried[0] == "vautrin");
         Check("存档往返：Caught", back.Caught && back.SpotCount == 1);
+
+        // v0.2 新字段的往返
+        back.PrologueCollected.Add("1895a");
+        back.ProloguePlaced.Add("1910a");
+        back.PrologueDone = true;
+        string json2 = JsonSerializer.Serialize(back, opts);
+        var back2 = JsonSerializer.Deserialize<WitnessState>(json2, opts);
+        Check("存档往返：Prologue 字段",
+            back2.PrologueDone && back2.PrologueCollected.Contains("1895a") && back2.ProloguePlaced.Contains("1910a"));
 
         GD.Print($"==== 完成：失败 {_failed} 项 ====");
         Quit(_failed == 0 ? 0 : 1);
