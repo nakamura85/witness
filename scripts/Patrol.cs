@@ -26,6 +26,9 @@ public partial class Patrol : Node2D
     private float _exposure;
     private float _t;
     private float _walkPhase;
+    private bool _distracted;         // 被石块声引开：离岗查看中
+    private Vector2 _distractPoint;
+    private float _distractT;
 
     private const float Range = 300f;      // 视野距离
     private const float HalfAngle = 0.5f;  // 视野半角（弧度）
@@ -42,6 +45,16 @@ public partial class Patrol : Node2D
         Facing = d == 0 ? 1f : d;
     }
 
+    /// <summary>被落地石块的声音吸引：快步走到噪音点停留扫视，计时结束返回巡逻路径。</summary>
+    public void Distract(Vector2 point, float seconds)
+    {
+        _distracted = true;
+        _distractPoint = new Vector2(point.X, Position.Y); // 只沿地面移动
+        _distractT = seconds;
+        _wait = 0f;
+        _level?.BubbleAt(Position, "bub_noise");
+    }
+
     public override void _PhysicsProcess(double delta)
     {
         float f = (float)delta;
@@ -49,8 +62,27 @@ public partial class Patrol : Node2D
         if (_points == null || _level == null || !_level.PlayPhase)
             return;
 
+        // ---- 被引开：快步走向噪音点，到了就来回扫视，计时结束返回 ----
+        if (_distracted)
+        {
+            var toNoise = _distractPoint - Position;
+            if (Mathf.Abs(toNoise.X) > 10f)
+            {
+                float step = Mathf.Sign(toNoise.X) * Speed * 1.15f * f;
+                Position += new Vector2(step, 0);
+                Facing = toNoise.X >= 0 ? 1f : -1f;
+                _walkPhase += f * 10f;
+                _scan = 0f;
+            }
+            else
+            {
+                _distractT -= f;
+                _scan = Mathf.Sin(_t * 3.2f) * 0.45f; // 疑惑地来回扫视
+                if (_distractT <= 0f) _distracted = false;
+            }
+        }
         // ---- 沿路径点左右移动，停留时扫视 ----
-        if (_wait > 0f)
+        else if (_wait > 0f)
         {
             _wait -= f;
             _scan = Mathf.Sin(_t * 2.1f) * 0.28f;
@@ -86,6 +118,7 @@ public partial class Patrol : Node2D
         if (_exposure >= 1f)
         {
             _exposure = -2f; // 冷却，避免连续触发
+            _level?.BubbleAt(Position, "bub_halt");
             EmitSignal(SignalName.SpottedPlayer);
         }
         QueueRedraw();
@@ -104,7 +137,9 @@ public partial class Patrol : Node2D
         // 视线被地形（layer 1）挡住则看不见
         var query = PhysicsRayQueryParameters2D.Create(eye, _player.GlobalPosition, 1);
         var hit = GetWorld2D().DirectSpaceState.IntersectRay(query);
-        return hit.Count == 0;
+        if (hit.Count > 0) return false;
+        // 蒸汽遮挡（阀门解谜放出的蒸汽带）
+        return _level == null || !_level.VisionBlocked(eye, _player.GlobalPosition);
     }
 
     public override void _Draw()

@@ -47,7 +47,6 @@ public partial class ShotTour : Node
             // 关闭幕间 → 进入 Play（教学提示出现）再截「教学」画面
             await Tap("advance");
             await Frames(30); Shot("04_tutorial");
-            Input.ActionPress("jump"); await Frames(25); Input.ActionRelease("jump");
             await Frames(10);
 
             // 按类型查找玩家与相机（运行时创建的 C# 节点不叫 "Player"）
@@ -144,6 +143,41 @@ public partial class ShotTour : Node
             main.Call("StartNanjing"); await Frames(70); Shot("10_nanjing_intro");
             for (int i = 0; i < 3; i++) { await Tap("advance"); await Frames(25); }
             await Frames(45); Shot("11_nanjing");
+
+            // —— 玩法画面补充（低风险先拍，巡逻兵警戒放最后以免触发押送影响后续截图）——
+            // 南京关场景重建过，源头关找到的 player/cam 已销毁，必须重新查找
+            Player njPlayer = null;
+            Camera2D njCam = null;
+            foreach (Node n in main.FindChildren("*", "", true, false))
+            {
+                if (n is Player p) njPlayer = p;
+                else if (n is Camera2D c) njCam = c;
+            }
+            if (njPlayer != null && njCam != null)
+            {
+                // 翻越：矮台阶前按 E（v0.4 替代跳跃，台阶左边缘 x=940，rise=135 可翻）
+                njPlayer.Position = new Vector2(920, 800); njCam.ResetSmoothing(); await Frames(15);
+                await Tap("interact"); await Frames(18); Shot("12_vault");
+                await Frames(40);
+
+                // 蹲下潜行：淡墨涟漪
+                Input.ActionPress("crouch"); await Frames(20); Shot("13_crouch");
+                Input.ActionRelease("crouch"); await Frames(10);
+
+                // 证据记录中：按住 E，HUD 进度环走到一半
+                njPlayer.Position = new Vector2(5050, 692); njCam.ResetSmoothing(); await Frames(20);
+                Input.ActionPress("interact"); await Frames(45); Shot("15_record");
+                Input.ActionRelease("interact"); await Frames(10);
+
+                // 金陵女子文理学院门前（侧立面 + 外楼梯）
+                njPlayer.Position = new Vector2(2250, 800); njCam.ResetSmoothing(); await Frames(30); Shot("16_ginling");
+
+                // 城门：终点方向
+                njPlayer.Position = new Vector2(7350, 800); njCam.ResetSmoothing(); await Frames(30); Shot("17_gate");
+
+                // 巡逻兵路径中段：视野锥 / 警戒（放最后，被抓也不影响前面的截图）
+                njPlayer.Position = new Vector2(3900, 800); njCam.ResetSmoothing(); await Frames(30); Shot("14_patrol");
+            }
 
             GD.Print("==== ShotTour 完成 ====");
             GetTree().Quit(0);

@@ -4,10 +4,10 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// 第一章 · 源头 1895–1910（试玩关）—— v0.3 横版（side-scroll）：
-/// 档案馆工作间改为侧视房间，地面带高低差 —— 长桌可以跳上去，书架两层可以攀，
+/// 第一章 · 源头 1895–1910（试玩关）—— v0.4 横版（side-scroll）：
+/// 档案馆工作间改为侧视房间，地面带高低差 —— 长桌、书架两层、中继台都可以 E 键翻越攀爬，
 /// 桌下与地板散落着六枚史料碎片（3 枚《马关条约》1895 / 3 枚《日韩合并条约》1910）。
-/// 教学流程：移动 → 跳跃攀爬拾取 → 右墙时间线板归位 → 炭笔历史场景显现 → 尾声指向 1931/1937。
+/// 教学流程：移动 → 翻越攀爬拾取 → 右墙时间线板归位 → 炭笔历史场景显现 → 尾声指向 1931/1937。
 /// 没有巡逻，没有失败，只有一间安静的房间和一段必须从源头讲起的历史。
 /// </summary>
 public partial class PrologueLevel : Node2D
@@ -39,7 +39,13 @@ public partial class PrologueLevel : Node2D
     private static readonly Rect2 TableLegR = new(1444, 584, 26, Floor - 584);
     private static readonly Rect2 ShelfL1 = new(150, 460, 300, 24);
     private static readonly Rect2 ShelfL2 = new(150, 360, 200, 24);
-    private static readonly Rect2 StepMid = new(500, 560, 70, Floor - 560); // 上书架的中继台
+    private static readonly Rect2 StepMid = new(452, 560, 70, Floor - 560); // 贴书架右缘的中继台：地板→台→层板1→层板2 各 100 高，逐级翻越
+
+    // 可翻越物列表（x, y顶面, w, h）—— 桌腿太窄不列入，翻上桌面走桌面过去
+    private static System.Numerics.Vector4 V4(Rect2 r)
+        => new(r.Position.X, r.Position.Y, r.Size.X, r.Size.Y);
+    private static readonly System.Numerics.Vector4[] VaultSolids =
+        { V4(TableTop), V4(ShelfL1), V4(ShelfL2), V4(StepMid) };
 
     private bool _hasBg;
     private Player _player;
@@ -165,15 +171,17 @@ public partial class PrologueLevel : Node2D
                 _hud.ShowTutorial(Loc.I.T("tut2_move_pickup"));
         }
 
-        UpdatePickup();
-        UpdateTable();
+        bool uiBusy = UpdatePickup();
+        uiBusy |= UpdateTable();
+        if (!uiBusy) uiBusy = UpdateVault();
+        if (!uiBusy) _hud.ShowPrompt("");
         _hud.SetSneak(_player.Sneaking);
         if (_boardActive) QueueRedraw(); // 时间线板呼吸光需要逐帧重绘
     }
 
     // ---- 教学②：拾取碎片 ----
 
-    private void UpdatePickup()
+    private bool UpdatePickup()
     {
         Fragment near = null;
         float best = 64f;
@@ -184,7 +192,7 @@ public partial class PrologueLevel : Node2D
             if (d < best) { best = d; near = f; }
         }
 
-        if (near == null) { _hud.ShowPrompt(""); return; }
+        if (near == null) return false;
         _hud.ShowPrompt(Loc.I.T("pro_prompt_pickup"));
         if (Input.IsActionJustPressed("interact"))
         {
@@ -207,11 +215,12 @@ public partial class PrologueLevel : Node2D
                 _hud.ShowTutorial(Loc.I.T("tut2_pickup_more"));
             }
         }
+        return true;
     }
 
     // ---- 教学③：时间线板 ----
 
-    private void UpdateTable()
+    private bool UpdateTable()
     {
         if (_boardActive && !PrologueLogic.AllPlaced(GameState.I.S))
         {
@@ -221,12 +230,27 @@ public partial class PrologueLevel : Node2D
                 _hud.ShowPrompt(Loc.I.T("pro_prompt_board"));
                 if (Input.IsActionJustPressed("interact") && !_boardOpened)
                     OpenBoard();
+                return true;
             }
         }
-        else
+        return false;
+    }
+
+    // ---- E 翻越（v0.4 起取代跳跃）：靠近桌沿/层板/中继台按 E 攀上去 ----
+
+    private bool UpdateVault()
+    {
+        if (_player.Vaulting || _player.Sneaking) return false;
+        var feet = new System.Numerics.Vector2(_player.Position.X, _player.Position.Y);
+        var hit = PuzzleLogic.FindVault(feet, _player.Facing, VaultSolids);
+        if (hit == null) return false;
+        _hud.ShowPrompt(Loc.I.T("hud_prompt_vault"));
+        if (Input.IsActionJustPressed("interact"))
         {
             _hud.ShowPrompt("");
+            _player.StartVault(hit.Value.topY, hit.Value.landX);
         }
+        return true;
     }
 
     private void OpenBoard()
@@ -300,32 +324,41 @@ public partial class PrologueLevel : Node2D
         }
     }
 
-    // ---- 房间绘制：炭笔平台 + 发光的时间线板 ----
+    // ---- 房间绘制：彩色手绘（VH 式）木色平台 + 发光的时间线板 ----
 
     public override void _Draw()
     {
-        var ink = new Color(0.13f, 0.115f, 0.10f, 0.85f);
-        var edge = new Color(0.55f, 0.50f, 0.42f, 0.5f);
+        var outline = new Color(0.18f, 0.16f, 0.13f);
+        var woodFloor = new Color(0.45f, 0.35f, 0.25f);
+        var woodDark = new Color(0.36f, 0.28f, 0.20f);
+        var woodWarm = new Color(0.56f, 0.43f, 0.29f);
 
-        // 平台地形（地板/桌面/书架/中继台）—— 底图上压炭笔
-        DrawRect(FloorRect, ink);
-        DrawRect(FloorRect, edge, false, 2f);
-        DrawRect(TableTop, ink);
-        DrawRect(TableTop, edge, false, 2f);
-        DrawRect(TableLegL, ink);
-        DrawRect(TableLegR, ink);
-        DrawRect(ShelfL1, ink);
-        DrawRect(ShelfL1, edge, false, 1.6f);
-        DrawRect(ShelfL2, ink);
-        DrawRect(ShelfL2, edge, false, 1.6f);
-        DrawRect(StepMid, ink);
-        DrawRect(StepMid, edge, false, 1.6f);
+        // 地板：暖木 + 木板缝
+        DrawRect(FloorRect, woodFloor);
+        for (float x = 60; x < RoomW; x += 90)
+            DrawLine(new Vector2(x, Floor + 8), new Vector2(x, Floor + 28), woodDark, 1.6f);
+        DrawLine(FloorRect.Position, FloorRect.Position + new Vector2(RoomW, 0), outline, 2.4f);
 
-        // 右墙时间线板
-        DrawRect(BoardRect, ink);
-        DrawRect(BoardRect, edge, false, 2f);
-        // 板上的空槽位线
-        var slot = new Color(0.55f, 0.50f, 0.42f, 0.4f);
+        // 长桌：暖木桌面 + 深色桌腿
+        DrawRect(TableTop, woodWarm);
+        DrawRect(TableTop, outline, false, 2f);
+        DrawRect(TableLegL, woodDark);
+        DrawRect(TableLegR, woodDark);
+
+        // 书架层板
+        DrawRect(ShelfL1, woodWarm);
+        DrawRect(ShelfL1, outline, false, 1.8f);
+        DrawRect(ShelfL2, woodWarm);
+        DrawRect(ShelfL2, outline, false, 1.8f);
+
+        // 中继台（木箱）
+        DrawRect(StepMid, woodDark);
+        DrawRect(StepMid, outline, false, 1.8f);
+
+        // 右墙时间线板：深色木框 + 纸色空槽位
+        DrawRect(BoardRect, woodDark);
+        DrawRect(BoardRect, outline, false, 2.2f);
+        var slot = new Color(0.88f, 0.83f, 0.71f, 0.5f);
         for (int i = 0; i < 3; i++)
             DrawRect(new Rect2(BoardRect.Position + new Vector2(14, 26 + i * 92), new Vector2(102, 76)), slot, false, 1.4f);
 

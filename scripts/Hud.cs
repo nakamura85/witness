@@ -13,6 +13,7 @@ public partial class Hud : CanvasLayer
     private RecordRing _ring;
     private ArrowHint _arrow;
     private float _toastT;
+    private float _tutorialT;   // 教学浮字自动淡出计时（弱化常驻教学）
 
     public Hud() { Layer = 10; }
 
@@ -115,21 +116,34 @@ public partial class Hud : CanvasLayer
         _toastT = 2.6f;
     }
 
+    /// <summary>教学浮字：约 7 秒后自动淡出（常驻教学会压住画面，克制为先）。</summary>
     public void ShowTutorial(string text)
     {
         _tutorial.Text = text;
         _tutorial.Modulate = new Color(1, 1, 1, 1);
+        _tutorialT = 7f;
     }
 
-    public void HideTutorial() => _tutorial.Modulate = new Color(1, 1, 1, 0);
+    public void HideTutorial()
+    {
+        _tutorialT = 0f;
+        _tutorial.Modulate = new Color(1, 1, 1, 0);
+    }
 
     public override void _Process(double delta)
     {
+        float f = (float)delta;
         if (_toastT > 0f)
         {
-            _toastT -= (float)delta;
+            _toastT -= f;
             if (_toastT <= 0f)
                 _toast.Modulate = new Color(1, 1, 1, 0);
+        }
+        if (_tutorialT > 0f)
+        {
+            _tutorialT -= f;
+            if (_tutorialT <= 1f) // 最后一秒渐隐
+                _tutorial.Modulate = new Color(1, 1, 1, Mathf.Max(_tutorialT, 0f));
         }
     }
 

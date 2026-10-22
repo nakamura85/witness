@@ -4,11 +4,11 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// 关卡01：南京 1937 —— v0.3 横版（side-scroll）重建。
-/// 参考横板叙事玩法：主路线横向推进，台阶/瓦砾/绕行屋（上楼翻越高墙），
-/// 背景 2 层视差保持纵深，镜头横向跟随。
-/// 五幕节拍保留：0 沦陷前夜（护送一家人到金女）→ 1 城破（记录教学+缴械士兵抉择）→
-/// 2 沦陷之夜（巡逻下收集+门口抉择）→ 3 记忆的重量（取舍+出城）→ 4 结算。
+/// 关卡01：南京 1937 —— v0.4 方案 B（无跳跃 · E 互动翻越 + VH 式环境解谜）。
+/// 美术同步重做：手绘上色卡通（参考《Valiant Hearts》着色方式，题材为亚洲/南京）——
+/// 灰砖、瓦顶、木门、彩色卡通人物；暴力仍以留白与档案呈现。
+/// 解谜节点：推木箱垫脚上委员会高台 / 扔石块引开巡逻 / 拉门闩开侧巷补给 / 拧阀门蒸汽遮挡视野。
+/// 五幕节拍保留：0 沦陷前夜 → 1 城破 → 2 沦陷之夜 → 3 记忆的重量 → 4 结算。
 /// </summary>
 public partial class Level : Node2D
 {
@@ -26,9 +26,20 @@ public partial class Level : Node2D
     private static readonly Vector2 PlayerSpawn = new(140, Ground);
     private static readonly Vector2 CityGate = new(7410, Ground);   // 出城门洞
 
+    // ---- 解谜物件坐标 ----
+    private static readonly Vector2 CrateHome = new(4650, Ground);       // 可推木箱（垫脚上委员会高台）
+    private static readonly Vector2 StonePile1 = new(3300, Ground);      // 瓦砾旁的石块堆
+    private static readonly Vector2 StonePile2 = new(5300, Ground);
+    private static readonly Vector2 BoltPos = new(3924, Ground);         // 侧巷铁门门闩
+    private static readonly Vector2 SupplyPos = new(4050, Ground);       // 巷内补给（食物 +1）
+    private static readonly Vector2 ValvePos = new(5680, Ground);        // 蒸汽阀门
+    private static readonly Rect2 SteamRect = new(5740, 600, PuzzleLogic.SteamW, PuzzleLogic.SteamH);
+    private static readonly Rect2 DoorRect = new(3950, 700, 26, 100);    // 门闩控制的木门（拉开后移除）
+    private static readonly Rect2 ReturnCrate = new(5332, Ground - PuzzleLogic.CrateH, PuzzleLogic.CrateW, PuzzleLogic.CrateH); // 高台东侧的现成木箱（回程垫脚）
+
     /// <summary>
     /// 横版地形表（碰撞与绘制共用）。Walkable=true 的平台是家人 NPC 可循行的地面线
-    /// （GroundY 取其中最高台面）；其余为障碍/高台（需要跳跃或绕行）。
+    /// （GroundY 取其中最高台面）；其余为障碍/高台（需要 E 翻越或解谜垫脚）。
     /// </summary>
     private static readonly (Rect2 Rect, bool Walkable)[] Terrain =
     {
@@ -37,13 +48,13 @@ public partial class Level : Node2D
         // 左右边界
         (new Rect2(0, 0, 16, WorldH), false),
         (new Rect2(WorldW - 16, 0, 16, WorldH), false),
-        // 起点后的台阶段（家人可循行，教学翻越）
+        // 起点后的台阶段（家人可循行，教学：台阶也可逐级翻越）
         (new Rect2(600, 755, 170, 45), true),
         (new Rect2(770, 710, 170, 90), true),
         (new Rect2(940, 665, 240, 135), true),
         (new Rect2(1180, 710, 170, 90), true),
         (new Rect2(1350, 755, 170, 45), true),
-        // 绕行屋（上楼翻越高墙）：二层地板 + 一层内堵墙 + 楼梯
+        // 绕行屋（逐级 42px 台阶翻越上二层）：二层地板 + 一层内堵墙 + 楼梯
         (new Rect2(2660, 560, 600, 30), false),
         (new Rect2(2920, 590, 60, Ground - 590), false),
         (new Rect2(2660, 758, 42, 42), false),
@@ -51,18 +62,22 @@ public partial class Level : Node2D
         (new Rect2(2744, 674, 42, 126), false),
         (new Rect2(2786, 632, 42, 168), false),
         (new Rect2(2828, 590, 92, 210), false),
-        // 城市瓦砾（跳跃段兼掩体）
+        // 城市瓦砾（翻越段兼掩体）
         (new Rect2(3420, 730, 120, 70), false),
         (new Rect2(3600, 700, 150, 100), false),
-        // 委员会高台
-        (new Rect2(4700, 755, 130, 45), false),
-        (new Rect2(4830, 710, 470, Ground - 710), false),
+        // 侧巷高墙（200 高翻不过，门闩解谜进巷）
+        (new Rect2(3950, 600, 26, 100), false),
+        (new Rect2(4140, 600, 26, 200), false),
+        // 委员会高台（180 高：需推木箱垫脚，先翻上木箱再翻上高台）
+        (new Rect2(4830, 620, 470, Ground - 620), false),
         // 鼓楼医院门前台阶
         (new Rect2(5760, 760, 130, 40), false),
         (new Rect2(5890, 720, 170, Ground - 720), false),
         // 教堂高台
         (new Rect2(6450, 750, 100, 50), false),
         (new Rect2(6550, 700, 220, Ground - 700), false),
+        // 高台东侧现成木箱（回程垫脚，固定）
+        (ReturnCrate, false),
     };
 
     /// <summary>家人/环境难民的循行地面线：取该 x 处最高的 Walkable 台面。</summary>
@@ -102,16 +117,41 @@ public partial class Level : Node2D
     private float _progress;
     private bool _tainted;
 
+    // ---- 解谜状态（关卡内存，重进重置）----
+    private StaticBody2D _crateBody;       // 可推木箱
+    private bool _crateGrabbed;
+    private bool _crateTutShown;
+    private bool _hasStone;                // 手里握着石块
+    private bool _stoneFlying;
+    private Vector2 _stoneFrom, _stoneTo;
+    private float _stoneT;
+    private StaticBody2D _doorBody;        // 侧巷木门（门闩控制）
+    private bool _boltOpen;
+    private bool _supplyTaken;
+    private float _steamT;                 // 蒸汽剩余时长（>0 时遮挡视野）
+    private Vector2? _eMark;               // 世界空间 E 提示气泡位置
+
     public Level(Main main) { _main = main; }
 
     /// <summary>巡逻兵据此判断是否行动（对话/结算期间全场静止）。</summary>
     public bool PlayPhase => _phase == Phase.Play;
+
+    /// <summary>蒸汽遮挡：阀门拧开后，穿过蒸汽带的视线被阻断（Patrol 侦测调用）。</summary>
+    public bool VisionBlocked(Vector2 a, Vector2 b)
+        => _steamT > 0f && PuzzleLogic.SteamBlocks(
+            new System.Numerics.Vector2(a.X, a.Y), new System.Numerics.Vector2(b.X, b.Y),
+            new System.Numerics.Vector4(SteamRect.Position.X, SteamRect.Position.Y, SteamRect.Size.X, SteamRect.Size.Y));
+
+    /// <summary>世界坐标处冒出漫画对白气泡（关键剧情点，克制使用）。</summary>
+    public void BubbleAt(Vector2 feetPos, string locKey)
+        => SpeechBubble.Show(this, feetPos + new Vector2(0, -66), Loc.I.T(locKey));
 
     public override void _Ready()
     {
         BuildWorld();
         _hud = new Hud();
         AddChild(_hud);
+        AddChild(new VignetteLayer());       // VH 式画框暗角
         _dialogue = new DialogueUi();
         AddChild(_dialogue);
         _intro = new IntroOverlay();
@@ -134,6 +174,11 @@ public partial class Level : Node2D
         foreach (var (r, _) in Terrain)
             AddWall(r);
 
+        // 解谜物件：可推木箱（带碰撞，可站上）+ 门闩控制的木门
+        _crateBody = AddWall(new Rect2(CrateHome.X - PuzzleLogic.CrateW / 2, Ground - PuzzleLogic.CrateH,
+            PuzzleLogic.CrateW, PuzzleLogic.CrateH));
+        _doorBody = AddWall(DoorRect);
+
         // 玩家：明妮·魏特琳（镜头横向跟随）
         _player = new Player { Position = PlayerSpawn };
         AddChild(_player);
@@ -149,8 +194,8 @@ public partial class Level : Node2D
         // 证据点（6 件，对应史料卡 1-6）：roster/vautrin 在金女门口，其余在城市段各处
         AddEvidence("roster", new Vector2(2350, 782));
         AddEvidence("vautrin", new Vector2(2180, 782));
-        AddEvidence("rabe", new Vector2(5050, 692));    // 委员会高台
-        AddEvidence("letter", new Vector2(5210, 692));  // 委员会高台
+        AddEvidence("rabe", new Vector2(5050, 602));    // 委员会高台（需垫脚）
+        AddEvidence("letter", new Vector2(5210, 602));  // 委员会高台（需垫脚）
         AddEvidence("medical", new Vector2(5960, 702)); // 医院门前台阶
         AddEvidence("film", new Vector2(6650, 682));    // 教堂高台
 
@@ -182,7 +227,7 @@ public partial class Level : Node2D
         AddChild(_fitch);
     }
 
-    /// <summary>背景 2 层视差：远层城墙天际线 + 中层残破街景（保持纵深感）。</summary>
+    /// <summary>背景 2 层视差：远层城墙天际线 + 中层残破街景（VH 彩色手绘）。</summary>
     private void BuildParallax()
     {
         AddParallaxLayer("res://assets/art/skyline_far.jpg", 0.15f, new Vector2(800, 330));
@@ -211,7 +256,7 @@ public partial class Level : Node2D
         AddChild(layer);
     }
 
-    /// <summary>主地面瓦砾街道条（可平铺纹理）。</summary>
+    /// <summary>主地面街道条（可平铺纹理）。</summary>
     private void BuildGroundStrip()
     {
         const string path = "res://assets/art/street_ground.jpg";
@@ -231,7 +276,7 @@ public partial class Level : Node2D
         AddChild(strip);
     }
 
-    /// <summary>侧视立面与建筑：金女立面图、绕行屋室内、教堂/医院/城门炭笔立面。</summary>
+    /// <summary>侧视立面与建筑：金女立面图、绕行屋室内。</summary>
     private void BuildBackdrop()
     {
         AddSprite("res://assets/art/ginling_facade.jpg", new Vector2(2250, Ground - 240), 640f);
@@ -256,7 +301,7 @@ public partial class Level : Node2D
         AddChild(sprite);
     }
 
-    private void AddWall(Rect2 r)
+    private StaticBody2D AddWall(Rect2 r)
     {
         var body = new StaticBody2D { Position = r.GetCenter(), CollisionLayer = 1 };
         var shape = new CollisionShape2D();
@@ -264,6 +309,7 @@ public partial class Level : Node2D
         shape.Shape = rect;
         body.AddChild(shape);
         AddChild(body);
+        return body;
     }
 
     private void AddEvidence(string id, Vector2 pos)
@@ -306,7 +352,7 @@ public partial class Level : Node2D
         _c2Done = s.Choice2 != 0;
         if (_c2Done) _fitch.Visible = true;
 
-        // 教学浮字（横版操作）
+        // 教学浮字（自动淡出，靠近互动物才出现提示图标）
         switch (n)
         {
             case 0: _hud.ShowTutorial(Loc.I.T("tut_move")); break;
@@ -374,13 +420,19 @@ public partial class Level : Node2D
             _hud.SetRecord(0f, false);
             return;
         }
+        if (_steamT > 0f) { _steamT -= f; QueueRedraw(); }
+        if (_stoneFlying) { _stoneT += f / 0.42f; if (_stoneT >= 1f) { _stoneFlying = false; StoneLand(); } QueueRedraw(); }
+
+        _eMark = null;
         UpdateFamily(f);
         UpdateTriggers();
         UpdateRecording(f);
         UpdateInteract();
+        UpdatePuzzles(f);
         UpdateArrow();
         _hud.SetSneak(_player.Sneaking);
         RefreshObjectives();
+        if (_eMark != null || _crateGrabbed || _steamT > 0f) QueueRedraw();
     }
 
     private void UpdateFamily(float f)
@@ -390,6 +442,7 @@ public partial class Level : Node2D
         {
             _familyFollowing = false;
             SetPhase(Phase.Talk);
+            BubbleAt(_family.Position, "bub_family_done");
             _dialogue.ShowLine(Loc.I.T("npc_family"), Loc.I.T("npc_family_done"), () => StartBeat(1));
             return;
         }
@@ -408,7 +461,7 @@ public partial class Level : Node2D
         if (_beat == 2 && !_c2Done && _player.Position.DistanceTo(JinlingDoor) < 150) TriggerC2();
     }
 
-    // ---- 屏幕边缘方向箭头（替代俯视红圈目标点）----
+    // ---- 屏幕边缘方向箭头（目标指引）----
 
     private void UpdateArrow()
     {
@@ -477,6 +530,7 @@ public partial class Level : Node2D
             if (near != null)
             {
                 _hud.ShowPrompt(Loc.I.T("hud_prompt_record"));
+                _eMark = near.Position + new Vector2(0, -34);
                 if (Input.IsActionJustPressed("interact"))
                 {
                     _recordingId = near.Id;
@@ -536,6 +590,8 @@ public partial class Level : Node2D
             return;
         }
         _hud.ShowPrompt(Loc.I.T("hud_prompt_talk"));
+        _eMark = (node != null ? node.Position : (kind == TalkKind.Family ? _family.Position : GateTalk))
+                 + new Vector2(0, -62);
         if (Input.IsActionJustPressed("interact"))
         {
             switch (kind)
@@ -586,6 +642,7 @@ public partial class Level : Node2D
     private void TalkFamily()
     {
         SetPhase(Phase.Talk);
+        BubbleAt(_family.Position, "bub_family");
         string name = Loc.I.T("npc_family");
         _dialogue.ShowTextThen(name, Loc.I.T("npc_family_1"), () =>
             _dialogue.ShowTextThen(name, Loc.I.T("npc_family_2"), () =>
@@ -687,6 +744,7 @@ public partial class Level : Node2D
                     }
                     s.Refugees[r.Id] = 1;
                     _hud.RefreshSupplies(s.Food, s.Medicine, s.Blanket);
+                    BubbleAt(r.Position, "bub_thanks");
                     _dialogue.ShowTextThen(name, Loc.I.T($"npc_{r.Id}_thanks"), () => SetPhase(Phase.Play));
                 }
                 else SetPhase(Phase.Play);
@@ -715,6 +773,164 @@ public partial class Level : Node2D
         {
             _dialogue.ShowTextThen(name, Loc.I.T("fitch_1"), OpenPack);
         }
+    }
+
+    // ---- 环境解谜（方案 B：木箱 / 石块 / 门闩 / 阀门 / 翻越）----
+
+    private void UpdatePuzzles(float f)
+    {
+        if (_recordingId != null || _player.Vaulting) return;
+        if (NearestTalk().kind != TalkKind.None) return; // 交谈优先
+
+        // 记录提示优先（附近有未记录证据时不抢 E）
+        foreach (var ev in _evidence)
+        {
+            if (!ev.Active) continue;
+            if ((EvidenceStatus)GameState.I.S.Evidence[ev.Id] != EvidenceStatus.Uncollected) continue;
+            if (ev.Position.DistanceTo(_player.Position) < 58f) return;
+        }
+
+        // —— 木箱：抓住后推/拉 ——
+        var crateRect = new Rect2(_crateBody.Position.X - PuzzleLogic.CrateW / 2,
+            _crateBody.Position.Y - PuzzleLogic.CrateH / 2, PuzzleLogic.CrateW, PuzzleLogic.CrateH);
+        if (_crateGrabbed)
+        {
+            _hud.ShowPrompt(Loc.I.T("hud_prompt_crate_off"));
+            _eMark = _crateBody.Position + new Vector2(0, -64);
+            float dx = _player.Position.X - _crateBody.Position.X;
+            if (Input.IsActionJustPressed("interact") || Mathf.Abs(dx) > PuzzleLogic.CrateKeepDist)
+            {
+                _crateGrabbed = false;
+                _player.SpeedOverride = -1f;
+                return;
+            }
+            var dir = Input.GetAxis("move_left", "move_right");
+            if (dir != 0f)
+            {
+                float newX = Mathf.Clamp(_crateBody.Position.X + dir * PuzzleLogic.CratePushSpeed * f,
+                    3200f, 4802f); // 留在瓦砾以东、高台以西
+                _crateBody.Position = new Vector2(newX, _crateBody.Position.Y);
+                QueueRedraw();
+            }
+            return;
+        }
+
+        // —— 手里有石块：E 投掷 ——
+        if (_hasStone)
+        {
+            _hud.ShowPrompt(Loc.I.T("hud_prompt_stone_throw"));
+            _eMark = _player.Position + new Vector2(0, -66);
+            if (Input.IsActionJustPressed("interact"))
+            {
+                _hasStone = false;
+                _stoneFlying = true;
+                _stoneFrom = _player.Position + new Vector2(0, -46);
+                _stoneTo = new Vector2(_player.Position.X + _player.Facing * PuzzleLogic.StoneThrowDist, Ground);
+                _stoneT = 0f;
+            }
+            return;
+        }
+
+        var pp = _player.Position;
+
+        // —— 石块堆：E 拾起 ——
+        foreach (var pile in new[] { StonePile1, StonePile2 })
+        {
+            if (Mathf.Abs(pp.X - pile.X) < 52f && Mathf.Abs(pp.Y - pile.Y) < 40f)
+            {
+                _hud.ShowPrompt(Loc.I.T("hud_prompt_stone_take"));
+                _eMark = pile + new Vector2(0, -30);
+                if (Input.IsActionJustPressed("interact"))
+                {
+                    _hasStone = true;
+                    _hud.Toast(Loc.I.T("hud_stone_taken"));
+                }
+                return;
+            }
+        }
+
+        // —— 门闩：拉开侧巷木门 ——
+        if (!_boltOpen && Mathf.Abs(pp.X - BoltPos.X) < PuzzleLogic.BoltDist && Mathf.Abs(pp.Y - BoltPos.Y) < 60f)
+        {
+            _hud.ShowPrompt(Loc.I.T("hud_prompt_bolt"));
+            _eMark = BoltPos + new Vector2(10, -56);
+            if (Input.IsActionJustPressed("interact"))
+            {
+                _boltOpen = true;
+                _doorBody.QueueFree();
+                _hud.Toast(Loc.I.T("hud_bolt_open"));
+                QueueRedraw();
+            }
+            return;
+        }
+
+        // —— 巷内补给：食物 +1 ——
+        if (_boltOpen && !_supplyTaken && pp.DistanceTo(SupplyPos) < 56f)
+        {
+            _hud.ShowPrompt(Loc.I.T("hud_prompt_supply"));
+            _eMark = SupplyPos + new Vector2(0, -36);
+            if (Input.IsActionJustPressed("interact"))
+            {
+                _supplyTaken = true;
+                GameState.I.S.Food++;
+                _hud.RefreshSupplies(GameState.I.S.Food, GameState.I.S.Medicine, GameState.I.S.Blanket);
+                _hud.Toast(Loc.I.T("hud_supply_food"));
+                QueueRedraw();
+            }
+            return;
+        }
+
+        // —— 蒸汽阀门：拧开遮挡巡逻视野 ——
+        if (_steamT <= 0f && pp.DistanceTo(ValvePos) < PuzzleLogic.ValveDist)
+        {
+            _hud.ShowPrompt(Loc.I.T("hud_prompt_valve"));
+            _eMark = ValvePos + new Vector2(0, -66);
+            if (Input.IsActionJustPressed("interact"))
+            {
+                _steamT = PuzzleLogic.SteamSeconds;
+                _hud.Toast(Loc.I.T("hud_steam_on"));
+                QueueRedraw();
+            }
+            return;
+        }
+
+        // —— 木箱抓取 ——
+        if (PuzzleLogic.CanGrabCrate(pp.X, _crateBody.Position.X, pp.Y, _crateBody.Position.Y + PuzzleLogic.CrateH / 2))
+        {
+            _hud.ShowPrompt(Loc.I.T("hud_prompt_crate"));
+            _eMark = _crateBody.Position + new Vector2(0, -64);
+            if (Input.IsActionJustPressed("interact"))
+            {
+                _crateGrabbed = true;
+                _player.SpeedOverride = PuzzleLogic.CratePushSpeed;
+                if (!_crateTutShown) { _crateTutShown = true; _hud.ShowTutorial(Loc.I.T("tut_crate")); }
+            }
+            return;
+        }
+
+        // —— 翻越（最低优先级）：面前有可攀的矮墙/瓦砾/台阶 ——
+        var solids = new List<System.Numerics.Vector4>();
+        foreach (var (r, _) in Terrain)
+            solids.Add(new System.Numerics.Vector4(r.Position.X, r.Position.Y, r.Size.X, r.Size.Y));
+        solids.Add(new System.Numerics.Vector4(crateRect.Position.X, crateRect.Position.Y, crateRect.Size.X, crateRect.Size.Y));
+        var vault = PuzzleLogic.FindVault(
+            new System.Numerics.Vector2(pp.X, pp.Y), _player.Facing, solids);
+        if (vault != null && !_player.Crouched)
+        {
+            _hud.ShowPrompt(Loc.I.T("hud_prompt_vault"));
+            float edgeX = _player.Facing > 0 ? pp.X + 20 : pp.X - 20;
+            _eMark = new Vector2(edgeX, vault.Value.topY - 26);
+            if (Input.IsActionJustPressed("interact"))
+                _player.StartVault(vault.Value.topY, vault.Value.landX);
+        }
+    }
+
+    /// <summary>石块落地：吸引听觉范围内的巡逻去查看（引开）。</summary>
+    private void StoneLand()
+    {
+        foreach (var p in _patrols)
+            if (PuzzleLogic.HeardStone(p.Position.X, _stoneTo.X))
+                p.Distract(new Vector2(_stoneTo.X, Ground), PuzzleLogic.DistractSeconds);
     }
 
     // ---- 被巡逻发现（GDD §6.3：没有 Game Over，只有损失）----
@@ -841,79 +1057,192 @@ public partial class Level : Node2D
         }
     }
 
-    // ---- 地形绘制：炭黑块面 + 纸色描边，叠加炭笔立面 ----
+    // ---- 地形绘制：VH 式手绘上色（灰砖 / 木 / 瓦砾色块 + 深色描边）----
+
+    private static readonly Color BrickGrey = new(0.42f, 0.44f, 0.43f, 0.94f);   // 南京青砖
+    private static readonly Color BrickEdge = new(0.22f, 0.21f, 0.19f, 0.9f);
+    private static readonly Color StepStone = new(0.52f, 0.49f, 0.43f, 0.94f);
+    private static readonly Color WoodBrown = new(0.46f, 0.35f, 0.23f, 0.95f);
+    private static readonly Color WoodEdge = new(0.24f, 0.18f, 0.12f, 0.9f);
+    private static readonly Color RubbleGrey = new(0.45f, 0.43f, 0.39f, 0.95f);
 
     public override void _Draw()
     {
-        var ink = new Color(0.13f, 0.115f, 0.10f, 0.85f);
-        var edge = new Color(0.55f, 0.50f, 0.42f, 0.5f);
-
         foreach (var (r, _) in Terrain)
         {
-            DrawRect(r, ink);
-            DrawRect(r, edge, false, 2f);
+            if (r.Position.Y >= Ground && r.Size.X > 100) continue; // 主地面交给街道纹理
+            FillByTerrain(r);
         }
-
-        // 瓦砾的碎片感：几道炭笔斜线
-        var rub = new Color(0.30f, 0.27f, 0.23f, 0.7f);
-        foreach (var (x, y) in new[] { (3440, 760), (3480, 745), (3630, 745), (3680, 730), (3520, 790), (3710, 780) })
-        {
-            DrawLine(new Vector2(x, y), new Vector2(x + 34, y - 12), rub, 2.2f);
-            DrawLine(new Vector2(x + 8, y + 8), new Vector2(x + 40, y + 2), rub, 1.6f);
-        }
-
+        DrawRubbleMarks();
+        DrawPuzzleProps();
         DrawChurch();
         DrawHospital();
         DrawCityGate();
 
         // 操场集合点：虚线圆
+        var edge = new Color(0.9f, 0.86f, 0.74f, 0.5f);
         for (int i = 0; i < 24; i++)
         {
             float a0 = i / 24f * Mathf.Tau;
             float a1 = (i + 0.5f) / 24f * Mathf.Tau;
             DrawArc(AssemblyPoint + new Vector2(0, -60), 70f, a0, a1, 6, edge, 2f);
         }
+
+        DrawEMark();
     }
 
-    /// <summary>教堂立面（炭笔）：山墙 + 十字 + 玫瑰窗。</summary>
+    /// <summary>按高度/用途给地形块上色（砖/石/木）。</summary>
+    private void FillByTerrain(Rect2 r)
+    {
+        bool woodHouse = r.Position.X >= 2660 && r.Position.X <= 2980 && r.Position.Y < Ground;
+        var fill = woodHouse ? WoodBrown : (r.Size.Y <= 50 ? StepStone : BrickGrey);
+        var edge = woodHouse ? WoodEdge : BrickEdge;
+        DrawRect(r, fill);
+        DrawRect(r, edge, false, 2f);
+        if (woodHouse && r.Size.X > 80)
+            for (float y = r.Position.Y + 8; y < r.End.Y - 4; y += 14)
+                DrawLine(new Vector2(r.Position.X + 3, y), new Vector2(r.End.X - 3, y), WoodEdge, 1f); // 木板纹
+        else if (!woodHouse && r.Size.Y > 60)
+            for (float y = r.Position.Y + 16; y < r.End.Y - 8; y += 22)
+                DrawLine(new Vector2(r.Position.X + 4, y), new Vector2(r.End.X - 4, y),
+                    new Color(edge, 0.35f), 1f); // 砖缝
+    }
+
+    /// <summary>瓦砾的碎片感：几道裂纹斜线。</summary>
+    private void DrawRubbleMarks()
+    {
+        var rub = new Color(0.28f, 0.26f, 0.23f, 0.8f);
+        foreach (var (x, y) in new[] { (3440, 760), (3480, 745), (3630, 745), (3680, 730), (3520, 790), (3710, 780) })
+        {
+            DrawLine(new Vector2(x, y), new Vector2(x + 34, y - 12), rub, 2.2f);
+            DrawLine(new Vector2(x + 8, y + 8), new Vector2(x + 40, y + 2), rub, 1.6f);
+        }
+    }
+
+    /// <summary>解谜物件绘制：木箱 / 石块堆 / 门闩与木门 / 补给 / 阀门与蒸汽 / 飞石。</summary>
+    private void DrawPuzzleProps()
+    {
+        // 可推木箱（木板条 + 描边）
+        var cw = PuzzleLogic.CrateW;
+        var crateTop = _crateBody.Position + new Vector2(-cw / 2, -PuzzleLogic.CrateH / 2);
+        var crateRect = new Rect2(crateTop, new Vector2(cw, PuzzleLogic.CrateH));
+        DrawRect(crateRect, WoodBrown);
+        DrawRect(crateRect, WoodEdge, false, 2.4f);
+        DrawLine(crateTop + new Vector2(4, 10), crateTop + new Vector2(cw - 4, PuzzleLogic.CrateH - 10), WoodEdge, 2f);
+        DrawLine(crateTop + new Vector2(cw - 4, 10), crateTop + new Vector2(4, PuzzleLogic.CrateH - 10), WoodEdge, 2f);
+
+        // 石块堆
+        var stoneC = new Color(0.5f, 0.49f, 0.45f);
+        foreach (var pile in new[] { StonePile1, StonePile2 })
+        {
+            DrawCircle(pile + new Vector2(-7, -4), 6f, stoneC);
+            DrawCircle(pile + new Vector2(5, -5), 7f, stoneC * new Color(0.9f, 0.9f, 0.9f));
+            DrawCircle(pile + new Vector2(-1, -11), 5f, stoneC);
+        }
+
+        // 侧巷木门与门闩（拉开后画敞开的门洞）
+        if (!_boltOpen)
+        {
+            DrawRect(DoorRect, new Color(0.36f, 0.26f, 0.16f, 0.98f));
+            DrawRect(DoorRect, WoodEdge, false, 2.2f);
+            DrawRect(new Rect2(DoorRect.Position.X - 6, DoorRect.Position.Y + 34, DoorRect.Size.X + 12, 7),
+                new Color(0.55f, 0.5f, 0.42f)); // 铁门闩
+        }
+        else
+        {
+            DrawRect(new Rect2(DoorRect.Position + new Vector2(0, 4), new Vector2(4, DoorRect.Size.Y - 4)),
+                new Color(0.36f, 0.26f, 0.16f, 0.9f)); // 敞开的门板贴边
+        }
+
+        // 巷内补给（一小袋米）
+        if (_boltOpen && !_supplyTaken)
+        {
+            var sack = new Rect2(SupplyPos + new Vector2(-11, -18), new Vector2(22, 18));
+            DrawRect(sack, new Color(0.72f, 0.64f, 0.48f));
+            DrawRect(sack, WoodEdge, false, 1.6f);
+            DrawLine(SupplyPos + new Vector2(-11, -12), SupplyPos + new Vector2(11, -12), WoodEdge, 1.4f);
+        }
+
+        // 蒸汽阀门（管道 + 手轮）
+        var pipeC = new Color(0.44f, 0.46f, 0.44f);
+        DrawRect(new Rect2(ValvePos.X - 8, ValvePos.Y - 70, 16, 70), pipeC);
+        DrawRect(new Rect2(ValvePos.X - 8, ValvePos.Y - 76, 60, 14), pipeC);
+        DrawArc(ValvePos + new Vector2(0, -46), 10f, 0, Mathf.Tau, 16, WoodEdge, 3f);
+        DrawLine(ValvePos + new Vector2(-10, -46), ValvePos + new Vector2(10, -46), WoodEdge, 2.4f);
+        DrawLine(ValvePos + new Vector2(0, -56), ValvePos + new Vector2(0, -36), WoodEdge, 2.4f);
+
+        // 蒸汽云（阀门拧开时喷涌，遮挡视线）
+        if (_steamT > 0f)
+        {
+            float fade = Mathf.Min(1f, _steamT / 3f);
+            var sc = new Color(0.88f, 0.87f, 0.82f, 0.5f * fade);
+            for (int i = 0; i < 5; i++)
+            {
+                float cx = SteamRect.Position.X + 20 + i * 24 + Mathf.Sin((float)Time.GetTicksMsec() / 300f + i) * 5f;
+                DrawCircle(new Vector2(cx, SteamRect.Position.Y + 60 + (i % 2) * 60), 34 + i * 3, sc);
+            }
+        }
+
+        // 飞行中的石块（小抛物线）
+        if (_stoneFlying)
+        {
+            var p = _stoneFrom.Lerp(_stoneTo, _stoneT);
+            p.Y -= Mathf.Sin(_stoneT * Mathf.Pi) * 70f;
+            DrawCircle(p, 4f, stoneC);
+        }
+    }
+
+    /// <summary>世界空间 E 提示气泡（VH 式靠近才浮现的互动图标）。</summary>
+    private void DrawEMark()
+    {
+        if (_eMark == null) return;
+        var p = _eMark.Value + new Vector2(0, Mathf.Sin((float)Time.GetTicksMsec() / 260f) * 3f);
+        var paper = new Color(0.95f, 0.92f, 0.82f, 0.95f);
+        DrawCircle(p, 11f, paper);
+        DrawArc(p, 11f, 0, Mathf.Tau, 18, BrickEdge, 1.8f);
+        var font = ThemeDB.FallbackFont;
+        DrawString(font, p + new Vector2(0, 5), "E", HorizontalAlignment.Center, -1, 15, BrickEdge);
+    }
+
+    /// <summary>教堂立面（红砖）：山墙 + 十字 + 玫瑰窗。</summary>
     private void DrawChurch()
     {
-        var ink = new Color(0.16f, 0.14f, 0.12f, 0.92f);
-        var edge = new Color(0.55f, 0.50f, 0.42f, 0.55f);
-        DrawRect(new Rect2(6500, 580, 320, Ground - 580), ink);
+        var brick = new Color(0.50f, 0.30f, 0.23f, 0.96f);
+        var trim = new Color(0.80f, 0.74f, 0.63f, 0.8f);
+        DrawRect(new Rect2(6500, 580, 320, Ground - 580), brick);
         DrawColoredPolygon(new Vector2[]
         {
             new(6470, 580), new(6850, 580), new(6660, 468),
-        }, ink);
-        DrawRect(new Rect2(6500, 580, 320, Ground - 580), edge, false, 2f);
-        DrawLine(new Vector2(6660, 400), new Vector2(6660, 452), ink, 4f);   // 十字竖
-        DrawLine(new Vector2(6640, 416), new Vector2(6680, 416), ink, 4f);   // 十字横
-        DrawArc(new Vector2(6660, 640), 30f, 0, Mathf.Tau, 28, edge, 2.5f);  // 玫瑰窗
+        }, brick);
+        DrawRect(new Rect2(6500, 580, 320, Ground - 580), trim, false, 2f);
+        DrawLine(new Vector2(6660, 400), new Vector2(6660, 452), trim, 4f);   // 十字竖
+        DrawLine(new Vector2(6640, 416), new Vector2(6680, 416), trim, 4f);   // 十字横
+        DrawArc(new Vector2(6660, 640), 30f, 0, Mathf.Tau, 28, trim, 2.5f);  // 玫瑰窗
     }
 
-    /// <summary>鼓楼医院立面（炭笔）：主楼 + 檐口 + 洗褪的红十字。</summary>
+    /// <summary>鼓楼医院立面（灰白主楼 + 红十字）。</summary>
     private void DrawHospital()
     {
-        var ink = new Color(0.16f, 0.14f, 0.12f, 0.92f);
-        var edge = new Color(0.55f, 0.50f, 0.42f, 0.55f);
-        DrawRect(new Rect2(5740, 480, 380, Ground - 480), ink);
-        DrawRect(new Rect2(5726, 462, 408, 18), ink);
-        DrawRect(new Rect2(5740, 480, 380, Ground - 480), edge, false, 2f);
-        var red = Silhouette.FadedRed;
+        var wall = new Color(0.62f, 0.64f, 0.59f, 0.96f);
+        var trim = new Color(0.32f, 0.32f, 0.29f, 0.8f);
+        DrawRect(new Rect2(5740, 480, 380, Ground - 480), wall);
+        DrawRect(new Rect2(5726, 462, 408, 18), wall);
+        DrawRect(new Rect2(5740, 480, 380, Ground - 480), trim, false, 2f);
+        var red = new Color(0.66f, 0.22f, 0.18f, 0.9f);
         DrawRect(new Rect2(5912, 540, 24, 84), red);
         DrawRect(new Rect2(5882, 570, 84, 24), red);
     }
 
-    /// <summary>出城门楼（炭笔）：城台 + 门洞。</summary>
+    /// <summary>出城门楼（城砖 + 暖光门洞）。</summary>
     private void DrawCityGate()
     {
-        var ink = new Color(0.16f, 0.14f, 0.12f, 0.94f);
-        var edge = new Color(0.55f, 0.50f, 0.42f, 0.55f);
-        var paper = new Color(0.87f, 0.82f, 0.71f, 0.9f);
-        DrawRect(new Rect2(7260, 430, 280, Ground - 430), ink);
-        DrawRect(new Rect2(7240, 414, 320, 18), ink);
-        DrawRect(new Rect2(7260, 430, 280, Ground - 430), edge, false, 2f);
-        DrawRect(new Rect2(7350, 640, 110, Ground - 640), paper); // 门洞透光
-        DrawRect(new Rect2(7350, 640, 110, Ground - 640), edge, false, 2f);
+        var brick = new Color(0.38f, 0.39f, 0.36f, 0.97f);
+        var trim = new Color(0.70f, 0.66f, 0.56f, 0.6f);
+        var light = new Color(0.91f, 0.85f, 0.66f, 0.95f);
+        DrawRect(new Rect2(7260, 430, 280, Ground - 430), brick);
+        DrawRect(new Rect2(7240, 414, 320, 18), brick);
+        DrawRect(new Rect2(7260, 430, 280, Ground - 430), trim, false, 2f);
+        DrawRect(new Rect2(7350, 640, 110, Ground - 640), light); // 门洞透光
+        DrawRect(new Rect2(7350, 640, 110, Ground - 640), trim, false, 2f);
     }
 }

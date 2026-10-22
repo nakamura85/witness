@@ -106,6 +106,42 @@ public partial class SmokeTest : SceneTree
         Check("横版地形：台阶外回到主地面", Level.GroundY(3000f) == 800f);
         Check("横版地形：金女门前主地面", Level.GroundY(2200f) == 800f);
 
+        // 5.6 解谜纯逻辑（v0.4：翻越边界 / FindVault / 木箱 / 石块 / 蒸汽遮挡）
+        Check("翻越：高差 0 不可翻", !PuzzleLogic.CanVault(0f));
+        Check("翻越：高差 17 太矮", !PuzzleLogic.CanVault(17f));
+        Check("翻越：高差 18 边界可翻", PuzzleLogic.CanVault(18f));
+        Check("翻越：高差 100 可翻", PuzzleLogic.CanVault(100f));
+        Check("翻越：高差 140 边界可翻", PuzzleLogic.CanVault(140f));
+        Check("翻越：高差 141 太高", !PuzzleLogic.CanVault(141f));
+
+        var solids = new System.Numerics.Vector4[]
+        {
+            new(100f, 700f, 56f, 100f),   // 顶面 y=700，从 y=800 地面 rise=100
+            new(600f, 620f, 470f, 180f),  // rise=180 太高，不可直翻
+        };
+        var hitVault = PuzzleLogic.FindVault(new System.Numerics.Vector2(70f, 800f), 1f, solids);
+        Check("FindVault：面前 30px 命中矮台", hitVault != null && hitVault.Value.topY == 700f);
+        Check("FindVault：落点在台面内", hitVault != null && hitVault.Value.landX > 100f && hitVault.Value.landX < 200f);
+        Check("FindVault：背对不命中", PuzzleLogic.FindVault(new System.Numerics.Vector2(70f, 800f), -1f, solids) == null);
+        Check("FindVault：太远不命中", PuzzleLogic.FindVault(new System.Numerics.Vector2(10f, 800f), 1f, solids) == null);
+        var tallOnly = new System.Numerics.Vector4[] { new(600f, 620f, 470f, 180f) };
+        Check("FindVault：180 高台不可直翻", PuzzleLogic.FindVault(new System.Numerics.Vector2(570f, 800f), 1f, tallOnly) == null);
+
+        Check("木箱：抓取距离内可抓", PuzzleLogic.CanGrabCrate(100f, 130f, 800f, 800f));
+        Check("木箱：超距不可抓", !PuzzleLogic.CanGrabCrate(100f, 300f, 800f, 800f));
+        Check("木箱：脚下高差错位不可抓", !PuzzleLogic.CanGrabCrate(100f, 130f, 800f, 700f));
+
+        Check("石块：听觉半径内被吸引", PuzzleLogic.HeardStone(1000f, 1400f));
+        Check("石块：超距听不见", !PuzzleLogic.HeardStone(1000f, 2000f));
+
+        var steam = new System.Numerics.Vector4(500f, 600f, 130f, 200f); // x 500-630, y 600-800
+        Check("蒸汽：视线穿过则被遮挡", PuzzleLogic.SteamBlocks(
+            new System.Numerics.Vector2(300f, 700f), new System.Numerics.Vector2(800f, 700f), steam));
+        Check("蒸汽：从上方越过不遮挡", !PuzzleLogic.SteamBlocks(
+            new System.Numerics.Vector2(400f, 500f), new System.Numerics.Vector2(800f, 500f), steam));
+        Check("蒸汽：同侧不遮挡", !PuzzleLogic.SteamBlocks(
+            new System.Numerics.Vector2(700f, 700f), new System.Numerics.Vector2(800f, 700f), steam));
+
         // 6. 史料卡数据库：12 张
         Check("史料卡共 12 张", CardDb.Load().Count == 12);
 
