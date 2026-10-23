@@ -1089,7 +1089,64 @@ public partial class JiangqiaoLevel : Node2D
     {
         private readonly JiangqiaoLevel _l;
 
+        // —— 预计算的随机参数（全部在 _Ready 生成一次，_Draw 不做 Randf）——
+        private float[] _craterX = System.Array.Empty<float>();
+        private float[] _craterR = System.Array.Empty<float>();
+        private float[] _bunkerX = System.Array.Empty<float>();
+        private float[] _bunkerBW = System.Array.Empty<float>();
+        private float[] _bunkerFH = System.Array.Empty<float>();
+        private int[] _railSkipIdx = System.Array.Empty<int>();       // 被去掉的枕木序号（破损感）
+        private int[] _trussSkipDiags = System.Array.Empty<int>();    // 桥桁架被去掉的斜腹杆
+        private int[] _pierDamageIdx = System.Array.Empty<int>();     // 被炮弹蹭过的桥墩（画烧黑斑）
+
         public GroundArt(JiangqiaoLevel l) { _l = l; }
+
+        public override void _Ready()
+        {
+            var rng = new RandomNumberGenerator();
+            rng.Randomize();
+
+            // 弹坑位置 ±20、半径 ±6
+            var craterListX = new List<float>();
+            var craterListR = new List<float>();
+            foreach (float x in new[] { 1260f, 1640f, 2080f, 2480f, 2890f, 3260f, 3720f, 4060f })
+            {
+                craterListX.Add(x + rng.RandfRange(-22f, 22f));
+                craterListR.Add(26f + rng.RandfRange(-6f, 15f));
+            }
+            _craterX = craterListX.ToArray();
+            _craterR = craterListR.ToArray();
+
+            // 碉堡位置 ±18、宽 ±6、高 ±5
+            var bxList = new List<float>();
+            var bwList = new List<float>();
+            var fhList = new List<float>();
+            foreach (float bx in new[] { 1550f, 3050f, 4050f })
+            {
+                bxList.Add(bx + rng.RandfRange(-18f, 18f));
+                bwList.Add(56f + rng.RandfRange(-4f, 8f));
+                fhList.Add(38f + rng.RandfRange(-5f, 5f));
+            }
+            _bunkerX = bxList.ToArray();
+            _bunkerBW = bwList.ToArray();
+            _bunkerFH = fhList.ToArray();
+
+            // 铁路：随机挑 8~12 根枕木去掉（每 60 根里去掉 1 根 = 稀疏破损）
+            var railSkip = new HashSet<int>();
+            int railCount = (int)(5200f / 34f);  // ≈ 152 根
+            for (int k = 0; k < 22; k++) railSkip.Add((int)rng.RandfRange(0, railCount));
+            _railSkipIdx = railSkip.ToArray();
+
+            // 桥桁架：随机去掉 2~4 根斜腹杆
+            var diagSkip = new HashSet<int>();
+            for (int k = 0; k < 3 + (int)rng.Randf() * 2; k++) diagSkip.Add((int)rng.RandfRange(0, 6));
+            _trussSkipDiags = diagSkip.ToArray();
+
+            // 桥墩：随机挑 1 个画烧黑斑
+            var pierList = new HashSet<int>();
+            pierList.Add((int)rng.RandfRange(0, 4));
+            _pierDamageIdx = pierList.ToArray();
+        }
 
         public override void _Draw()
         {
@@ -1190,8 +1247,11 @@ public partial class JiangqiaoLevel : Node2D
         private void DrawRailway()
         {
             // 铁路从右侧战场一直铺到桥上
-            for (float x = 2400; x < WorldW; x += 34)
+            var skip = new HashSet<int>(_railSkipIdx);
+            int k = 0;
+            for (float x = 2400; x < WorldW; x += 34, k++)
             {
+                if (skip.Contains(k)) continue;  // 被炮弹削掉的枕木
                 DrawLine(new Vector2(x, 622), new Vector2(x + 22, 632), new Color(0.31f, 0.26f, 0.21f), 5f, true);
                 DrawLine(new Vector2(x, 626), new Vector2(x + 22, 636), new Color(0.88f, 0.88f, 0.85f), 2f, true);
             }
@@ -1201,11 +1261,10 @@ public partial class JiangqiaoLevel : Node2D
 
         private void DrawCraters()
         {
-            float[] xs = { 1260, 1640, 2080, 2480, 2890, 3260, 3720, 4060 };
-            for (int i = 0; i < xs.Length; i++)
+            for (int i = 0; i < _craterX.Length; i++)
             {
-                float x = xs[i];
-                float r = 26 + (i % 3) * 9;
+                float x = _craterX[i];
+                float r = _craterR[i];
                 DrawSetTransform(new Vector2(x, GroundY + 2), 0, new Vector2(1f, 0.34f));
                 DrawCircle(Vector2.Zero, r, new Color(0.38f, 0.35f, 0.32f, 0.75f));
                 DrawCircle(Vector2.Zero, r * 0.72f, new Color(0.24f, 0.22f, 0.20f, 0.9f));
@@ -1220,47 +1279,66 @@ public partial class JiangqiaoLevel : Node2D
             const float top = 376f;
             const float bottom = GroundY + 8f;
 
-            // 远端桁架（偏后，颜色淡）
-            Truss(start + 40, end, top + 26, bottom - 4, new Color(0.20f, 0.23f, 0.25f, 0.40f), 3.4f);
+            // 远端桁架（偏后，颜色淡）——完好
+            Truss(start + 40, end, top + 26, bottom - 4, new Color(0.20f, 0.23f, 0.25f, 0.40f), 3.4f, null);
 
-            // 桥墩：从桥面落到冰面，桥有支撑才不像悬空的纸片
-            for (float px = 4540; px <= 5140; px += 200)
+            // 桥墩：从桥面落到冰面，其中一个被炮弹蹭过画烧黑斑
+            var damagedPiers = new HashSet<int>(_pierDamageIdx);
+            int pi = 0;
+            for (float px = 4540; px <= 5140; px += 200, pi++)
             {
                 DrawRect(new Rect2(px - 15, GroundY + 2, 30, 156), new Color(0.33f, 0.35f, 0.36f));
                 DrawRect(new Rect2(px - 15, GroundY + 2, 30, 156), new Color(0.18f, 0.20f, 0.21f, 0.8f), false, 1.5f);
                 DrawRect(new Rect2(px - 25, GroundY + 96, 50, 11), new Color(0.27f, 0.29f, 0.30f));
                 DrawRect(new Rect2(px - 20, GroundY + 3, 40, 8), new Color(0.93f, 0.95f, 0.95f, 0.8f));
+                // 炮弹烧黑的弹痕
+                if (damagedPiers.Contains(pi))
+                {
+                    DrawCircle(new Vector2(px, GroundY + 55), 18f, new Color(0.10f, 0.09f, 0.08f, 0.7f));
+                    DrawCircle(new Vector2(px + 5, GroundY + 90), 10f, new Color(0.10f, 0.09f, 0.08f, 0.5f));
+                    DrawCircle(new Vector2(px - 4, GroundY + 130), 7f, new Color(0.18f, 0.16f, 0.14f, 0.55f));
+                }
             }
 
-            // 桥面板（侧梁 + 枕木）
+            // 桥面板（侧梁 + 枕木）——其中一段被烧焦
             DrawRect(new Rect2(start, GroundY - 8, end - start, 22), new Color(0.24f, 0.23f, 0.21f));
             for (float x = start; x < end; x += 22)
                 DrawLine(new Vector2(x, GroundY - 8), new Vector2(x, GroundY + 14), new Color(0.13f, 0.13f, 0.12f, 0.55f), 1f);
             DrawLine(new Vector2(start, GroundY - 8), new Vector2(end, GroundY - 8), new Color(0.55f, 0.52f, 0.45f, 0.7f), 3f, true);
 
-            // 近端桁架
-            Truss(start, end, top, bottom + 4, new Color(0.14f, 0.17f, 0.19f), 6f);
+            // 中段烧焦痕迹（桥面 + 枕木变黑）
+            DrawRect(new Rect2(4680, GroundY - 10, 90, 24), new Color(0.08f, 0.07f, 0.06f, 0.8f));
+            DrawLine(new Vector2(4680, GroundY - 10), new Vector2(4770, GroundY - 10), new Color(0.08f, 0.07f, 0.06f), 2f, true);
+
+            // 近端桁架——有几根管被打断
+            Truss(start, end, top, bottom + 4, new Color(0.14f, 0.17f, 0.19f), 6f, _trussSkipDiags);
 
             // 桁架上的积雪
             for (float x = start; x < end; x += 42)
                 DrawLine(new Vector2(x, top - 3), new Vector2(x + 30, top - 3),
                     new Color(0.92f, 0.94f, 0.94f, 0.9f), 3f, true);
+            // 烧焦那段桁架积雪被烧掉
+            DrawRect(new Rect2(4680, top - 5, 90, 6), new Color(0.14f, 0.12f, 0.10f));
 
             // 桥头堡的沙袋由 CoverArt 画在前景（见下），这样人是从掩体后面过桥。
         }
 
-        private void Truss(float start, float end, float top, float bottom, Color c, float w)
+        private void Truss(float start, float end, float top, float bottom, Color c, float w, int[] skipDiag)
         {
+            var skip = skipDiag == null ? null : new HashSet<int>(skipDiag);
             DrawLine(new Vector2(start, top), new Vector2(end, top), c, w, true);
             DrawLine(new Vector2(start, bottom), new Vector2(end, bottom), c, w, true);
-            int n = 0;
-            for (float x = start; x <= end; x += 130, n++)
+            int diagIdx = 0;
+            for (float x = start; x <= end; x += 130, diagIdx++)
             {
                 DrawLine(new Vector2(x, top), new Vector2(x, bottom), c, w * 0.8f, true);
                 if (x + 130 <= end)
                 {
-                    DrawLine(new Vector2(x, top), new Vector2(x + 130, bottom), c, w * 0.5f, true);
-                    DrawLine(new Vector2(x, bottom), new Vector2(x + 130, top), c, w * 0.5f, true);
+                    bool skipThisDiag = skip != null && skip.Contains(diagIdx);
+                    if (!skipThisDiag)
+                        DrawLine(new Vector2(x, top), new Vector2(x + 130, bottom), c, w * 0.5f, true);
+                    if (!(skip != null && skip.Contains(diagIdx + 1)))
+                        DrawLine(new Vector2(x, bottom), new Vector2(x + 130, top), c, w * 0.5f, true);
                 }
             }
         }
@@ -1307,15 +1385,17 @@ public partial class JiangqiaoLevel : Node2D
             }
 
             // 碉堡（梯形混凝土 + 射击孔 + 积雪）：1931 江桥阵地的土木碉堡
-            foreach (float bx in new[] { 1550f, 3050f, 4050f })
+            for (int bi = 0; bi < _bunkerX.Length; bi++)
             {
+                float bx = _bunkerX[bi];
+                float bw = _bunkerBW[bi];
+                float fh = _bunkerFH[bi];
                 // 接触阴影（先画，在碉堡下面）
                 DrawSetTransform(new Vector2(bx + 24f, GroundY - 1f), 0, new Vector2(1f, 0.22f));
                 DrawCircle(Vector2.Zero, 40f, new Color(0.12f, 0.13f, 0.14f, 0.32f));
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
                 // 碉堡本体：梯形（前窄后宽）
-                float bw = 56f; float fh = 38f;
                 var bunker = new[]
                 {
                     new Vector2(bx + 28f, GroundY),
@@ -1377,41 +1457,95 @@ public partial class JiangqiaoLevel : Node2D
     /// 掩体沙袋单独一层：ZIndex 高于玩家与敌兵，画在人前面。
     /// 人经过时是“躲到掩体后面”，而不是“站在一摞麻袋顶上”——
     /// 之前沙袋画在地面层，人物只要走到同一条 x 上就像踩着沙袋。
+    /// 
+    /// 全部位置/尺寸/歪斜在 _Ready 一次性随机化，_Draw 只消费字段。
     /// </summary>
     private partial class CoverArt : Node2D
     {
-        public override void _Draw()
+        private struct StackSpec
         {
-            // 阵地上的几处掩体 + 桥头堡那一垛
-            float[] xs = { 980f, 2320f, 3580f, 4160f };
-            foreach (float x0 in xs) Stack(x0, GroundY - 11f, 5, 19f, 10f, 13f, 1.05f);
-            Stack(4388f, GroundY - 4f, 4, 18f, 9f, 13f, 1f);
+            public float X;
+            public float BaseY;
+            public int Cols;
+            public float Dx;
+            public float RowShift;
+            public float RowH;
+            public float K;
         }
 
-        private void Stack(float left, float baseY, int cols, float dx, float rowShift, float rowH, float k)
+        private StackSpec[] _stacks = System.Array.Empty<StackSpec>();
+        private SackSeed[][] _sackSeeds = new SackSeed[0][];
+
+        private struct SackSeed { public float Tilt; public float SnowExtra; public float ArcK; }
+
+        public override void _Ready()
         {
-            // 整垛的落地阴影：沿最下一排铺开，物件才压在雪里
-            float w = (cols - 1) * dx + 20f;
-            DrawSetTransform(new Vector2(left + w * 0.5f, GroundY - 1f), 0, new Vector2(1f, 0.22f));
+            var rng = new RandomNumberGenerator();
+            rng.Randomize();
+            float[] bases = { 980f, 2320f, 3580f, 4160f, 4388f };
+            var list = new List<StackSpec>();
+            var seedsList = new List<SackSeed[]>();
+            for (int i = 0; i < bases.Length; i++)
+            {
+                bool isBridge = i == bases.Length - 1;
+                list.Add(new StackSpec
+                {
+                    X = bases[i] + rng.RandfRange(-24f, 24f),
+                    BaseY = isBridge ? GroundY - 4f + rng.RandfRange(-1f, 2f) : GroundY - 11f + rng.RandfRange(-1.5f, 1.5f),
+                    Cols = (int)rng.RandfRange(isBridge ? 3f : 4f, 6.99f),
+                    Dx = isBridge ? 18f + rng.RandfRange(-2f, 2f) : 19f + rng.RandfRange(-3f, 3f),
+                    RowShift = 10f + rng.RandfRange(-2f, 2f),
+                    RowH = 13f + rng.RandfRange(-2f, 2f),
+                    K = isBridge ? 1f + rng.RandfRange(-0.05f, 0.05f) : 1.05f + rng.RandfRange(-0.06f, 0.06f),
+                });
+                // 预先生成这一垛每个沙袋的随机微扰（每 row×i 一个）
+                var seeds = new List<SackSeed>();
+                int maxCells = 3 * 6;  // 足够大
+                for (int c = 0; c < maxCells; c++)
+                    seeds.Add(new SackSeed
+                    {
+                        Tilt = rng.RandfRange(-0.04f, 0.04f),
+                        SnowExtra = rng.RandfRange(-1.2f, 1.6f),
+                        ArcK = rng.RandfRange(0.88f, 1.12f),
+                    });
+                seedsList.Add(seeds.ToArray());
+            }
+            _stacks = list.ToArray();
+            _sackSeeds = seedsList.ToArray();
+        }
+
+        public override void _Draw()
+        {
+            for (int s = 0; s < _stacks.Length; s++)
+                Stack(_stacks[s], _sackSeeds[s]);
+        }
+
+        private void Stack(StackSpec s, SackSeed[] seeds)
+        {
+            float w = (s.Cols - 1) * s.Dx + 20f;
+            DrawSetTransform(new Vector2(s.X + w * 0.5f, GroundY - 1f), 0, new Vector2(1f, 0.22f));
             DrawCircle(Vector2.Zero, w * 0.56f, new Color(0.13f, 0.14f, 0.15f, 0.30f));
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
+            int si = 0;
             for (int row = 0; row < 3; row++)
-                for (int i = 0; i < cols - row; i++)
+                for (int i = 0; i < s.Cols - row; i++)
                 {
-                    var c = new Vector2(left + i * dx + row * rowShift, baseY - row * rowH);
-                    Sack(c, (row + i) % 2 == 0 ? 0.05f : -0.06f, k);
+                    var c = new Vector2(s.X + i * s.Dx + row * s.RowShift, s.BaseY - row * s.RowH);
+                    float baseTilt = (row + i) % 2 == 0 ? 0.055f : -0.065f;
+                    Sack(c, baseTilt + seeds[si].Tilt, s.K, seeds[si]);
+                    si++;
                 }
         }
 
-        /// <summary>沙袋：压扁的椭圆 + 缝线 + 顶上的一线残雪。</summary>
-        private void Sack(Vector2 c, float tilt, float k)
+        private void Sack(Vector2 c, float tilt, float k, SackSeed sd)
         {
             DrawSetTransform(c, tilt, new Vector2(1.55f * k, 0.70f * k));
             DrawCircle(Vector2.Zero, 14f, new Color(0.24f, 0.21f, 0.16f, 0.85f));
             DrawCircle(Vector2.Zero, 12.4f, new Color(0.62f, 0.56f, 0.43f));
-            DrawArc(Vector2.Zero, 8.6f, 0.35f, Mathf.Pi - 0.35f, 12, new Color(0.42f, 0.37f, 0.28f, 0.6f), 1.4f, true);
-            DrawCircle(new Vector2(0, -7.4f), 6.4f, new Color(0.90f, 0.92f, 0.91f, 0.9f));
+            DrawArc(Vector2.Zero, 8.6f * k * sd.ArcK, 0.35f, Mathf.Pi - 0.35f, 12, new Color(0.42f, 0.37f, 0.28f, 0.6f), 1.4f, true);
+            float snowR = Mathf.Clamp(6.4f * k + sd.SnowExtra, 4f, 9f);
+            DrawCircle(new Vector2(0, -7.4f * k), snowR, new Color(0.90f, 0.92f, 0.91f, 0.9f));
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
     }
