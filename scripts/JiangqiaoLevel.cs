@@ -606,6 +606,7 @@ public partial class JiangqiaoLevel : Node2D
         private readonly JiangqiaoLevel _lvl;
         public int Kind { get; }
         public float Factor { get; }
+        private float _windTime;
 
         public Backdrop(JiangqiaoLevel lvl, int kind, float factor, int z)
         {
@@ -613,6 +614,12 @@ public partial class JiangqiaoLevel : Node2D
             Kind = kind;
             Factor = factor;
             ZIndex = z;
+        }
+
+        public override void _Process(double delta)
+        {
+            _windTime += (float)delta * 0.6f;
+            if (Kind == KindMid || Kind == KindFore) QueueRedraw();
         }
 
         public override void _Draw()
@@ -890,21 +897,24 @@ public partial class JiangqiaoLevel : Node2D
             var trunk = new Color(c, alpha * 0.9f);
             DrawLine(new Vector2(x, baseY), new Vector2(x, baseY - h * 0.32f), trunk, 2.6f, true);
 
+            float sway = Mathf.Sin(_windTime * 1.1f + x * 0.015f) * 0.03f;
+
             for (int k = 0; k < 4; k++)
             {
                 float ty = baseY - h * (0.22f + 0.20f * k);
                 float w = h * 0.30f * (1f - k * 0.21f);
                 float top = ty - h * 0.30f;
+                DrawSetTransform(new Vector2(x, ty + h * 0.15f), sway * (1f + k * 0.3f), Vector2.One);
                 var tri = new[]
                 {
                     new Vector2(x - w, ty), new Vector2(x, top), new Vector2(x + w, ty),
                 };
                 DrawColoredPolygon(tri, new Color(c, alpha));
-                // 雪压在枝的上缘
                 DrawLine(new Vector2(x - w * 0.94f, ty - 1.5f), new Vector2(x, top + 2f),
                     new Color(0.90f, 0.93f, 0.94f, 0.60f * alpha + 0.18f), 2.2f, true);
                 DrawLine(new Vector2(x, top + 2f), new Vector2(x + w * 0.94f, ty - 1.5f),
                     new Color(0.86f, 0.90f, 0.91f, 0.45f * alpha + 0.14f), 1.8f, true);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
 
@@ -924,6 +934,7 @@ public partial class JiangqiaoLevel : Node2D
                 new Color(0.70f, 0.75f, 0.78f, 0.35f), 8f, true);
 
             // 芦苇：成簇的弯曲叶片，根部压在雪檐里（只到小腿高度，避免抢人物视线）
+            float windPush = Mathf.Sin(_windTime * 1.4f) * 12f;
             for (int i = 0; i < 34; i++)
             {
                 float x = -1350 + i * 330 + Mathf.Sin(i * 2.3f) * 52f;
@@ -932,7 +943,7 @@ public partial class JiangqiaoLevel : Node2D
                 for (int b = 0; b < 8; b++)
                 {
                     float dx = (b - 4) * 3.4f + Mathf.Sin(b * 2.1f) * 1.6f;
-                    float lean = Mathf.Sin(i * 1.3f + b * 0.7f) * 15f + 5f;
+                    float lean = Mathf.Sin(i * 1.3f + b * 0.7f) * 15f + 5f + windPush * (0.5f + 0.5f * Mathf.Sin(i * 0.7f));
                     var root = new Vector2(x + dx, baseY);
                     var mid = new Vector2(x + dx * 1.3f + lean * 0.45f, baseY - h * 0.55f);
                     var tip = new Vector2(x + dx * 1.9f + lean, baseY - h - (b % 3) * 9f);
@@ -951,17 +962,19 @@ public partial class JiangqiaoLevel : Node2D
         private void Tree(float x, float baseY, float h, Color c, float w)
         {
             DrawLine(new Vector2(x, baseY), new Vector2(x + 4, baseY - h), c, w, true);
+            float sway = Mathf.Sin(_windTime * 0.9f + x * 0.018f) * 0.035f;
             for (int i = 0; i < 7; i++)
             {
                 float t = 0.28f + i * 0.10f;
                 float y = baseY - h * t;
                 float dir = i % 2 == 0 ? 1f : -1f;
                 float len = h * (0.30f - i * 0.022f);
+                DrawSetTransform(new Vector2(x + 3, y), sway * (1f + i * 0.15f), Vector2.One);
                 DrawLine(new Vector2(x + 3, y), new Vector2(x + 3 + dir * len, y - len * 0.55f), c, Mathf.Max(1.4f, w * 0.55f), true);
-                // 枝上的积雪
                 DrawLine(new Vector2(x + 6 + dir * len * 0.6f, y - len * 0.30f),
                     new Vector2(x + 6 + dir * len * 0.9f, y - len * 0.40f),
                     new Color(0.90f, 0.92f, 0.92f, 0.55f), Mathf.Max(1.2f, w * 0.4f), true);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
 
@@ -1273,27 +1286,31 @@ public partial class JiangqiaoLevel : Node2D
     {
         private struct Flake
         {
-            public float X, Y, Spd, Size, Sway, Depth;
+            public float X, Y, Spd, Size, Sway, Depth, Rot;
+            public bool Hex;
         }
 
         private readonly List<Flake> _flakes = new();
         public float Wind = 0.6f;
+        private float _gust;
 
         public override void _Ready()
         {
             var rng = new RandomNumberGenerator();
             rng.Seed = 20311104;
-            for (int i = 0; i < 120; i++)
+            for (int i = 0; i < 160; i++)
             {
                 float depth = rng.Randf();
                 _flakes.Add(new Flake
                 {
                     X = rng.Randf() * 1280f,
                     Y = rng.Randf() * 720f,
-                    Spd = 24f + depth * 70f,
-                    Size = 0.8f + depth * 2.3f,
+                    Spd = 22f + depth * 78f,
+                    Size = 0.6f + depth * 2.8f,
                     Sway = rng.Randf() * Mathf.Tau,
                     Depth = depth,
+                    Hex = depth > 0.78f,
+                    Rot = rng.Randf() * Mathf.Tau,
                 });
             }
         }
@@ -1313,11 +1330,14 @@ public partial class JiangqiaoLevel : Node2D
         {
             float f = (float)delta;
             float t = (float)Time.GetTicksMsec() / 1000f;
+            _gust = Mathf.Sin(t * 0.3f) * 0.4f + Mathf.Sin(t * 1.7f) * 0.15f;
             for (int i = 0; i < _flakes.Count; i++)
             {
                 var p = _flakes[i];
                 p.Y += p.Spd * f;
-                p.X += (-30f * Wind - p.Spd * 0.20f) * f + Mathf.Sin(t * 1.6f + p.Sway) * 10f * f;
+                float driftX = (-30f * Wind - p.Spd * 0.18f - _gust * 24f) * f + Mathf.Sin(t * 1.6f + p.Sway) * 12f * f;
+                p.X += driftX;
+                p.Rot += f * 0.8f * (1f + p.Depth);
                 if (p.Y > 730f) { p.Y = -10f; p.X = (p.X + 397f) % 1280f; }
                 if (p.X < -20f) p.X += 1300f;
                 if (p.X > 1300f) p.X -= 1300f;
@@ -1330,11 +1350,27 @@ public partial class JiangqiaoLevel : Node2D
         {
             foreach (var p in _flakes)
             {
-                float a = 0.25f + p.Depth * 0.45f;
-                DrawCircle(new Vector2(p.X, p.Y), p.Size, new Color(0.97f, 0.98f, 1f, a));
-                if (p.Depth > 0.7f)
-                    DrawLine(new Vector2(p.X, p.Y), new Vector2(p.X - p.Spd * 0.06f, p.Y - 2f),
-                        new Color(1, 1, 1, a * 0.5f), 1f, true);
+                float a = 0.28f + p.Depth * 0.5f;
+                if (p.Hex && p.Size > 1.5f)
+                {
+                    DrawSetTransform(new Vector2(p.X, p.Y), p.Rot, Vector2.One);
+                    var pts = new Vector2[6];
+                    for (int i = 0; i < 6; i++)
+                    {
+                        float ang = i * Mathf.Tau / 6f;
+                        pts[i] = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * p.Size;
+                    }
+                    DrawColoredPolygon(pts, new Color(0.97f, 0.99f, 1f, a));
+                    DrawPolyline(pts, new Color(1f, 1f, 1f, a * 0.7f), 0.8f, true);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                }
+                else
+                {
+                    DrawCircle(new Vector2(p.X, p.Y), p.Size, new Color(0.97f, 0.98f, 1f, a));
+                    if (p.Depth > 0.7f)
+                        DrawLine(new Vector2(p.X, p.Y), new Vector2(p.X - 4f, p.Y + 3f),
+                            new Color(1, 1, 1, a * 0.45f), 1f, true);
+                }
             }
         }
     }
