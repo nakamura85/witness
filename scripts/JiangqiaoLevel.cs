@@ -21,7 +21,7 @@ public partial class JiangqiaoLevel : Node2D
     public const float WorldW = 5200f;
     public const float GroundY = 620f;
 
-    private FieldPlayer _player;
+    internal FieldPlayer _player;
     private GroundShadow _playerShadow;
     private Camera2D _cam;
     private Node2D _game;
@@ -30,7 +30,7 @@ public partial class JiangqiaoLevel : Node2D
     private ColorRect _flash;
     private ColorRect _blackout;
     private Backdrop[] _layers;
-    private readonly List<EnemySoldier> _enemies = new();
+    internal readonly List<EnemySoldier> _enemies = new();
     private readonly List<Testimony> _testimonies = new();
     private TracerFx _fx;
     private SnowScreen _snow;
@@ -121,6 +121,9 @@ public partial class JiangqiaoLevel : Node2D
 
         // 尸体（GroundArt 之上、玩家之下）：每场战役都有阵亡者
         AddCorpses();
+
+        // 脚印层（ZIndex 0，在 GroundArt(-1) 之上、玩家之前 AddChild → 画在玩家下面）
+        _game.AddChild(new FootprintLayer(this) { ZIndex = 0 });
 
         // 掩体沙袋在人之前（ZIndex 5，高于玩家 0 与敌兵 2），
         // 经过时人从垛子后面过，而不是站在垛子顶上。
@@ -1473,26 +1476,33 @@ public partial class JiangqiaoLevel : Node2D
         private readonly List<Flake> _flakes = new();
         public float Wind = 0.6f;
         private float _gust;
+        private float _blizzardT;        // 当前暴风雪剩余时间（0 = 无暴风雪）
+        private float _nextBlizzard;     // 下次暴风雪倒计时
+        private float _blizzardIntensity; // 0~1 插值，控制过渡
+        public float Blizzard => _blizzardIntensity;  // 外部可读取（远景/UI 变暗）
 
         public override void _Ready()
         {
             var rng = new RandomNumberGenerator();
             rng.Seed = 20311104;
-            for (int i = 0; i < 160; i++)
+            for (int i = 0; i < 160; i++) AddFlake(rng);
+            _nextBlizzard = 25f + rng.Randf() * 20f;  // 开局 25~45 秒后第一次暴风雪
+        }
+
+        private void AddFlake(RandomNumberGenerator rng)
+        {
+            float depth = rng.Randf();
+            _flakes.Add(new Flake
             {
-                float depth = rng.Randf();
-                _flakes.Add(new Flake
-                {
-                    X = rng.Randf() * 1280f,
-                    Y = rng.Randf() * 720f,
-                    Spd = 22f + depth * 78f,
-                    Size = 0.6f + depth * 2.8f,
-                    Sway = rng.Randf() * Mathf.Tau,
-                    Depth = depth,
-                    Hex = depth > 0.78f,
-                    Rot = rng.Randf() * Mathf.Tau,
-                });
-            }
+                X = rng.Randf() * 1280f,
+                Y = rng.Randf() * 720f,
+                Spd = 22f + depth * 78f,
+                Size = 0.6f + depth * 2.8f,
+                Sway = rng.Randf() * Mathf.Tau,
+                Depth = depth,
+                Hex = depth > 0.78f,
+                Rot = rng.Randf() * Mathf.Tau,
+            });
         }
 
         public void Burst()
@@ -1510,12 +1520,50 @@ public partial class JiangqiaoLevel : Node2D
         {
             float f = (float)delta;
             float t = (float)Time.GetTicksMsec() / 1000f;
+
+            // 暴风雪计时
+            _nextBlizzard -= f;
+            if (_blizzardT > 0f)
+            {
+                _blizzardT -= f;
+                if (_blizzardT <= 0f)
+                {
+                    _blizzardT = 0f;
+                    _nextBlizzard = 20f + GD.Randf() * 25f;  // 暴风雪后冷却 20~45 秒
+                }
+            }
+            else if (_nextBlizzard <= 0f)
+            {
+                _blizzardT = 8f + GD.Randf() * 7f;  // 暴风雪持续 8~15 秒
+            }
+
+            // 暴风雪强度平滑过渡
+            float targetBlizzard = _blizzardT > 0f ? 1f : 0f;
+            _blizzardIntensity = Mathf.Lerp(_blizzardIntensity, targetBlizzard, f * 0.6f);
+
+            // 动态增减雪粒（暴风雪时翻倍到 ~320 颗）
+            int targetCount = _blizzardIntensity > 0.3f ? 320 : 160;
+            if (_flakes.Count < targetCount)
+            {
+                var rng = new RandomNumberGenerator();
+                rng.Randomize();
+                for (int i = _flakes.Count; i < targetCount; i++) AddFlake(rng);
+            }
+            else if (_flakes.Count > targetCount)
+            {
+                _flakes.RemoveRange(targetCount, _flakes.Count - targetCount);
+            }
+
+            // 阵风 + 暴风雪额外风
             _gust = Mathf.Sin(t * 0.3f) * 0.4f + Mathf.Sin(t * 1.7f) * 0.15f;
+            float extraWind = _blizzardIntensity * 2.4f;  // 暴风雪时风速再 +2.4
             for (int i = 0; i < _flakes.Count; i++)
             {
                 var p = _flakes[i];
-                p.Y += p.Spd * f;
-                float driftX = (-30f * Wind - p.Spd * 0.18f - _gust * 24f) * f + Mathf.Sin(t * 1.6f + p.Sway) * 12f * f;
+                float spdMul = 1f + _blizzardIntensity * 1.5f;
+                p.Y += p.Spd * spdMul * f;
+                float driftX = (-30f * (Wind + extraWind) - p.Spd * 0.18f - _gust * (24f + _blizzardIntensity * 40f)) * f
+                    + Mathf.Sin(t * 1.6f + p.Sway) * 12f * f * (1f + _blizzardIntensity);
                 p.X += driftX;
                 p.Rot += f * 0.8f * (1f + p.Depth);
                 if (p.Y > 730f) { p.Y = -10f; p.X = (p.X + 397f) % 1280f; }
@@ -1528,9 +1576,17 @@ public partial class JiangqiaoLevel : Node2D
 
         public override void _Draw()
         {
+            // 暴风雪时整屏加一层淡白雾（远景被吃掉）
+            if (_blizzardIntensity > 0.15f)
+            {
+                var s = GetViewportRect().Size;
+                var r = new Color(0.72f, 0.77f, 0.80f, 0.18f * _blizzardIntensity);
+                DrawRect(new Rect2(0, 0, s.X, s.Y), r);
+            }
             foreach (var p in _flakes)
             {
                 float a = 0.28f + p.Depth * 0.5f;
+                a *= (1f + _blizzardIntensity * 0.5f);  // 暴风雪时雪花更亮
                 if (p.Hex && p.Size > 1.5f)
                 {
                     DrawSetTransform(new Vector2(p.X, p.Y), p.Rot, Vector2.One);
@@ -1548,7 +1604,7 @@ public partial class JiangqiaoLevel : Node2D
                 {
                     DrawCircle(new Vector2(p.X, p.Y), p.Size, new Color(0.97f, 0.98f, 1f, a));
                     if (p.Depth > 0.7f)
-                        DrawLine(new Vector2(p.X, p.Y), new Vector2(p.X - 4f, p.Y + 3f),
+                        DrawLine(new Vector2(p.X, p.Y), new Vector2(p.X - 4f - _blizzardIntensity * 6f, p.Y + 3f),
                             new Color(1, 1, 1, a * 0.45f), 1f, true);
                 }
             }
@@ -1598,7 +1654,8 @@ public partial class JiangqiaoLevel : Node2D
 public partial class EnemySoldier : Node2D
 {
     private readonly JiangqiaoLevel _level;
-    private SpriteActor _fig;
+    public SpriteActor _fig;
+    public float _prevPhase;
     private float _fireCd;
     private float _phase;
     private float _retreatT;
