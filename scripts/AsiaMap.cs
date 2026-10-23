@@ -1074,7 +1074,7 @@ public partial class FieldNoteUi : CanvasLayer
         center.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(center);
 
-        var panel = new PanelContainer { CustomMinimumSize = new Vector2(940, 560) };
+        var panel = new PanelContainer { CustomMinimumSize = new Vector2(940, 0) };
         var style = new StyleBoxFlat
         {
             BgColor = new Color(0.905f, 0.855f, 0.735f),
@@ -1084,10 +1084,12 @@ public partial class FieldNoteUi : CanvasLayer
             ShadowColor = new Color(0, 0, 0, 0.45f), ShadowSize = 14, ShadowOffset = new Vector2(6, 8),
         };
         panel.AddThemeStyleboxOverride("panel", style);
+        panel.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
+        panel.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
         center.AddChild(panel);
 
         var box = new VBoxContainer();
-        box.AddThemeConstantOverride("separation", 12);
+        box.AddThemeConstantOverride("separation", 14);
         panel.AddChild(box);
 
         var date = new Label { Text = _date };
@@ -1114,6 +1116,7 @@ public partial class FieldNoteUi : CanvasLayer
             var l = new Label { Text = p };
             l.AddThemeFontSizeOverride("font_size", 16);
             l.AddThemeColorOverride("font_color", new Color(0.22f, 0.19f, 0.16f));
+            l.AddThemeConstantOverride("line_spacing", 4);
             l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
             l.CustomMinimumSize = new Vector2(860, 0);
             box.AddChild(l);
@@ -1122,6 +1125,7 @@ public partial class FieldNoteUi : CanvasLayer
         var source = new Label { Text = _source };
         source.AddThemeFontSizeOverride("font_size", 13);
         source.AddThemeColorOverride("font_color", new Color(0.45f, 0.40f, 0.33f));
+        source.AddThemeConstantOverride("line_spacing", 3);
         source.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         source.CustomMinimumSize = new Vector2(860, 0);
         box.AddChild(source);
