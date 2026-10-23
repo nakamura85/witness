@@ -1,4 +1,4 @@
-start 11:26:45
+start 14:53:33
 click 我明白了
 px300=1b1d22ff
 click 新的见证
@@ -23,12 +23,12 @@ px300=8e999fff
 px300=8e999fff
 px300=8e999fff
 px300=8e999fff
-px300=514f4cff
+px300=504f4cff
 px300=8e999fff
 px300=8e999fff
 px300=697884ff
 px300=8e999fff
-px300=8e999fff
+px300=697884ff
 px300=5a6267ff
 px300=8e999fff
 px300=8e999fff
