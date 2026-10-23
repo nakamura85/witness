@@ -4,9 +4,31 @@
 
 一款 **2D 叙事严肃游戏**（Godot 4.7 .NET + C#）。
 
-## 视觉修复 Changelog（v1.6b → v1.6l · 2026-10-23）
+## 视觉修复 Changelog（v1.6b → v1.6m · 2026-10-23）
 
-> 以下修复全部实机截图验证（自动化巡游脚本 `scripts/VerifyTour.cs` · 2026-10-23 21:38 巡游完整跑完 `done`，26 张截图同名覆盖更新，页面内图片即最新实机画面）。
+> 以下修复全部实机截图验证（自动化巡游脚本 `scripts/VerifyTour.cs` · 2026-10-23 22:13 巡游完整跑完 `done`，26 张截图同名覆盖更新，页面内图片即最新实机画面）。
+
+### ✅ 已修复 · 尸体握枪 + 树带单一雷同（v1.6m）
+
+**问题一：尸体握枪**——立绘是「水平端枪瞄准」姿势，旋转 90° 躺倒后枪就竖直朝天，看起来像尸体还握着枪。但人死亡后武器会脱手掉落，且掉落距离随重力与撞击力度各不相同。
+
+**修复**（`tools/erase_rifle.py` + `scripts/CorpseActor.cs`）：
+- 用 PIL 对两张士兵立绘做**整条枪带垂直填充**，生成尸体专用无枪立绘 `soldier_ija_corpse.jpg` / `soldier_na_corpse.jpg`（双手保留、躯干连续）
+- `CorpseActor` 改用 `*_corpse` 立绘，并新增 `DrawDroppedRifle()`：掉落的步枪画在尸体旁雪地上——掉落距离 45-115px 随机（重力+撞击不同）、枪身 ±32° 歪斜、下缘半埋雪脊；掉落位置基于种子固定，同一具尸体每次一致
+
+**问题二：树带单一雷同**——满屏一模一样的三角形冷杉，高度还一致。
+
+**史实考证**：1931 年 11 月的嫩江江桥（黑龙江泰来，松嫩平原）**没有成片针叶林**；当地是落叶阔叶树（蒙古黄榆、小叶杨、旱柳——11 月叶子已掉光只剩枯枝）+ 沿江灌木柳丛 + 零星白桦。
+
+**修复**（`scripts/JiangqiaoLevel.cs`）：删除整个 `Fir()`，新增：
+- `BareTree()`：三段弯曲主干 + 每棵随机伸 1-3 根枝桠、二级小枝，高度 55-118px 大差异、±7° 倾斜、根部积雪
+- `WillowClump()`：7 根拱形细枝的灌木柳丛（24-48px）
+- 中景树带按 22% 白桦 / 26% 阔叶树 / 52% 枯树混合，间距 90-150px 随机、±8° 倾斜、35-130px 高度差
+- 近景 15% 位置留空 + 三棵 110-160px 孤树打破节奏
+
+**验证点**：v08/v12/v14/v22 实机截图中尸体旁不再有竖直的枪（枪躺在雪里），树带形态各异无雷同冷杉。
+
+---
 
 ### ✅ 已修复 · 进关卡必冻死（近景树死循环画爆渲染服务器，commit v1.6l）
 
@@ -298,19 +320,19 @@ CorpseActor (Node2D)      → Position=尸体地面位置, Rotation=0（不旋�
 
 **关卡开场 · 四层视差雪原**
 
-![关卡开场](docs/screenshots/v08_level_start.png?v=1.6l)
+![关卡开场](docs/screenshots/v08_level_start.png?v=1.6m)
 
 **行走动画 · 粗墨描边 + 平涂棉军装 + 卡通高光**
 
-![行走](docs/screenshots/v14_walk_a.png?v=1.6l)
+![行走](docs/screenshots/v14_walk_a.png?v=1.6m)
 
 **敌兵推进 · 双关东军（前后错位 + 景深缩放）**
 
-![敌兵](docs/screenshots/v12_enemy_advance.png?v=1.6l)
+![敌兵](docs/screenshots/v12_enemy_advance.png?v=1.6m)
 
 **桥头堡 · 掩体沙袋前景层（ZIndex 5），人从掩体后经过**
 
-![桥头堡](docs/screenshots/v22_bridge.png?v=1.6l)
+![桥头堡](docs/screenshots/v22_bridge.png?v=1.6m)
 
 ## 如何运行（小白版，3 步）
 

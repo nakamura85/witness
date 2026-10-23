@@ -60,8 +60,10 @@ public partial class CorpseActor : Node2D
 
         string texName = faction switch
         {
-            Faction.IJA => "soldier_ija",
-            Faction.NortheastArmy => "soldier_na",
+            // 尸体专用立绘（*_corpse）：武器已从手中移除——
+            // 人死亡时枪会掉落，不会还握在手里；掉落的步枪由 DrawDroppedRifle 画在尸体旁。
+            Faction.IJA => "soldier_ija_corpse",
+            Faction.NortheastArmy => "soldier_na_corpse",
             _ => "refugee_man",
         };
 
@@ -112,8 +114,43 @@ public partial class CorpseActor : Node2D
 
     public override void _Draw()
     {
+        DrawDroppedRifle();
         DrawBlood();
         DrawTears();
+    }
+
+    /// <summary>
+    /// 掉落的步枪：人死后武器脱手落地，掉落距离由身高/倒地姿态与撞击力度决定（45-115px 不等），
+    /// 枪身近水平歪斜（±32°），半埋进雪里。基于 _seed 固定，同一具尸体每次绘制一致。
+    /// </summary>
+    private void DrawDroppedRifle()
+    {
+        if (_faction == Faction.Refugee) return;
+        var rng = new RandomNumberGenerator();
+        rng.Seed = (ulong)(Mathf.RoundToInt(_seed * 1000000f) + 7);
+
+        float dropDist = rng.RandfRange(45f, 115f);
+        float side = rng.Randf() > 0.35f ? 1f : -1f;   // 多数落在身体一侧，少数滑到另一侧
+        float rx = side * dropDist;
+        float ry = rng.RandfRange(4f, 13f);            // 贴地：枪身半埋进雪
+        float ang = rng.RandfRange(-0.56f, 0.56f);
+
+        DrawSetTransform(new Vector2(rx, ry), ang, Vector2.One);
+        var wood = new Color(0.34f, 0.25f, 0.17f, 0.96f);
+        var metal = new Color(0.24f, 0.26f, 0.29f, 0.96f);
+        // 枪托（弯形五边形）
+        var stock = new[]
+        {
+            new Vector2(-36f, 0f), new Vector2(-14f, -4.6f), new Vector2(-8f, -1.2f),
+            new Vector2(-10f, 3.4f), new Vector2(-34f, 4.6f),
+        };
+        DrawColoredPolygon(stock, wood);
+        DrawRect(new Rect2(-8f, -3.4f, 46f, 3.8f), metal);   // 枪管+机匣
+        DrawRect(new Rect2(8f, -5.2f, 10f, 2.4f), metal);    // 表尺/准星座
+        DrawCircle(new Vector2(1.5f, 0.8f), 1.7f, metal);    // 拉栓柄
+        // 半埋雪：枪下缘一道雪脊（在雪地里躺了一段时间）
+        DrawRect(new Rect2(-32f, 2.6f, 64f, 2.8f), new Color(0.93f, 0.95f, 0.96f, 0.82f));
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 
     private void DrawBlood()

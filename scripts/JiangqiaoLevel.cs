@@ -947,22 +947,25 @@ public partial class JiangqiaoLevel : Node2D
                 DrawRect(new Rect2(chimX - 5f, chimTop - 3f, 10f, 4f), new Color(0.94f, 0.96f, 0.96f));
             }
 
-            // 枯树线 + 白桦混排（嫩江 11 月白桦刚落叶，白树干配雪非常显眼）
-            // 树间距随机化（90-150px，不是固定 108），加 ±8° 随机倾斜，高度 ±15px 变化
+            // 枯树线（史实：嫩江江桥地处松嫩平原，当地是蒙古黄榆/小叶杨/旱柳等落叶阔叶树，
+            // 11 月叶子全部落光只剩枝桠；白桦零星混排，平原没有成片针叶林）
+            // 树间距随机化（90-150px），高度差异 ±50%，每棵形态随机
             var midTreeRng = new RandomNumberGenerator();
             midTreeRng.Randomize();
             float tx = -1400f;
             while (tx < WorldW + 1200)
             {
-                float gap = 90f + midTreeRng.Randf() * 60f;  // 随机间距 90-150px
-                float rot = midTreeRng.RandfRange(-8f, 8f);    // 随机倾斜 ±8°
-                float hBase = 32f + midTreeRng.Randf() * 40f; // 随机高度
-                if (midTreeRng.Randf() < 0.25f)
+                float gap = 90f + midTreeRng.Randf() * 60f;   // 随机间距 90-150px
+                float rot = midTreeRng.RandfRange(-8f, 8f);   // 随机倾斜 ±8°
+                float hBase = 32f + midTreeRng.Randf() * 40f; // 随机高度 32-72px
+                float kind = midTreeRng.Randf();
+                if (kind < 0.22f)
                     Birch(tx, 578, hBase * 1.15f, 0.62f);
-                else if (midTreeRng.Randf() < 0.5f)
+                else if (kind < 0.48f)
                     Tree(tx, 578, hBase * 0.9f, new Color(0.34f, 0.36f, 0.36f, 0.55f), 2.2f);
                 else
-                    Fir(tx, 580, hBase + 14, new Color(0.36f, 0.42f, 0.43f, 0.62f), 0.7f, rot);
+                    BareTree(tx, 578, hBase * (1.1f + midTreeRng.Randf() * 0.9f),
+                        new Color(0.33f, 0.34f, 0.33f, 0.62f), 2.6f, rot);
                 tx += gap;
             }
 
@@ -987,30 +990,36 @@ public partial class JiangqiaoLevel : Node2D
                         20f + i * 9f, new Color(0.30f, 0.29f, 0.28f, 0.055f));
         }
 
-        // —— 近景：矮冷杉带、雪坎、铁丝网、废车（一律低于人物腰部，绝不遮脸）——
+        // —— 近景：枯树带、灌木柳丛、雪坎、铁丝网、废车（一律低于人物腰部，绝不遮脸）——
         private void DrawNear()
         {
-            // 近景：矮冷杉带、雪坎、铁丝网、废车（一律低于人物腰部，绝不遮脸）
+            // 近景树带（史实：松嫩平原 11 月的落叶枯树与沿江灌木柳丛——
+            // 高度 55-118px 互不相同，倾斜随机，且留有 15% 空缺：平原上树木本就稀疏）
             var nearRng = new RandomNumberGenerator();
             nearRng.Randomize();
             float nx = -1400f;
             while (nx < WorldW + 1200)
             {
-                float gap = 280f + nearRng.Randf() * 140f;  // 随机间距 280-420px
-                float nRot = nearRng.RandfRange(-6f, 6f);    // 随机倾斜 ±6°
-                float nh = 48f + nearRng.Randf() * 22f;     // 随机高度 48-70px
-                Fir(nx, 672, nh, new Color(0.20f, 0.25f, 0.26f), 0.95f, nRot);
-                DrawSetTransform(new Vector2(nx, 670), 0, new Vector2(2f, 0.30f));
-                DrawCircle(Vector2.Zero, 20f, new Color(0.95f, 0.96f, 0.96f, 0.8f));
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                float gap = 280f + nearRng.Randf() * 140f;   // 随机间距 280-420px
+                float kind = nearRng.Randf();
+                if (kind < 0.5f)
+                {
+                    float nh = 55f + nearRng.Randf() * 63f;      // 高度差异大
+                    float nRot = nearRng.RandfRange(-7f, 7f);    // 随机倾斜 ±7°
+                    BareTree(nx, 672, nh, new Color(0.23f, 0.22f, 0.20f), 4.4f, nRot);
+                    DrawSetTransform(new Vector2(nx, 670), 0, new Vector2(2f, 0.30f));
+                    DrawCircle(Vector2.Zero, 20f, new Color(0.95f, 0.96f, 0.96f, 0.8f));
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                }
+                else if (kind < 0.85f)
+                {
+                    WillowClump(nx, 672, 24f + nearRng.Randf() * 24f);
+                }
                 nx += gap;  // 随机间距推进（缺失会导致死循环画树直到渲染服务器爆掉）
             }
-            // 两棵略高的枯树，打破规则性（基线同样压在画面下缘）
-            for (int i = 0; i < 7; i++)
-            {
-                float x = -1200 + i * 1180;
-                Tree(x, 676, 86 + (i % 3) * 9, new Color(0.24f, 0.25f, 0.24f), 5f);
-            }
+            // 三棵更高的孤树（110-160px，打破节奏，互不相同）
+            foreach (var (tx2, th) in new[] { (-820f, 138f), (2460f, 112f), (4900f, 158f) })
+                BareTree(tx2, 676, th, new Color(0.24f, 0.23f, 0.21f), 5.4f, tx2 > 0 ? 4f : -5f);
 
             // 雪坎：软边（三层同心椭圆），不是一个个白泡泡
             for (int i = 0; i < 22; i++)
@@ -1063,72 +1072,69 @@ public partial class JiangqiaoLevel : Node2D
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 
-        /// <summary>冷杉：塔形树冠 + 雪压枝线。</summary>
-        private void Fir(float x, float baseY, float h, Color c, float alpha, float rotDeg = 0f)
+        /// <summary>
+        /// 落叶枯树（史实：嫩江平原的蒙古黄榆/小叶杨，11 月阔叶树全部落叶只剩枝桠）：
+        /// 弯曲主干 + 分叉枝桠 + 顶梢，弯度/分枝/高度逐棵随机，绝无两棵相同。
+        /// </summary>
+        private void BareTree(float x, float baseY, float h, Color c, float w, float leanDeg = 0f)
         {
-            // 冷杉/云杉：冬天（嫩江 11 月）针叶仍保持深绿色，层间挂雪。
-            // rotDeg：树的倾斜角度（风雪压弯/生长倾斜，±8° 以内自然）
-            Color fill = new Color(c, alpha);
-            Color darkFill = new Color(c.R * 0.55f, c.G * 0.55f, c.B * 0.55f, alpha);
-            Color trunkFill = new Color(0.32f, 0.26f, 0.20f, alpha * 0.9f);
-            Color snow = new Color(0.94f, 0.96f, 0.97f, alpha);
+            float sway = Mathf.Sin(_windTime * 0.9f + x * 0.018f) * 0.03f + Mathf.DegToRad(leanDeg);
+            DrawSetTransform(new Vector2(x, baseY), sway, Vector2.One);
 
-            float sway = Mathf.Sin(_windTime * 1.1f + x * 0.015f) * 0.03f + Mathf.DegToRad(rotDeg);
-            DrawSetTransform(new Vector2(x, 0), sway, Vector2.One);
-
-            // 树干（4 点梯形多边形 + 墨边，比之前的单线条粗壮明显）
-            float trunkTop = baseY - h * 0.32f;
-            var trunkPoly = new[]
+            // 弯主干：3 段折线，越往上越细，弯向随 x 变化（每棵弯法不同）
+            var nodes = new Vector2[4];
+            nodes[0] = Vector2.Zero;
+            for (int i = 1; i <= 3; i++)
             {
-                new Vector2(-1.8f, baseY),
-                new Vector2(-0.8f, trunkTop),
-                new Vector2(0.8f, trunkTop),
-                new Vector2(1.8f, baseY),
-            };
-            InkStyle.PenStroke(this, trunkPoly, trunkFill, InkStyle.InkColor, InkStyle.ThinStroke);
-
-            // 连续圆锥树冠（7 点轮廓，整体下宽上窄的自然圆锥，不是分段三角堆！）
-            float crownBottomY = trunkTop;
-            float crownTopY = baseY - h * 0.97f;
-            float crownBottomW = h * 0.46f;
-            var crown = new[]
-            {
-                new Vector2(-crownBottomW * 0.15f, crownBottomY + 1f),
-                new Vector2(-crownBottomW, crownBottomY - h * 0.04f),
-                new Vector2(-crownBottomW * 0.38f, crownBottomY - h * 0.22f),
-                new Vector2(0f, crownTopY),
-                new Vector2(crownBottomW * 0.38f, crownBottomY - h * 0.22f),
-                new Vector2(crownBottomW, crownBottomY - h * 0.04f),
-                new Vector2(crownBottomW * 0.15f, crownBottomY + 1f),
-            };
-            InkStyle.PenStroke(this, crown, fill, InkStyle.InkColor, InkStyle.BoldStroke);
-
-            // 树冠内部 5 条横向层线（模拟针叶层叠，暗绿色细线）
-            int layerCount = 6;
-            for (int k = 1; k < layerCount; k++)
-            {
-                float t = (float)k / layerCount;
-                float ly = crownBottomY - (crownBottomY - crownTopY) * t;
-                float lw = crownBottomW * (1f - t * 0.92f);
-                float sag = Mathf.Sin(k * 0.7f + _windTime * 0.5f) * h * 0.006f;
-                DrawLine(
-                    new Vector2(-lw * 0.85f, ly + h * 0.012f + sag),
-                    new Vector2(lw * 0.85f, ly + h * 0.012f + sag),
-                    darkFill, 1.3f, true);
+                float t = i / 3f;
+                float bend = Mathf.Sin(x * 0.05f + i * 2.3f) * h * 0.055f;
+                nodes[i] = new Vector2(bend * t + Mathf.Sign(bend) * t * t * h * 0.04f, -h * t);
             }
+            for (int i = 0; i < 3; i++)
+                DrawLine(nodes[i], nodes[i + 1], c, w * (1f - i * 0.24f), true);
+            // 顶梢
+            DrawLine(nodes[3], nodes[3] + new Vector2(Mathf.Sin(x * 1.3f) * 5f, -h * 0.12f),
+                c, w * 0.26f, true);
 
-            // 层线之间挂雪（3 条亮白色细弧，冬天冷杉的积雪感）
-            for (int k = 1; k < layerCount; k += 2)
+            // 枝桠：主干各节点向两侧伸出（1-3 根），带二级小枝；长短角度逐棵不同
+            for (int i = 1; i < nodes.Length; i++)
             {
-                float t = (float)k / layerCount;
-                float ly = crownBottomY - (crownBottomY - crownTopY) * t - h * 0.008f;
-                float lw = crownBottomW * (1f - t * 0.92f);
-                DrawLine(
-                    new Vector2(-lw * 0.58f, ly),
-                    new Vector2(lw * 0.58f, ly),
-                    snow, 2.2f, true);
+                float t = i / (float)(nodes.Length - 1);
+                int branches = 1 + (int)(Mathf.Abs(Mathf.Sin(x * 0.7f + i * 1.9f)) * 1.9f) + (i == 3 ? 1 : 0);
+                for (int b = 0; b < branches; b++)
+                {
+                    float dir = (i + b) % 2 == 0 ? 1f : -1f;
+                    float len = h * (0.44f - t * 0.20f) *
+                        (0.65f + 0.7f * Mathf.Abs(Mathf.Sin(x + i * 3.1f + b * 2.4f)));
+                    var tip = nodes[i] + new Vector2(dir * len,
+                        -len * (0.35f + 0.3f * Mathf.Abs(Mathf.Cos(x + b))));
+                    DrawLine(nodes[i], tip, c, Mathf.Max(1.4f, w * 0.42f * (1f - t * 0.35f)), true);
+                    // 二级小枝 2 根（一上挑一下垂，枯枝的自然乱感）
+                    DrawLine(tip, tip + new Vector2(dir * len * 0.38f, -len * 0.16f),
+                        c, Mathf.Max(1f, w * 0.22f), true);
+                    DrawLine(tip, tip + new Vector2(dir * len * 0.12f, len * 0.24f),
+                        c, Mathf.Max(0.9f, w * 0.18f), true);
+                }
             }
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        }
 
+        /// <summary>灌木柳丛（史实：旱柳沿江洼地成丛）：贴地一蓬拱形细枝 + 根部积雪。</summary>
+        private void WillowClump(float x, float baseY, float h)
+        {
+            var c = new Color(0.31f, 0.28f, 0.22f);
+            DrawSetTransform(new Vector2(x, baseY), 0, Vector2.One);
+            for (int b = 0; b < 7; b++)
+            {
+                float t = b / 6f - 0.5f;
+                float tipX = t * h * 1.6f + Mathf.Sin(b * 2.3f + x) * 3f;
+                float tipY = -h * (0.55f + 0.45f * Mathf.Abs(Mathf.Cos(b * 1.1f + x * 0.01f)));
+                var stem = Curved(new Vector2(0, 0), new Vector2(tipX * 0.5f, tipY * 1.2f),
+                    new Vector2(tipX, tipY), 4);
+                DrawPolyline(stem, c, 1.5f, true);
+            }
+            DrawSetTransform(new Vector2(x, baseY + 1f), 0, new Vector2(1.7f, 0.28f));
+            DrawCircle(Vector2.Zero, 12f, new Color(0.95f, 0.96f, 0.97f, 0.75f));
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 
