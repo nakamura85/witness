@@ -1,6 +1,6 @@
-start 09:28:14
+start 09:43:55
 click 我明白了
-px300=c0b390ff
+px300=c0b28eff
 click 新的见证
 px300=c9cfcbff
 click 纸条 01
@@ -19,11 +19,11 @@ px300=161514ff
 px300=8e999fff
 player=True cam=True
 px300=8e999fff
+px300=a5acadff
 px300=8e999fff
 px300=8e999fff
 px300=8e999fff
-px300=8e999fff
-px300=4b4a48ff
+px300=4c4a46ff
 px300=8e999fff
 px300=8e999fff
 px300=697884ff
