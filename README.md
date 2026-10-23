@@ -1,4 +1,4 @@
-# 见证者（Witness）· v0.6 手绘漫画风试玩版
+﻿# 见证者（Witness）· v0.6 手绘漫画风试玩版
 
 > 二战的历史不是从 1937 年才开始的。要还原事实，就得从源头讲起——1895 年的马关条约、1910 年的日韩合并条约，殖民如何一步步吞下朝鲜半岛与台湾地区，直到 1931 年九一八、1937 年的南京。
 
@@ -278,39 +278,39 @@ CorpseActor (Node2D)      → Position=尸体地面位置, Rotation=0（不旋�
 
 **标题 · 见证者（手绘漫画风，程序化绘制，无贴图）**
 
-![标题](docs/screenshots/v00_title.png)
+![标题](docs/screenshots/v00_title.png?v=1.6l)
 
 **东亚大地图 · 时间线 Hub（layer by layer 视差：纸张底 / 地理 / 航线箭头 / 纸条）**
 
-![大地图](docs/screenshots/v01_map.png)
+![大地图](docs/screenshots/v01_map.png?v=1.6l)
 
 **纸条档案 01 · 汉城《日韩合并条约》1910**
 
-![纸条 01](docs/screenshots/v02_note_korea.png)
+![纸条 01](docs/screenshots/v02_note_korea.png?v=1.6l)
 
 **纸条档案 02 · 台北《马关条约》割台 1895**
 
-![纸条 02](docs/screenshots/v03_note_taiwan.png)
+![纸条 02](docs/screenshots/v03_note_taiwan.png?v=1.6l)
 
 **进军箭头生长完成 · 汉城 → 鸭绿江 → 沈阳 → 嫩江江桥**
 
-![进军箭头](docs/screenshots/v04_map_arrows.png)
+![进军箭头](docs/screenshots/v04_map_arrows.png?v=1.6l)
 
 **关卡开场 · 四层视差雪原**
 
-![关卡开场](docs/screenshots/v08_level_start.png)
+![关卡开场](docs/screenshots/v08_level_start.png?v=1.6l)
 
 **行走动画 · 粗墨描边 + 平涂棉军装 + 卡通高光**
 
-![行走](docs/screenshots/v14_walk_a.png)
+![行走](docs/screenshots/v14_walk_a.png?v=1.6l)
 
 **敌兵推进 · 双关东军（前后错位 + 景深缩放）**
 
-![敌兵](docs/screenshots/v12_enemy_advance.png)
+![敌兵](docs/screenshots/v12_enemy_advance.png?v=1.6l)
 
 **桥头堡 · 掩体沙袋前景层（ZIndex 5），人从掩体后经过**
 
-![桥头堡](docs/screenshots/v22_bridge.png)
+![桥头堡](docs/screenshots/v22_bridge.png?v=1.6l)
 
 ## 如何运行（小白版，3 步）
 
