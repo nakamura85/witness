@@ -1432,20 +1432,43 @@ public partial class JiangqiaoLevel : Node2D
             // 远端桁架（偏后，颜色淡 + 墨边更细）——完好
             Truss(start + 40, end, top + 26, bottom - 4, new Color(0.28f, 0.32f, 0.34f, 0.55f), InkStyle.InkSoft, 3.4f, null);
 
-            // 桥墩：先墨边描框再填混凝土色
+            // 桥墩：混凝土 + 破冰棱（冬季嫩江结冰需要尖端破冰）
             var damagedPiers = new HashSet<int>(_pierDamageIdx);
             int pi = 0;
             for (float px = 4540; px <= 5140; px += 200, pi++)
             {
-                InkStyle.InkRect(this, new Rect2(px - 15, GroundY + 2, 30, 156),
+                // 墩身（混凝土矩形 + 墨边）
+                InkStyle.InkRect(this, new Rect2(px - 15, GroundY + 2, 30, 120),
                     new Color(0.38f, 0.40f, 0.42f), InkStyle.InkSoft, InkStyle.Stroke);
-                // 桥墩底部承台
-                InkStyle.InkRect(this, new Rect2(px - 25, GroundY + 96, 50, 11),
-                    new Color(0.32f, 0.34f, 0.36f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                // 桥面处的混凝土顶
-                InkStyle.InkRect(this, new Rect2(px - 20, GroundY + 3, 40, 8),
-                    new Color(0.85f, 0.87f, 0.88f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                // 炮弹烧黑的弹痕（直接用黑色 DrawCircle 叠）
+                // 墩身阴影面（右侧）
+                var pierShadow = new[]
+                {
+                    new Vector2(px + 12, GroundY + 2),
+                    new Vector2(px + 15, GroundY + 2),
+                    new Vector2(px + 15, GroundY + 122),
+                    new Vector2(px + 12, GroundY + 122),
+                };
+                DrawColoredPolygon(pierShadow, new Color(0.24f, 0.26f, 0.28f, 0.7f));
+                // 底部破冰棱（三角形尖端，向下30px）
+                var iceBreaker = new[]
+                {
+                    new Vector2(px - 20, GroundY + 118),
+                    new Vector2(px - 15, GroundY + 118),
+                    new Vector2(px - 15, GroundY + 145),
+                    new Vector2(px, GroundY + 160),       // 尖端！
+                    new Vector2(px + 15, GroundY + 145),
+                    new Vector2(px + 15, GroundY + 118),
+                    new Vector2(px + 20, GroundY + 118),
+                };
+                InkStyle.PenStroke(this, iceBreaker,
+                    new Color(0.34f, 0.36f, 0.38f), InkStyle.InkSoft, InkStyle.Stroke);
+                // 墩顶帽梁（桥面处的混凝土帽，接承重梁）
+                InkStyle.InkRect(this, new Rect2(px - 22, GroundY - 6, 44, 8),
+                    new Color(0.82f, 0.85f, 0.86f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                // 墩顶积雪（帽梁上一点雪）
+                DrawLine(new Vector2(px - 20, GroundY - 6), new Vector2(px + 20, GroundY - 6),
+                    new Color(0.94f, 0.96f, 0.96f), 2.5f, true);
+                // 炮弹烧黑的弹痕
                 if (damagedPiers.Contains(pi))
                 {
                     DrawCircle(new Vector2(px, GroundY + 55), 18f, new Color(0.10f, 0.09f, 0.08f, 0.7f));
@@ -1478,9 +1501,10 @@ public partial class JiangqiaoLevel : Node2D
             DrawRect(new Rect2(4680, top - 5, 90, 6), new Color(0.14f, 0.12f, 0.10f));
         }
 
-        /// <summary>Pratt 风格平行弦桁架：先填色画粗线，再墨色描边 → 手绘漫画风。</summary>
+        /// <summary>Pratt 风格平行弦桁架（节间更大更稀疏，真实铁路桥比例）。</summary>
         private void Truss(float start, float end, float top, float bottom, Color fill, Color ink, float w, int[] skipDiag)
         {
+            const int panelW = 200;  // 节间宽度（真实铁路桥 4-5m 节间，游戏比例 200px）
             var skip = skipDiag == null ? null : new HashSet<int>(skipDiag);
             // 上下弦：先填粗色再墨边
             DrawLine(new Vector2(start, top), new Vector2(end, top), fill, w, true);
@@ -1488,24 +1512,24 @@ public partial class JiangqiaoLevel : Node2D
             DrawLine(new Vector2(start, bottom), new Vector2(end, bottom), fill, w, true);
             DrawLine(new Vector2(start, bottom), new Vector2(end, bottom), ink, InkStyle.Stroke, true);
             int diagIdx = 0;
-            for (float x = start; x <= end; x += 130, diagIdx++)
+            for (float x = start; x <= end; x += panelW, diagIdx++)
             {
                 // 竖直腹杆
-                DrawLine(new Vector2(x, top), new Vector2(x, bottom), fill, w * 0.8f, true);
+                DrawLine(new Vector2(x, top), new Vector2(x, bottom), fill, w * 0.7f, true);
                 DrawLine(new Vector2(x, top), new Vector2(x, bottom), ink, InkStyle.ThinStroke, true);
-                if (x + 130 <= end)
+                if (x + panelW <= end)
                 {
                     bool skipA = skip != null && skip.Contains(diagIdx);
                     bool skipB = skip != null && skip.Contains(diagIdx + 1);
                     if (!skipA)
                     {
-                        DrawLine(new Vector2(x, top), new Vector2(x + 130, bottom), fill, w * 0.5f, true);
-                        DrawLine(new Vector2(x, top), new Vector2(x + 130, bottom), ink, InkStyle.ThinStroke, true);
+                        DrawLine(new Vector2(x, top), new Vector2(x + panelW, bottom), fill, w * 0.45f, true);
+                        DrawLine(new Vector2(x, top), new Vector2(x + panelW, bottom), ink, InkStyle.ThinStroke, true);
                     }
                     if (!skipB)
                     {
-                        DrawLine(new Vector2(x, bottom), new Vector2(x + 130, top), fill, w * 0.5f, true);
-                        DrawLine(new Vector2(x, bottom), new Vector2(x + 130, top), ink, InkStyle.ThinStroke, true);
+                        DrawLine(new Vector2(x, bottom), new Vector2(x + panelW, top), fill, w * 0.45f, true);
+                        DrawLine(new Vector2(x, bottom), new Vector2(x + panelW, top), ink, InkStyle.ThinStroke, true);
                     }
                 }
             }
