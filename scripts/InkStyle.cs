@@ -76,6 +76,14 @@ public static class InkStyle
     public static readonly Color SackVariation = new(0.76f, 0.64f, 0.42f);
     public static readonly Color SackShadow = new(0.38f, 0.30f, 0.18f);
 
+    // 东北民居（1931嫩江土坯房）
+    public static readonly Color AdobeWall = new(0.72f, 0.66f, 0.56f);       // 夯土墙（黄褐色，有土的质感）
+    public static readonly Color AdobeWallShadow = new(0.52f, 0.46f, 0.36f);  // 土墙阴影面
+    public static readonly Color PlankRoof = new(0.46f, 0.36f, 0.24f);        // 木板瓦屋顶（深棕）
+    public static readonly Color PlankRoofShadow = new(0.32f, 0.24f, 0.16f);  // 屋顶暗面
+    public static readonly Color WindowGlow = new(0.88f, 0.70f, 0.40f);       // 窗户暖光
+    public static readonly Color Chimney = new(0.42f, 0.38f, 0.34f);          // 砖烟囱
+
     // 星空夜
     public static readonly Color Night = new(0.12f, 0.14f, 0.22f);
 

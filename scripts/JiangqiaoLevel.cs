@@ -817,36 +817,134 @@ public partial class JiangqiaoLevel : Node2D
                     new Color(0.62f, 0.69f, 0.73f, 0.10f), 3f + (i % 3), true);
             }
 
-            // 村落：压低、被雪埋住一半，屋顶压着厚雪
+            // 村落：东北土坯房（夯土墙+木板瓦双坡顶+烟囱），压低、被雪埋住墙脚
             float[] villages = { -760, 260, 690, 2520, 3000, 4180, 4590 };
             for (int i = 0; i < villages.Length; i++)
             {
                 float x = villages[i];
-                float w = 74 + (i % 3) * 22;
-                float h = 34 + (i % 2) * 10;
-                // 墙
-                DrawRect(new Rect2(x - w * 0.42f, 566, w * 0.84f, 34), new Color(0.47f, 0.43f, 0.39f));
-                DrawRect(new Rect2(x - w * 0.42f, 566, w * 0.84f, 34), new Color(0.28f, 0.26f, 0.24f, 0.5f), false, 1.2f);
-                // 窗（一点暖光，避免整个场景死掉）
-                if (i == 2 || i == 4)
-                    DrawRect(new Rect2(x - 8, 576, 10, 10), new Color(0.86f, 0.68f, 0.38f, 0.55f));
-                // 屋顶 + 厚雪
-                var roof = new[]
+                float w = 74 + (i % 3) * 22;        // 屋宽
+                float wallH = 34 + (i % 2) * 10;    // 墙高
+                float roofH = 30 + (i % 3) * 8;     // 屋顶三角高度
+                float baseY = 566f;
+                float wallTop = baseY - wallH;
+                float ridgeX = x;
+                float ridgeY = wallTop - roofH;
+                float eavesL = x - w * 0.58f;       // 屋檐左端
+                float eavesR = x + w * 0.58f;       // 屋檐右端
+
+                // === 1. 土坯墙（黄褐色夯土，厚墙有横纹）===
+                // 墙面主体（先填色再墨边）
+                InkStyle.InkRect(this, new Rect2(x - w * 0.42f, wallTop, w * 0.84f, wallH),
+                    InkStyle.AdobeWall, InkStyle.InkColor, InkStyle.BoldStroke);
+                // 夯土横向纹理（3层浅横线，模拟层层夯土）
+                for (int h = 1; h <= 3; h++)
                 {
-                    new Vector2(x - w * 0.58f, 566), new Vector2(x, 566 - h), new Vector2(x + w * 0.58f, 566),
-                };
-                DrawColoredPolygon(roof, new Color(0.42f, 0.44f, 0.44f));
-                DrawPolyline(new[] { roof[0], roof[1], roof[2] }, new Color(0.26f, 0.27f, 0.27f, 0.7f), 1.4f, true);
-                var cap = new[]
+                    float ly = wallTop + wallH * h * 0.25f;
+                    DrawLine(new Vector2(x - w * 0.41f, ly), new Vector2(x + w * 0.41f, ly),
+                        InkStyle.AdobeWallShadow, InkStyle.ThinStroke, true);
+                }
+                // 墙脚埋雪（土坯墙下半截被雪埋，只剩上半截露着）
+                DrawColoredPolygon(new[]
                 {
-                    new Vector2(x - w * 0.60f, 565), new Vector2(x, 565 - h - 4), new Vector2(x + w * 0.60f, 565),
-                    new Vector2(x + w * 0.42f, 568), new Vector2(x, 568 - h + 3), new Vector2(x - w * 0.42f, 568),
+                    new Vector2(x - w * 0.42f, baseY - wallH * 0.35f),
+                    new Vector2(x + w * 0.42f, baseY - wallH * 0.35f),
+                    new Vector2(x + w * 0.45f, baseY + 2f),
+                    new Vector2(x - w * 0.45f, baseY + 2f),
+                }, new Color(0.90f, 0.92f, 0.92f));
+
+                // === 2. 窗户（小窗，糊纸或玻璃，有的亮暖光）===
+                // 左右两个小窗（对称）
+                float winY = wallTop + wallH * 0.32f;
+                float winW = 10f, winH = 12f;
+                float winLeft = x - w * 0.22f - winW * 0.5f;
+                float winRight = x + w * 0.22f - winW * 0.5f;
+                foreach (float wx in new[] { winLeft, winRight })
+                {
+                    // 窗框（墨边）
+                    InkStyle.InkRect(this, new Rect2(wx, winY, winW, winH),
+                        new Color(0.55f, 0.44f, 0.32f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                    // 糊纸/玻璃
+                    bool hasLight = (i == 2 || i == 4 || (i + 2) % 5 == 0);
+                    if (hasLight)
+                        DrawRect(new Rect2(wx + 1, winY + 1, winW - 2, winH - 2),
+                            InkStyle.WindowGlow);
+                    else
+                        DrawRect(new Rect2(wx + 1, winY + 1, winW - 2, winH - 2),
+                            new Color(0.82f, 0.80f, 0.72f));
+                }
+
+                // === 3. 门（矮门，深色，在中间偏右）===
+                float doorW = 12f, doorH = wallH * 0.55f;
+                float doorX = x + w * 0.05f;
+                float doorY = wallTop + wallH - doorH;
+                InkStyle.InkRect(this, new Rect2(doorX, doorY, doorW, doorH),
+                    new Color(0.28f, 0.20f, 0.12f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                DrawLine(new Vector2(doorX, doorY), new Vector2(doorX + doorW, doorY),
+                    InkStyle.InkColor, InkStyle.ThinStroke, true);
+
+                // === 4. 木板瓦双坡屋顶（深棕，有竖向瓦片线）===
+                var roofTri = new[]
+                {
+                    new Vector2(eavesL, wallTop),
+                    new Vector2(ridgeX, ridgeY),
+                    new Vector2(eavesR, wallTop),
                 };
-                DrawColoredPolygon(cap, new Color(0.90f, 0.92f, 0.92f));
-                // 烟囱
-                DrawRect(new Rect2(x + w * 0.20f, 552 - h, 8, 22), new Color(0.33f, 0.31f, 0.29f));
-                DrawLine(new Vector2(x + w * 0.20f - 1, 552 - h), new Vector2(x + w * 0.20f + 9, 552 - h),
-                    new Color(0.92f, 0.94f, 0.94f), 2.5f, true);
+                // 屋顶主体（先填色再墨边）
+                InkStyle.PenStroke(this, roofTri, InkStyle.PlankRoof, InkStyle.InkColor, InkStyle.BoldStroke);
+                // 屋顶暗面（右半侧阴影）
+                var roofShadow = new[]
+                {
+                    new Vector2(ridgeX, ridgeY),
+                    new Vector2(eavesR, wallTop),
+                    new Vector2(ridgeX + 6f, wallTop),
+                };
+                DrawColoredPolygon(roofShadow, InkStyle.PlankRoofShadow);
+                // 木板瓦竖向纹理（屋顶上每隔 10px 一条细线，模拟瓦缝）
+                // 左坡
+                for (float px = eavesL + 8f; px < ridgeX; px += 10f)
+                {
+                    float t = (px - eavesL) / (ridgeX - eavesL);
+                    float py = Mathf.Lerp(wallTop, ridgeY, t);
+                    DrawLine(new Vector2(px, wallTop), new Vector2(ridgeX + (px - ridgeX), ridgeY),
+                        InkStyle.InkSoft, 0.7f, true);
+                }
+                // 右坡
+                for (float px = ridgeX + 8f; px < eavesR; px += 10f)
+                {
+                    float t = (px - ridgeX) / (eavesR - ridgeX);
+                    float py = Mathf.Lerp(ridgeY, wallTop, t);
+                    DrawLine(new Vector2(px, wallTop), new Vector2(ridgeX + (px - ridgeX) * 0.5f, ridgeY),
+                        InkStyle.InkSoft, 0.7f, true);
+                }
+
+                // === 5. 屋顶积雪帽（覆盖三角屋顶上半）===
+                var snowCap = new[]
+                {
+                    new Vector2(eavesL - 4f, wallTop + 2f),
+                    new Vector2(ridgeX, ridgeY - 3f),
+                    new Vector2(eavesR + 4f, wallTop + 2f),
+                    new Vector2(eavesR, wallTop + 5f),
+                    new Vector2(ridgeX, ridgeY + 2f),
+                    new Vector2(eavesL, wallTop + 5f),
+                };
+                DrawColoredPolygon(snowCap, new Color(0.92f, 0.94f, 0.94f, 0.95f));
+                // 雪帽的墨色边缘
+                DrawPolyline(new[] { snowCap[0], snowCap[1], snowCap[2] },
+                    new Color(0.28f, 0.30f, 0.30f, 0.35f), InkStyle.ThinStroke, true);
+
+                // === 6. 砖烟囱（在屋顶右坡上）===
+                float chimX = ridgeX + (eavesR - ridgeX) * 0.35f;
+                float chimTop = ridgeY - 18f;
+                float chimBot = wallTop + 2f;
+                InkStyle.InkRect(this, new Rect2(chimX - 4f, chimTop, 8f, chimBot - chimTop),
+                    InkStyle.Chimney, InkStyle.InkSoft, InkStyle.ThinStroke);
+                // 烟囱砖纹（2条横向细线）
+                DrawLine(new Vector2(chimX - 4f, chimTop + 10f), new Vector2(chimX + 4f, chimTop + 10f),
+                    InkStyle.InkSoft, 0.6f, true);
+                DrawLine(new Vector2(chimX - 4f, chimTop + 20f), new Vector2(chimX + 4f, chimTop + 20f),
+                    InkStyle.InkSoft, 0.6f, true);
+                // 烟囱口积雪
+                DrawRect(new Rect2(chimX - 5f, chimTop - 3f, 10f, 4f), new Color(0.94f, 0.96f, 0.96f));
             }
 
             // 枯树线 + 白桦混排（嫩江 11 月白桦刚落叶，白树干配雪非常显眼）
