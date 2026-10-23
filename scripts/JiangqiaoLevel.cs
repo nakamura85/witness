@@ -21,6 +21,19 @@ public partial class JiangqiaoLevel : Node2D
     public const float WorldW = 5200f;
     public const float GroundY = 620f;
 
+    /// <summary>圆离散成多边形顶点（默认全圆，a0/a1 可画弧段）。</summary>
+    internal static Vector2[] CircleVerts(float r, int n, float a0 = 0f, float a1 = Mathf.Tau)
+    {
+        var v = new Vector2[n];
+        for (int i = 0; i < n; i++)
+        {
+            float t = n == 1 ? 0f : (float)i / (n - 1);
+            float a = Mathf.Lerp(a0, a1, t);
+            v[i] = new Vector2(Mathf.Cos(a) * r, Mathf.Sin(a) * r);
+        }
+        return v;
+    }
+
     internal FieldPlayer _player;
     private GroundShadow _playerShadow;
     private Camera2D _cam;
@@ -684,9 +697,9 @@ public partial class JiangqiaoLevel : Node2D
             var r1 = Ridge(492f, 76f, mid, 3.7f, 0.0110f, 0.058f);
             var r2 = Ridge(524f, 48f, near, 6.1f, 0.0160f, 0.078f);
 
-            // 雪只挂在峰脊的迎风坡，越近的脊越淡，制造三层明度台阶
-            RidgeSnow(r1, new Color(0.93f, 0.96f, 0.97f, 0.55f));
-            RidgeSnow(r2, new Color(0.88f, 0.92f, 0.94f, 0.26f));
+            // 雪只挂在峰脊迎风坡，极淡 → 不再是一条条白线分隔层
+            RidgeSnow(r1, new Color(0.93f, 0.96f, 0.97f, 0.10f), lineW: 1.3f, lenMax: 3);
+            RidgeSnow(r2, new Color(0.88f, 0.92f, 0.94f, 0.04f), lineW: 1.1f, lenMax: 2);
 
             // 山脚雾：一条窄带，只把山脚和雪原接起来
             var haze = VGradient(new Color(0.82f, 0.86f, 0.87f, 0f), new Color(0.82f, 0.86f, 0.87f, 0.72f));
@@ -712,17 +725,19 @@ public partial class JiangqiaoLevel : Node2D
             return pts;
         }
 
-        private void RidgeSnow(List<Vector2> r, Color snow)
+        private void RidgeSnow(List<Vector2> r, Color snow, float lineW = 1.4f, int lenMax = 3)
         {
+            int drawn = 0;
             for (int i = 1; i < r.Count - 1; i++)
             {
-                if (r[i].Y >= r[i - 1].Y) continue;      // 只画上升坡
+                if (r[i].Y >= r[i - 1].Y) continue;
+                if (drawn++ >= lenMax * 28) break;  // 每脊最多画 lenMax*28 条，别整条覆盖
                 var a = r[i];
                 var b = r[i + 1];
                 var d = (b - a).Normalized();
                 var up = new Vector2(-d.Y, d.X);
-                float len = 16f + 12f * Mathf.Abs(Mathf.Sin(i * 0.73f));
-                DrawLine(a + up * 1.5f, a + d * len, snow, 2.4f, true);
+                float len = 8f + 6f * Mathf.Abs(Mathf.Sin(i * 0.73f));
+                DrawLine(a + up * 1.2f, a + d * len, snow, lineW, true);
             }
         }
 
@@ -1246,17 +1261,23 @@ public partial class JiangqiaoLevel : Node2D
 
         private void DrawRailway()
         {
-            // 铁路从右侧战场一直铺到桥上
             var skip = new HashSet<int>(_railSkipIdx);
             int k = 0;
             for (float x = 2400; x < WorldW; x += 34, k++)
             {
-                if (skip.Contains(k)) continue;  // 被炮弹削掉的枕木
-                DrawLine(new Vector2(x, 622), new Vector2(x + 22, 632), new Color(0.31f, 0.26f, 0.21f), 5f, true);
-                DrawLine(new Vector2(x, 626), new Vector2(x + 22, 636), new Color(0.88f, 0.88f, 0.85f), 2f, true);
+                if (skip.Contains(k)) continue;
+                // 枕木：先墨边描框再填木色 → 手绘漫画风
+                InkStyle.InkRect(this, new Rect2(x, 619, 22, 14),
+                    new Color(0.42f, 0.34f, 0.26f), InkStyle.InkColor, InkStyle.Stroke);
+                // 枕木阴影边（右下）
+                InkStyle.InkRect(this, new Rect2(x + 2, 627, 22, 6),
+                    new Color(0.26f, 0.20f, 0.14f), InkStyle.InkSoft, InkStyle.ThinStroke);
             }
-            DrawLine(new Vector2(2400, 620), new Vector2(WorldW, 620), new Color(0.24f, 0.22f, 0.20f), 2.4f, true);
-            DrawLine(new Vector2(2400, 632), new Vector2(WorldW, 632), new Color(0.24f, 0.22f, 0.20f), 2.4f, true);
+            // 钢轨：粗墨色线（先描深再填浅）
+            DrawLine(new Vector2(2400, 620), new Vector2(WorldW, 620), InkStyle.InkColor, InkStyle.BoldStroke, true);
+            DrawLine(new Vector2(2400, 632), new Vector2(WorldW, 632), InkStyle.InkColor, InkStyle.BoldStroke, true);
+            DrawLine(new Vector2(2400, 620), new Vector2(WorldW, 620), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
+            DrawLine(new Vector2(2400, 632), new Vector2(WorldW, 632), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
         }
 
         private void DrawCraters()
@@ -1266,8 +1287,12 @@ public partial class JiangqiaoLevel : Node2D
                 float x = _craterX[i];
                 float r = _craterR[i];
                 DrawSetTransform(new Vector2(x, GroundY + 2), 0, new Vector2(1f, 0.34f));
-                DrawCircle(Vector2.Zero, r, new Color(0.38f, 0.35f, 0.32f, 0.75f));
-                DrawCircle(Vector2.Zero, r * 0.72f, new Color(0.24f, 0.22f, 0.20f, 0.9f));
+                // 外层炸坑土（暗棕）：先描墨边再填色
+                var outer = CircleVerts(r, 10);
+                InkStyle.PenStroke(this, outer, new Color(0.38f, 0.32f, 0.28f, 0.80f), InkStyle.InkSoft, InkStyle.Stroke);
+                // 内层坑底（最深）
+                var inner = CircleVerts(r * 0.72f, 10);
+                InkStyle.PenStroke(this, inner, new Color(0.18f, 0.15f, 0.12f, 0.88f), InkStyle.InkSoft, InkStyle.ThinStroke);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
@@ -1279,66 +1304,84 @@ public partial class JiangqiaoLevel : Node2D
             const float top = 376f;
             const float bottom = GroundY + 8f;
 
-            // 远端桁架（偏后，颜色淡）——完好
-            Truss(start + 40, end, top + 26, bottom - 4, new Color(0.20f, 0.23f, 0.25f, 0.40f), 3.4f, null);
+            // 远端桁架（偏后，颜色淡 + 墨边更细）——完好
+            Truss(start + 40, end, top + 26, bottom - 4, new Color(0.28f, 0.32f, 0.34f, 0.55f), InkStyle.InkSoft, 3.4f, null);
 
-            // 桥墩：从桥面落到冰面，其中一个被炮弹蹭过画烧黑斑
+            // 桥墩：先墨边描框再填混凝土色
             var damagedPiers = new HashSet<int>(_pierDamageIdx);
             int pi = 0;
             for (float px = 4540; px <= 5140; px += 200, pi++)
             {
-                DrawRect(new Rect2(px - 15, GroundY + 2, 30, 156), new Color(0.33f, 0.35f, 0.36f));
-                DrawRect(new Rect2(px - 15, GroundY + 2, 30, 156), new Color(0.18f, 0.20f, 0.21f, 0.8f), false, 1.5f);
-                DrawRect(new Rect2(px - 25, GroundY + 96, 50, 11), new Color(0.27f, 0.29f, 0.30f));
-                DrawRect(new Rect2(px - 20, GroundY + 3, 40, 8), new Color(0.93f, 0.95f, 0.95f, 0.8f));
-                // 炮弹烧黑的弹痕
+                InkStyle.InkRect(this, new Rect2(px - 15, GroundY + 2, 30, 156),
+                    new Color(0.38f, 0.40f, 0.42f), InkStyle.InkSoft, InkStyle.Stroke);
+                // 桥墩底部承台
+                InkStyle.InkRect(this, new Rect2(px - 25, GroundY + 96, 50, 11),
+                    new Color(0.32f, 0.34f, 0.36f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                // 桥面处的混凝土顶
+                InkStyle.InkRect(this, new Rect2(px - 20, GroundY + 3, 40, 8),
+                    new Color(0.85f, 0.87f, 0.88f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                // 炮弹烧黑的弹痕（直接用黑色 DrawCircle 叠）
                 if (damagedPiers.Contains(pi))
                 {
                     DrawCircle(new Vector2(px, GroundY + 55), 18f, new Color(0.10f, 0.09f, 0.08f, 0.7f));
                     DrawCircle(new Vector2(px + 5, GroundY + 90), 10f, new Color(0.10f, 0.09f, 0.08f, 0.5f));
                     DrawCircle(new Vector2(px - 4, GroundY + 130), 7f, new Color(0.18f, 0.16f, 0.14f, 0.55f));
+                    DrawLine(new Vector2(px - 16, GroundY + 50), new Vector2(px + 16, GroundY + 62),
+                        new Color(0.10f, 0.08f, 0.07f, 0.5f), 1.5f, true);
                 }
             }
 
-            // 桥面板（侧梁 + 枕木）——其中一段被烧焦
-            DrawRect(new Rect2(start, GroundY - 8, end - start, 22), new Color(0.24f, 0.23f, 0.21f));
+            // 桥面板：先描墨色粗边再填木色，加桥枕
+            InkStyle.InkRect(this, new Rect2(start, GroundY - 8, end - start, 22),
+                new Color(0.30f, 0.26f, 0.22f), InkStyle.InkColor, InkStyle.BoldStroke);
             for (float x = start; x < end; x += 22)
-                DrawLine(new Vector2(x, GroundY - 8), new Vector2(x, GroundY + 14), new Color(0.13f, 0.13f, 0.12f, 0.55f), 1f);
-            DrawLine(new Vector2(start, GroundY - 8), new Vector2(end, GroundY - 8), new Color(0.55f, 0.52f, 0.45f, 0.7f), 3f, true);
+                DrawLine(new Vector2(x, GroundY - 8), new Vector2(x, GroundY + 14),
+                    InkStyle.InkColor, 1.2f, true);
 
-            // 中段烧焦痕迹（桥面 + 枕木变黑）
+            // 中段烧焦痕迹
             DrawRect(new Rect2(4680, GroundY - 10, 90, 24), new Color(0.08f, 0.07f, 0.06f, 0.8f));
-            DrawLine(new Vector2(4680, GroundY - 10), new Vector2(4770, GroundY - 10), new Color(0.08f, 0.07f, 0.06f), 2f, true);
+            DrawLine(new Vector2(4680, GroundY - 10), new Vector2(4770, GroundY - 10),
+                new Color(0.08f, 0.07f, 0.06f), 2f, true);
 
             // 近端桁架——有几根管被打断
-            Truss(start, end, top, bottom + 4, new Color(0.14f, 0.17f, 0.19f), 6f, _trussSkipDiags);
+            Truss(start, end, top, bottom + 4, new Color(0.20f, 0.22f, 0.24f), InkStyle.InkColor, 6f, _trussSkipDiags);
 
             // 桁架上的积雪
             for (float x = start; x < end; x += 42)
                 DrawLine(new Vector2(x, top - 3), new Vector2(x + 30, top - 3),
                     new Color(0.92f, 0.94f, 0.94f, 0.9f), 3f, true);
-            // 烧焦那段桁架积雪被烧掉
             DrawRect(new Rect2(4680, top - 5, 90, 6), new Color(0.14f, 0.12f, 0.10f));
-
-            // 桥头堡的沙袋由 CoverArt 画在前景（见下），这样人是从掩体后面过桥。
         }
 
-        private void Truss(float start, float end, float top, float bottom, Color c, float w, int[] skipDiag)
+        /// <summary>Pratt 风格平行弦桁架：先填色画粗线，再墨色描边 → 手绘漫画风。</summary>
+        private void Truss(float start, float end, float top, float bottom, Color fill, Color ink, float w, int[] skipDiag)
         {
             var skip = skipDiag == null ? null : new HashSet<int>(skipDiag);
-            DrawLine(new Vector2(start, top), new Vector2(end, top), c, w, true);
-            DrawLine(new Vector2(start, bottom), new Vector2(end, bottom), c, w, true);
+            // 上下弦：先填粗色再墨边
+            DrawLine(new Vector2(start, top), new Vector2(end, top), fill, w, true);
+            DrawLine(new Vector2(start, top), new Vector2(end, top), ink, InkStyle.Stroke, true);
+            DrawLine(new Vector2(start, bottom), new Vector2(end, bottom), fill, w, true);
+            DrawLine(new Vector2(start, bottom), new Vector2(end, bottom), ink, InkStyle.Stroke, true);
             int diagIdx = 0;
             for (float x = start; x <= end; x += 130, diagIdx++)
             {
-                DrawLine(new Vector2(x, top), new Vector2(x, bottom), c, w * 0.8f, true);
+                // 竖直腹杆
+                DrawLine(new Vector2(x, top), new Vector2(x, bottom), fill, w * 0.8f, true);
+                DrawLine(new Vector2(x, top), new Vector2(x, bottom), ink, InkStyle.ThinStroke, true);
                 if (x + 130 <= end)
                 {
-                    bool skipThisDiag = skip != null && skip.Contains(diagIdx);
-                    if (!skipThisDiag)
-                        DrawLine(new Vector2(x, top), new Vector2(x + 130, bottom), c, w * 0.5f, true);
-                    if (!(skip != null && skip.Contains(diagIdx + 1)))
-                        DrawLine(new Vector2(x, bottom), new Vector2(x + 130, top), c, w * 0.5f, true);
+                    bool skipA = skip != null && skip.Contains(diagIdx);
+                    bool skipB = skip != null && skip.Contains(diagIdx + 1);
+                    if (!skipA)
+                    {
+                        DrawLine(new Vector2(x, top), new Vector2(x + 130, bottom), fill, w * 0.5f, true);
+                        DrawLine(new Vector2(x, top), new Vector2(x + 130, bottom), ink, InkStyle.ThinStroke, true);
+                    }
+                    if (!skipB)
+                    {
+                        DrawLine(new Vector2(x, bottom), new Vector2(x + 130, top), fill, w * 0.5f, true);
+                        DrawLine(new Vector2(x, bottom), new Vector2(x + 130, top), ink, InkStyle.ThinStroke, true);
+                    }
                 }
             }
         }
@@ -1541,11 +1584,36 @@ public partial class JiangqiaoLevel : Node2D
         private void Sack(Vector2 c, float tilt, float k, SackSeed sd)
         {
             DrawSetTransform(c, tilt, new Vector2(1.55f * k, 0.70f * k));
-            DrawCircle(Vector2.Zero, 14f, new Color(0.24f, 0.21f, 0.16f, 0.85f));
-            DrawCircle(Vector2.Zero, 12.4f, new Color(0.62f, 0.56f, 0.43f));
-            DrawArc(Vector2.Zero, 8.6f * k * sd.ArcK, 0.35f, Mathf.Pi - 0.35f, 12, new Color(0.42f, 0.37f, 0.28f, 0.6f), 1.4f, true);
+
+            // 1. 接触阴影（底下的暗圈）
+            DrawSetTransform(new Vector2(0, 0.8f / k / 0.7f), 0, new Vector2(1.3f, 0.3f));
+            DrawCircle(Vector2.Zero, 14f, InkStyle.GroundShadow);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+            // 2. 沙袋主体（8 边形多边形 → 先描墨边再填色）
+            var body = CircleVerts(13.5f, 8);
+            InkStyle.PenStroke(this, body, InkStyle.Sand, InkStyle.InkSoft, InkStyle.BoldStroke);
+
+            // 3. 沙袋暗面（右下）——漫画式硬边阴影
+            var shadow = CircleVerts(13.5f, 8, Mathf.Pi * 0.15f, Mathf.Pi * 0.95f);
+            InkStyle.PenStroke(this, shadow, InkStyle.SandShadow, InkStyle.InkSoft, InkStyle.Stroke);
+
+            // 4. 缝线弧（墨色细线）
+            DrawArc(Vector2.Zero, 8.6f * k * sd.ArcK, 0.35f, Mathf.Pi - 0.35f, 12, InkStyle.InkSoft, InkStyle.ThinStroke, true);
+            DrawArc(Vector2.Zero, 6.0f * k * sd.ArcK, 0.4f, Mathf.Pi - 0.4f, 10, InkStyle.InkSoft, 0.7f, true);
+
+            // 5. 卡通高光（左上一个小圆点）
+            InkStyle.KawaiiHighlight(this, new Vector2(-3.5f, -4.5f), 1.4f, new Color(0.92f, 0.84f, 0.68f, 0.85f));
+
+            // 6. 顶上积雪
             float snowR = Mathf.Clamp(6.4f * k + sd.SnowExtra, 4f, 9f);
-            DrawCircle(new Vector2(0, -7.4f * k), snowR, new Color(0.90f, 0.92f, 0.91f, 0.9f));
+            DrawCircle(new Vector2(0, -7.4f * k), snowR, new Color(0.94f, 0.95f, 0.96f, 0.92f));
+            DrawCircle(new Vector2(0, -7.4f * k), snowR * 0.7f, new Color(0.97f, 0.98f, 0.99f, 0.6f));
+            // 雪的墨色边缘（让雪不"贴"在沙袋上）
+            DrawLine(new Vector2(-snowR * 0.6f, -7.4f * k - snowR * 0.4f),
+                new Vector2(snowR * 0.6f, -7.4f * k - snowR * 0.4f),
+                new Color(0.30f, 0.32f, 0.32f, 0.25f), 1f, true);
+
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
     }
