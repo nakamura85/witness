@@ -1533,7 +1533,7 @@ public partial class JiangqiaoLevel : Node2D
         private StackSpec[] _stacks = System.Array.Empty<StackSpec>();
         private SackSeed[][] _sackSeeds = new SackSeed[0][];
 
-        private struct SackSeed { public float Tilt; public float SnowExtra; public float ArcK; }
+        private struct SackSeed { public float Tilt; public float SnowExtra; public float ArcK; public float ColorVar; }
 
         public override void _Ready()
         {
@@ -1564,6 +1564,7 @@ public partial class JiangqiaoLevel : Node2D
                         Tilt = rng.RandfRange(-0.04f, 0.04f),
                         SnowExtra = rng.RandfRange(-1.2f, 1.6f),
                         ArcK = rng.RandfRange(0.88f, 1.12f),
+                        ColorVar = rng.Randf(),  // 逐袋色差，避免所有沙包一个色
                     });
                 seedsList.Add(seeds.ToArray());
             }
@@ -1604,22 +1605,53 @@ public partial class JiangqiaoLevel : Node2D
             DrawCircle(Vector2.Zero, 14f, InkStyle.GroundShadow);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
-            // 2. 沙袋主体（8 边形多边形 → 先描墨边再填色）
-            var body = CircleVerts(13.5f, 8);
-            InkStyle.PenStroke(this, body, InkStyle.Sand, InkStyle.InkSoft, InkStyle.BoldStroke);
+            // 2. 沙包主体（横向扁平胶囊形，模拟真实缝制的沙包，不是圆盘！）
+            var body = new Vector2[]
+            {
+                new Vector2(-14f, -6f),
+                new Vector2(-13f, -7f),
+                new Vector2(-11f, -7.5f),
+                new Vector2(-9f, -7.8f),
+                new Vector2(0f, -8f),        // 顶部中间（鼓起来）
+                new Vector2(9f, -7.8f),
+                new Vector2(11f, -7.5f),
+                new Vector2(13f, -7f),
+                new Vector2(14f, -6f),
+                new Vector2(14f, 0f),        // 右端点
+                new Vector2(13.5f, 4f),
+                new Vector2(12f, 6f),
+                new Vector2(10f, 7f),
+                new Vector2(0f, 8f),         // 底部中间（鼓起来）
+                new Vector2(-10f, 7f),
+                new Vector2(-12f, 6f),
+                new Vector2(-13.5f, 4f),
+                new Vector2(-14f, 0f),       // 左端点
+            };
+            // 逐袋色差：用sd里的随机值微调颜色，避免所有沙包一个色
+            Color sackColor = InkStyle.SackBase.Lerp(InkStyle.SackVariation, sd.ColorVar);
+            InkStyle.PenStroke(this, body, sackColor, InkStyle.InkColor, InkStyle.BoldStroke);
 
-            // 3. 沙袋暗面（右下）——漫画式硬边阴影
-            var shadow = CircleVerts(13.5f, 8, Mathf.Pi * 0.15f, Mathf.Pi * 0.95f);
-            InkStyle.PenStroke(this, shadow, InkStyle.SandShadow, InkStyle.InkSoft, InkStyle.Stroke);
+            // 3. 中缝竖线（沙包从中间缝起来的线，真实细节！）
+            DrawLine(new Vector2(0f, -7f), new Vector2(0f, 7f), InkStyle.InkSoft, InkStyle.ThinStroke, true);
+            // 4. 横向褶皱线（沙子鼓起来的褶）
+            DrawArc(new Vector2(0f, 0f), 10f * k * sd.ArcK, Mathf.Pi * 0.1f, Mathf.Pi * 0.9f, 10, InkStyle.InkSoft, InkStyle.ThinStroke, true);
+            DrawArc(new Vector2(0f, 0.5f), 7f * k * sd.ArcK, Mathf.Pi * 0.2f, Mathf.Pi * 0.8f, 8, InkStyle.InkSoft, 0.8f, true);
+            // 5. 右端的打结口（沙包两端是打结封闭的）
+            DrawLine(new Vector2(13.5f, -3f), new Vector2(15f, 0f), InkStyle.InkSoft, 1.2f, true);
+            DrawLine(new Vector2(13.5f, 3f), new Vector2(15f, 0f), InkStyle.InkSoft, 1.2f, true);
+            DrawLine(new Vector2(13.5f, 0f), new Vector2(15.5f, 0f), InkStyle.InkSoft, 1.4f, true);
 
-            // 4. 缝线弧（墨色细线）
-            DrawArc(Vector2.Zero, 8.6f * k * sd.ArcK, 0.35f, Mathf.Pi - 0.35f, 12, InkStyle.InkSoft, InkStyle.ThinStroke, true);
-            DrawArc(Vector2.Zero, 6.0f * k * sd.ArcK, 0.4f, Mathf.Pi - 0.4f, 10, InkStyle.InkSoft, 0.7f, true);
+            // 6. 右下硬边阴影（漫画式，沙包叠起来会有投影）
+            var shadowMask = new[]
+            {
+                new Vector2(2f, 0f), new Vector2(14f, 0f), new Vector2(14f, 7f), new Vector2(2f, 7f)
+            };
+            DrawColoredPolygon(shadowMask, InkStyle.SackShadow);
 
-            // 5. 卡通高光（左上一个小圆点）
-            InkStyle.KawaiiHighlight(this, new Vector2(-3.5f, -4.5f), 1.4f, new Color(0.92f, 0.84f, 0.68f, 0.85f));
+            // 7. 卡通高光（左上一个小圆点）
+            InkStyle.KawaiiHighlight(this, new Vector2(-4f, -4f), 1.6f, new Color(0.92f, 0.84f, 0.68f, 0.85f));
 
-            // 6. 顶上积雪
+            // 8. 顶上积雪（沙包叠起来，顶上会有雪）
             float snowR = Mathf.Clamp(6.4f * k + sd.SnowExtra, 4f, 9f);
             DrawCircle(new Vector2(0, -7.4f * k), snowR, new Color(0.94f, 0.95f, 0.96f, 0.92f));
             DrawCircle(new Vector2(0, -7.4f * k), snowR * 0.7f, new Color(0.97f, 0.98f, 0.99f, 0.6f));

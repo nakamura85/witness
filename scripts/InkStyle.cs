@@ -71,6 +71,10 @@ public static class InkStyle
     public static readonly Color WoodHighlight = new(0.78f, 0.60f, 0.34f);
     public static readonly Color Sand = new(0.72f, 0.62f, 0.44f);
     public static readonly Color SandShadow = new(0.48f, 0.40f, 0.26f);
+    // 真实沙包颜色（比Sand偏暗偏褐，有帆布质感）
+    public static readonly Color SackBase = new(0.68f, 0.58f, 0.38f);
+    public static readonly Color SackVariation = new(0.76f, 0.64f, 0.42f);
+    public static readonly Color SackShadow = new(0.38f, 0.30f, 0.18f);
 
     // 星空夜
     public static readonly Color Night = new(0.12f, 0.14f, 0.22f);
