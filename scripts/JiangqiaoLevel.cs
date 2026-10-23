@@ -1382,7 +1382,7 @@ public partial class JiangqiaoLevel : Node2D
 public partial class EnemySoldier : Node2D
 {
     private readonly JiangqiaoLevel _level;
-    private FigureActor _fig;
+    private SpriteActor _fig;
     private float _fireCd;
     private float _phase;
     private float _retreatT;
@@ -1409,7 +1409,7 @@ public partial class EnemySoldier : Node2D
 
     public override void _Ready()
     {
-        _fig = new FigureActor { Kind = FigureKind.Japanese, FacingRight = false };
+        _fig = new SpriteActor(SpriteActor.Kind.Soldier) { Facing = -1f };
         AddChild(_fig);
         _fireCd = 0.8f + (float)GD.RandRange(0f, 0.8f);
     }

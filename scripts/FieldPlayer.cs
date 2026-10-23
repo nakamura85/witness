@@ -4,8 +4,8 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// 2031 嫩江江桥关卡的玩家：东北军通信兵。
-/// CharacterBody2D + 真实重力/碰撞；角色本体是 FigureActor 的骨架动画。
+/// 嫩江江桥关卡的玩家：东北军通信兵。
+/// CharacterBody2D + 真实重力/碰撞；角色本体是 SpriteActor 的史实立绘。
 /// </summary>
 public partial class FieldPlayer : CharacterBody2D
 {
@@ -14,7 +14,7 @@ public partial class FieldPlayer : CharacterBody2D
     public event Action Down;
     public event Action Landed;
 
-    public FigureActor Figure { get; private set; }
+    public SpriteActor Figure { get; private set; }
     public int Hp = 3;
     public bool ControlLocked;
 
@@ -44,7 +44,7 @@ public partial class FieldPlayer : CharacterBody2D
         };
         AddChild(shape);
 
-        Figure = new FigureActor { Kind = FigureKind.NortheastArmy };
+        Figure = new SpriteActor(SpriteActor.Kind.NortheastArmy);
         AddChild(Figure);
     }
 
