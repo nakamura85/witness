@@ -68,7 +68,7 @@ public partial class CorpseActor : Node2D
 
         Position = position;
         Rotation = _rotation;
-        ZIndex = -5;  // 在 GroundArt 之上、玩家之下
+        ZIndex = 0;  // 在 GroundArt(-1) 之上、EnemySoldier(2) 之下
         Modulate = new Color(1f, 0.92f, 0.90f, 1f);  // 尸体略偏冷
 
         QueueRedraw();
