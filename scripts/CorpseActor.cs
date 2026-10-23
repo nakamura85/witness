@@ -4,31 +4,38 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// 尸体：SpriteActor 立绘 + 随机不规则姿势 + 多处不规则血迹（不整整齐齐的椭圆！）。
+/// 尸体：SpriteActor 立绘 + 史实化倒下姿势 + 多处不规则血迹。
 /// 
-/// 姿势不再统一 90° 平躺——每具尸体有随机歪斜、身体各部位偏移，模拟中弹倒下的自然姿态。
-/// 血迹不再是单个大椭圆——2~3 片不规则血塘 + 几处渗血小斑 + 向不同方向延伸的血丝。
-/// 所有姿势随机性基于 RNG 种子，同一尸体每次 _Draw 结果一致（不闪烁）。
-///
-/// 尸体放在 GroundArt 之后、人物之前（ZIndex ≈ -5），不挡人物视线但留在弹坑/战壕/铁丝网附近。
+/// 姿势依据 1931 江桥抗战史实照片：
+/// - 冲锋中弹 → 向前扑倒（俯卧 face-down），身体约 180° 翻转头着地，立绘 FlipV
+/// - 站立中弹 → 向后倒下（仰卧 face-up），正常 90° 躺着
+/// - 侧卧极少（约 5%），侧面中弹倒下
+/// 所有姿势的随机性只做轻微 ±15° 歪斜（不是乱倒 55-125°！），模拟中弹瞬间的自然反应。
+/// 血迹不规则多边形（不是椭圆），基于 RNG 种子确保同一尸体每次一致。
 /// </summary>
 public partial class CorpseActor : Node2D
 {
     public enum Faction { IJA, NortheastArmy, Refugee }
 
+    /// <summary>
+    /// 三种倒下姿势（基于中弹方向）。
+    /// </summary>
+    private enum Pose { Prone, Supine, SideLying }
+
     private readonly Sprite2D _sp;
     private readonly Faction _faction;
-    private readonly float _bodyRot;    // 身体主旋转角度（弧度），不再是固定 Pi/2
-    private readonly float _spriteRot;  // 立绘自身额外旋转（弧度）
-    private readonly float _spriteOffX; // 立绘水平偏移（模拟中弹侧歪）
-    private readonly float _spriteOffY; // 立绘垂直偏移
+    private readonly Pose _pose;
+    private readonly float _bodyRot;     // 身体主旋转角度（弧度）
+    private readonly float _spriteRot;   // 立绘自身额外旋转（弧度，轻微歪斜）
+    private readonly float _spriteOffX;  // 立绘水平偏移
+    private readonly float _spriteOffY;  // 立绘垂直偏移
+    private readonly bool _flipV;        // 是否上下翻转（俯卧时需要）
     private readonly float _seed;
 
     /// <summary>
     /// 构造 CorpseActor。
-    /// position: 尸体脚底/臀部位置（地面上）。
-    /// facingRight: 头朝右 true / 头朝左 false。
-    /// rotJitter: 额外旋转扰动（0~0.3 弧度 ≈ ±17°）。
+    /// position: 尸体腰部/臀部位置（地面上）。
+    /// facingRight: 冲锋朝向（中弹前的运动方向）。
     /// </summary>
     public CorpseActor(Faction faction, Vector2 position, bool facingRight, float rotJitter = -1f)
     {
@@ -37,18 +44,40 @@ public partial class CorpseActor : Node2D
         rng.Randomize();
         _seed = rng.Randf();
 
-        // 身体主旋转角度：不是固定 90°，而是 55° ~ 125° 随机（躺着有侧歪）
-        float baseAngle = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f;
-        float bodyJitter = rng.RandfRange(-0.45f, 0.45f);  // ±26° 随机歪斜
-        if (rotJitter < 0f) rotJitter = rng.RandfRange(-0.25f, 0.25f);
-        _bodyRot = baseAngle + bodyJitter + rotJitter;
+        // —— 基于冲锋中弹方向决定倒下姿势（史实化）——
+        float r = rng.Randf();
+        if (r < 0.70f)
+        {
+            // 70%：冲锋中弹向前扑倒 → 俯卧 face-down
+            _pose = Pose.Prone;
+            _bodyRot = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f; // 基本躺平
+            _flipV = true;                                             // 立绘上下翻转（头朝下）
+        }
+        else if (r < 0.95f)
+        {
+            // 25%：站立中弹向后倒 → 仰卧 face-up
+            _pose = Pose.Supine;
+            _bodyRot = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f; // 正常躺平
+            _flipV = false;
+        }
+        else
+        {
+            // 5%：侧面中弹侧卧
+            _pose = Pose.SideLying;
+            _bodyRot = (facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f) 
+                       + rng.RandfRange(-0.25f, 0.25f);
+            _flipV = false;
+        }
 
-        // 立绘自身额外旋转 ±20°，让身体和头/腿有点错位（不是一个整齐的整体）
-        _spriteRot = rng.RandfRange(-0.35f, 0.35f);
+        // 所有姿势只加轻微 ±15° 歪斜（模拟中弹瞬间的重心偏移）
+        _bodyRot += rng.RandfRange(-0.25f, 0.25f);  // ±15°
 
-        // 立绘偏移（让身体中心不正好在 position 点上，模拟中弹后翻滚错位）
-        _spriteOffX = rng.RandfRange(-6f, 6f);
-        _spriteOffY = rng.RandfRange(-10f, -2f);
+        // 立绘自身也加轻微歪斜 ±10°
+        _spriteRot = rng.RandfRange(-0.18f, 0.18f);
+
+        // 立绘轻微偏移（身体不是机械地正好压在 position 上）
+        _spriteOffX = rng.RandfRange(-4f, 4f);
+        _spriteOffY = rng.RandfRange(-6f, 0f);
 
         string texName = faction switch
         {
@@ -68,15 +97,16 @@ public partial class CorpseActor : Node2D
             Texture = tex,
             Scale = new Vector2(s, s),
             Position = new Vector2(_spriteOffX, -height * 0.5f + _spriteOffY),
-            Rotation = Mathf.Pi / 2f + _spriteRot,  // 基本躺平 + 额外歪斜
+            Rotation = Mathf.Pi / 2f + _spriteRot,
             FlipH = !facingRight,
+            FlipV = _flipV,
         };
         AddChild(_sp);
 
         Position = position;
         Rotation = _bodyRot;
         ZIndex = 0;
-        Modulate = new Color(1f, 0.92f, 0.90f, 1f);  // 尸体略偏冷
+        Modulate = new Color(1f, 0.92f, 0.90f, 1f);  // 尸体略偏冷色
 
         QueueRedraw();
     }
