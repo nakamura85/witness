@@ -10,9 +10,10 @@ namespace Witness;
 ///
 /// 设计要点（对应这次的明确要求）：
 ///  1) 场景分五层：天空 / 远山 / 雪原村落 / 近景树线 / 前景芦苇，逐层视差；
-///  2) 人物是骨架关节动画（双段 IK 腿、摆臂、呼吸、蹲伏、跳跃收腿），
+///  2) 人物是纸娃娃分层动画（躯干+双腿剪刀步、跳跃收腿、落地缓冲、开枪后坐），
 ///     脚踩实地面、受重力与碰撞约束，不做“纸片人上下飘”；
-///  3) 玩法不是杀敌：记录三份口述，敌兵推进—射击—被压制—退走，没有死亡演出。
+///  3) 敌兵会反击：中弹/听到枪声立刻警觉举枪反打，身中两枪阵亡并在雪地留下尸体；
+///  4) 每波敌兵人数随机 1~3、陆续出场，没有“每次恰好两人”的巧合。
 /// </summary>
 public partial class JiangqiaoLevel : Node2D
 {
@@ -55,6 +56,7 @@ public partial class JiangqiaoLevel : Node2D
     private float _record;
     private float _lastToast = -99f;
     private float _elapsed;
+    private float _camX = 220f;   // 手动平滑后的相机 X（与视差层同一帧更新）
     private bool _started;
     private bool _ended;
     private bool _noteOpen;
@@ -187,8 +189,9 @@ public partial class JiangqiaoLevel : Node2D
             LimitRight = (int)WorldW,
             LimitTop = 0,
             LimitBottom = 900,
-            PositionSmoothingEnabled = true,
-            PositionSmoothingSpeed = 5.5f,
+            // 不用内置平滑：它与 _Process 里的视差层更新不在同一时序，
+            // 会差一帧互相拉扯 → 走动时背景树/草疯狂鬼造抖动。改为手动平滑（见 _Process）。
+            PositionSmoothingEnabled = false,
         };
         AddChild(_cam);
         _cam.MakeCurrent();
@@ -285,16 +288,18 @@ public partial class JiangqiaoLevel : Node2D
         float f = (float)delta;
         _elapsed += f;
 
-        // 视差：每一层按自己的系数反向位移（层与层之间的深度差就是“层次感”）
-        float camX = _cam.GlobalPosition.X;
+        // 视差：相机 X 手动平滑，且必须在同一帧里同时喂给相机与视差层，
+        // 层与层之间才不会互相拉扯出抖动。
+        var target = new Vector2(_player.GlobalPosition.X, _player.GlobalPosition.Y - 118f);
+        float k = 1f - Mathf.Exp(-6.5f * f);
+        _camX += (target.X - _camX) * k;
+        _cam.Position = new Vector2(_camX, target.Y);
         foreach (var l in _layers)
-            l.Position = new Vector2(camX * (1f - l.Factor), 0f);
+            l.Position = new Vector2(_camX * (1f - l.Factor), 0f);
         _snow.Wind = 0.55f + Mathf.Sin(_elapsed * 0.35f) * 0.35f;
 
-        // 相机跟随 + 抖动 + 轻微呼吸
+        // 相机抖动（爆炸/开枪的屏幕震动）
         _shake = Mathf.Max(0f, _shake - f * 2.2f);
-        var target = new Vector2(_player.GlobalPosition.X, _player.GlobalPosition.Y - 118f);
-        _cam.Position = target;
         var off = new Vector2(
             (float)GD.RandRange(-1f, 1f) * _shake * 9f,
             (float)GD.RandRange(-1f, 1f) * _shake * 7f);
@@ -438,8 +443,30 @@ public partial class JiangqiaoLevel : Node2D
             3 => 3520f,
             _ => 4380f,
         };
-        SpawnEnemy(baseX, -36f);
-        SpawnEnemy(baseX + 120f, 36f);
+        // 人数随机 1~3（历史里没有“每次都恰好两个人”的巧合），站位与出场也错开
+        int count = (int)GD.RandRange(1, 3);
+        var lanes = new[] { -48f, 0f, 48f };
+        for (int i = lanes.Length - 1; i > 0; i--)
+        {
+            int j = (int)GD.RandRange(0, i);
+            (lanes[i], lanes[j]) = (lanes[j], lanes[i]);
+        }
+        for (int i = 0; i < count; i++)
+        {
+            float lx = baseX + i * 110f + (float)GD.RandRange(-45f, 45f);
+            float ln = lanes[i];
+            if (i == 0)
+                SpawnEnemy(lx, ln);
+            else
+            {
+                // 后续的间隔 0.5~0.9s 从雪梁后陆续跟出，不是整队齐刷刷刷出来
+                float delay = 0.5f * i + (float)GD.RandRange(0f, 0.4f);
+                GetTree().CreateTimer(delay).Timeout += () =>
+                {
+                    if (!_ended) SpawnEnemy(lx, ln);
+                };
+            }
+        }
         Artillery(0.35f);
         _hud.Toast("前方雪梁后出现关东军尖兵");
     }
@@ -509,7 +536,26 @@ public partial class JiangqiaoLevel : Node2D
             target.Hit();
             _fx.Puff(end, 9f);
         }
+        // 枪声惊动 900px 内的所有敌人：没被打中的也会转头举枪反击
+        foreach (var e in _enemies)
+        {
+            if (!IsInstanceValid(e) || e.Gone) continue;
+            if (Mathf.Abs(e.Position.X - origin.X) < 900f)
+                e.Alert();
+        }
         _fx.Tracer(origin, end, new Color(1f, 0.92f, 0.70f));
+    }
+
+    /// <summary>敌兵阵亡：原地留下一具尸体（带掉落步枪与血迹），不是透明消失。</summary>
+    public void EnemyDied(EnemySoldier e)
+    {
+        var corpse = new CorpseActor(CorpseActor.Faction.IJA,
+            new Vector2(e.Position.X, GroundY - 2), false);
+        _game.AddChild(corpse);
+        // 中弹处的血雾与雪尘
+        _fx.Puff(e.Position + new Vector2(0, -62f), 14f);
+        _fx.Puff(new Vector2(e.Position.X, GroundY - 3f), 10f);
+        Shake(0.18f);
     }
 
     private void OnPlayerHit()
@@ -1995,8 +2041,7 @@ public partial class JiangqiaoLevel : Node2D
     {
         private struct Flake
         {
-            public float X, Y, Spd, Size, Sway, Depth, Rot;
-            public bool Hex;
+            public float X, Y, Spd, Size, Sway, Depth;
         }
 
         private readonly List<Flake> _flakes = new();
@@ -2011,7 +2056,7 @@ public partial class JiangqiaoLevel : Node2D
         public override void _Ready()
         {
             _rng.Seed = 20311104;
-            for (int i = 0; i < 160; i++) AddFlake();
+            for (int i = 0; i < 240; i++) AddFlake();
             _nextBlizzard = 25f + _rng.Randf() * 20f;
         }
 
@@ -2022,12 +2067,10 @@ public partial class JiangqiaoLevel : Node2D
             {
                 X = _rng.Randf() * 1280f,
                 Y = _rng.Randf() * 720f,
-                Spd = 22f + depth * 78f,
-                Size = 0.6f + depth * 2.8f,
+                Spd = 26f + depth * 74f,          // 近处快、远处慢
+                Size = 0.9f + depth * 2.3f,       // 全是柔和圆点，没有几何形状
                 Sway = _rng.Randf() * Mathf.Tau,
                 Depth = depth,
-                Hex = depth > 0.78f,
-                Rot = _rng.Randf() * Mathf.Tau,
             });
         }
 
@@ -2067,25 +2110,24 @@ public partial class JiangqiaoLevel : Node2D
             float targetBlizzard = _blizzardT > 0f ? 1f : 0f;
             _blizzardIntensity = Mathf.Lerp(_blizzardIntensity, targetBlizzard, f * 0.6f);
 
-            // 动态增减：暴风雪时 ~520 颗（伸手不见五指），平时 160
-            int targetCount = _blizzardIntensity > 0.3f ? 520 : 160;
+            // 动态增减：暴风雪时 ~640 颗（风雪弥漫），平时 240
+            int targetCount = (int)Mathf.Lerp(240f, 640f, _blizzardIntensity);
             while (_flakes.Count < targetCount) AddFlake();
             if (_flakes.Count > targetCount)
                 _flakes.RemoveRange(targetCount, _flakes.Count - targetCount);
 
-            // 阵风 + 暴风雪额外风
+            // 阵风 + 暴风雪额外风（幅度收敛：是“风裹着雪”，不是雪被抽飞）
             _gust = Mathf.Sin(t * 0.3f) * 0.4f + Mathf.Sin(t * 1.7f) * 0.15f;
-            float extraWind = _blizzardIntensity * 3.2f;
+            float extraWind = _blizzardIntensity * 1.6f;
             for (int i = 0; i < _flakes.Count; i++)
             {
                 var p = _flakes[i];
-                float spdMul = 1f + _blizzardIntensity * 1.8f;
+                float spdMul = 1f + _blizzardIntensity * 1.05f;
                 p.Y += p.Spd * spdMul * f;
-                float baseHoriz = -30f * (Wind + extraWind) - p.Spd * 0.18f;
-                float gustHoriz = -_gust * (24f + _blizzardIntensity * 55f);
-                float swayHoriz = Mathf.Sin(t * 1.6f + p.Sway) * 12f * f * (1f + _blizzardIntensity);
+                float baseHoriz = -34f * (Wind + extraWind) - p.Spd * 0.30f * (0.4f + _blizzardIntensity);
+                float gustHoriz = -_gust * (16f + _blizzardIntensity * 34f);
+                float swayHoriz = Mathf.Sin(t * 1.3f + p.Sway) * (5f + p.Depth * 7f) * f * (1f + _blizzardIntensity * 0.5f);
                 p.X += (baseHoriz + gustHoriz) * f + swayHoriz;
-                p.Rot += f * 0.8f * (1f + p.Depth);
                 if (p.Y > 730f) { p.Y = -10f; p.X = (p.X + 397f) % 1280f; }
                 if (p.X < -20f) p.X += 1300f;
                 if (p.X > 1300f) p.X -= 1300f;
@@ -2096,63 +2138,34 @@ public partial class JiangqiaoLevel : Node2D
 
         public override void _Draw()
         {
-            // 暴风雪 fog：垂直渐变遮罩
-            // 顶部（地平线方向）最浓 → 完全吃掉远景；底部（玩家脚边）稍透明
+            // 暴风雪 fog：垂直渐变遮罩（顶浓脚淡，压远景不压玩家脚边）
             if (_blizzardIntensity > 0.12f)
             {
                 var s = GetViewportRect().Size;
-                float topAlpha = 0.42f * _blizzardIntensity;    // 地平线处几乎完全遮罩
-                float midAlpha = 0.25f * _blizzardIntensity;
-                float botAlpha = 0.08f * _blizzardIntensity;    // 脚边还能看见地面
-                // 用三个水平 Rect 堆成伪渐变（不用 GradientTexture2D——缓存嫌麻烦）
+                float topAlpha = 0.34f * _blizzardIntensity;
+                float midAlpha = 0.20f * _blizzardIntensity;
+                float botAlpha = 0.06f * _blizzardIntensity;
                 float midY = s.Y * 0.55f;
                 float botY = s.Y * 0.82f;
                 DrawRect(new Rect2(0, 0, s.X, midY), new Color(0.72f, 0.77f, 0.80f, topAlpha));
                 DrawRect(new Rect2(0, midY, s.X, botY - midY), new Color(0.74f, 0.78f, 0.81f, midAlpha));
                 DrawRect(new Rect2(0, botY, s.X, s.Y - botY), new Color(0.78f, 0.81f, 0.83f, botAlpha));
-                // 再加一层非常淡的整体 haze
-                DrawRect(new Rect2(0, 0, s.X, s.Y), new Color(0.82f, 0.85f, 0.87f, 0.06f * _blizzardIntensity));
+                DrawRect(new Rect2(0, 0, s.X, s.Y), new Color(0.82f, 0.85f, 0.87f, 0.05f * _blizzardIntensity));
             }
 
+            // 雪花：永远是柔和圆点（外晕 + 实心核），没有任何线条形态；
+            // 只在暴风雪时给一点点顺风的短拖影表达速度感（≤5px，半透明）。
             foreach (var p in _flakes)
             {
-                float a = 0.28f + p.Depth * 0.5f;
-                a *= (1f + _blizzardIntensity * 0.5f);
-
-                if (p.Hex && p.Size > 1.5f && _blizzardIntensity < 0.4f)
+                float a = Mathf.Min(0.82f, (0.26f + p.Depth * 0.42f) * (1f + _blizzardIntensity * 0.25f));
+                var pos = new Vector2(p.X, p.Y);
+                DrawCircle(pos, p.Size * 1.55f, new Color(0.97f, 0.98f, 1f, a * 0.30f));
+                DrawCircle(pos, p.Size, new Color(0.97f, 0.98f, 1f, a));
+                if (_blizzardIntensity > 0.35f && p.Depth > 0.45f)
                 {
-                    // 六角形雪花（只在平静时可见；暴风雪时全变斜线）
-                    DrawSetTransform(new Vector2(p.X, p.Y), p.Rot, Vector2.One);
-                    var pts = new Vector2[6];
-                    for (int i = 0; i < 6; i++)
-                    {
-                        float ang = i * Mathf.Tau / 6f;
-                        pts[i] = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * p.Size;
-                    }
-                    DrawColoredPolygon(pts, new Color(0.97f, 0.99f, 1f, a));
-                    DrawPolyline(pts, new Color(1f, 1f, 1f, a * 0.7f), 0.8f, true);
-                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-                }
-                else
-                {
-                    // 圆形雪花（含暴风雪时所有雪花变斜线）
-                    if (_blizzardIntensity > 0.5f)
-                    {
-                        // 暴风雪斜线：水平飘飞的白色细线（拖尾）
-                        float tailLen = 6f + p.Depth * 10f + _blizzardIntensity * 12f;
-                        DrawLine(
-                            new Vector2(p.X, p.Y),
-                            new Vector2(p.X + tailLen, p.Y + 1.5f),  // 略微向下
-                            new Color(0.98f, 0.99f, 1f, a * 0.9f),
-                            1f + p.Size * 0.3f, true);
-                    }
-                    else
-                    {
-                        DrawCircle(new Vector2(p.X, p.Y), p.Size, new Color(0.97f, 0.98f, 1f, a));
-                    }
-                    if (p.Depth > 0.7f && _blizzardIntensity < 0.5f)
-                        DrawLine(new Vector2(p.X, p.Y), new Vector2(p.X - 4f, p.Y + 3f),
-                            new Color(1, 1, 1, a * 0.45f), 1f, true);
+                    float tail = (2f + p.Size * 0.8f) * _blizzardIntensity; // ≤ ~5px
+                    DrawLine(pos, pos + new Vector2(tail, tail * 0.30f),
+                        new Color(0.97f, 0.98f, 1f, a * 0.30f), p.Size * 0.8f, true);
                 }
             }
         }
@@ -2197,7 +2210,9 @@ public partial class JiangqiaoLevel : Node2D
     }
 }
 
-/// <summary>关东军尖兵：从右侧雪梁后出现，推进—射击—被压制—退走（没有死亡演出）。</summary>
+/// <summary>关东军尖兵：从右侧雪梁后出现，向玩家推进并射击；
+/// 中弹会立刻警觉反击（枪声还会惊动附近同伴），身中两枪阵亡，
+/// 原地留下一具雪地尸体（CorpseActor）与掉落的步枪 —— 没有透明消失。</summary>
 public partial class EnemySoldier : Node2D
 {
     private readonly JiangqiaoLevel _level;
@@ -2205,16 +2220,15 @@ public partial class EnemySoldier : Node2D
     public float _prevPhase;
     private float _fireCd;
     private float _phase;
-    private float _retreatT;
     private float _aimHold;
     private int _hits;
-    private float _fade = 1f;
     private readonly float _holdX;
     /// <summary>同一波里的站位错位：两人不能停在同一条 x 上，否则轮廓会叠成一团。</summary>
     private readonly float _lane;
+    private float _alertT;            // 警觉剩余时间：被击中或听到枪声后进入战斗状态
 
     public bool Gone { get; private set; }
-    private bool _retreat;
+    public bool Alerted => _alertT > 0f;
 
     public EnemySoldier(JiangqiaoLevel level, Vector2 pos, float lane)
     {
@@ -2234,40 +2248,35 @@ public partial class EnemySoldier : Node2D
         _fireCd = 0.8f + (float)GD.RandRange(0f, 0.8f);
     }
 
+    /// <summary>被击中或听到枪声：进入警觉——立刻转向举枪、加快射击节奏、压上推进。</summary>
+    public void Alert()
+    {
+        if (Gone) return;
+        _alertT = 8f;
+        _aimHold = Mathf.Max(_aimHold, 0.5f);
+        _fireCd = Mathf.Min(_fireCd, 0.5f + (float)GD.RandRange(0f, 0.3f));
+    }
+
     public override void _Process(double delta)
     {
         if (Gone) return;
         float f = (float)delta;
-
-        if (_retreat)
-        {
-            _retreatT += f;
-            Position += new Vector2(92f * f, 0);
-            _fig.FacingRight = true;
-            _fig.Speed = 92f;
-            _fig.Phase += f * 9f;
-            _fade = Mathf.Max(0f, 1f - Mathf.Max(0f, _retreatT - 1.2f) * 0.9f);
-            Modulate = new Color(1, 1, 1, _fade);
-            if (_fade <= 0.02f || Position.X > 5300f)
-            {
-                Gone = true;
-                QueueFree();
-            }
-            return;
-        }
+        if (_alertT > 0f) _alertT -= f;
+        bool engaged = _alertT > 0f;
 
         float px = _level.PlayerX;
         float dist = Position.X - px;
 
         // 推进到距玩家约 330px 处停下；到警戒线也停；玩家逼近则退半步。
-        // 停位要带上各自的 lane，否则同波两人会叠在同一个 x 上变成一团黑影。
-        float targetDist = 330f + _lane;
+        // 警觉时压上更坚决（更快逼近、站位更贴）。
+        float targetDist = engaged ? 290f + _lane : 330f + _lane;
         float stopX = Mathf.Max(_holdX + _lane, _level.PlayerX + targetDist);
+        float runSpeed = engaged ? 96f : 64f;
         if (Position.X > stopX + 16f)
         {
-            Position -= new Vector2(64f * f, 0);
-            _fig.Speed = 64f;
-            _fig.Phase += f * 6.2f;
+            Position -= new Vector2(runSpeed * f, 0);
+            _fig.Speed = runSpeed;
+            _fig.Phase += f * (engaged ? 8.4f : 6.2f);
         }
         else if (dist < 220f - _lane && _level.PlayerAlive && Position.X < _holdX + 96f)
         {
@@ -2280,38 +2289,45 @@ public partial class EnemySoldier : Node2D
             _fig.Speed = 0f;
             _fig.Phase = Mathf.Lerp(_fig.Phase, 0f, f * 4f);
         }
+        // 永远面向玩家（玩家在其左侧）：绝不背对主角发呆
         _fig.FacingRight = false;
         _fig.Grounded = true;
-        // 不再触发 Crouching：单帧立绘的「蹲下」是整体 Y 压扁到 74%，
-        // 蹲着的兵会变成半个身高的矮胖子，站着的同伴随时同框 → 一高一矮非常诡异。
-        // 敌兵只用站立/举枪瞄准（Aim 微前倾，不改变身高）。
         _aimHold = Mathf.Max(0f, _aimHold - f);
-        _fig.Aim = _aimHold > 0f ? 1f : 0f;
         _fig.Aim = Mathf.MoveToward(_fig.Aim, _aimHold > 0f ? 1f : 0f, f * 5f);
 
         _fireCd -= f;
         // 只有真的出现在玩家画面里、且在有效射程内才开火：
         // 画面外的敌人不能凭空打中你，这一条比弹道本身更影响公平感。
         bool onScreen = Mathf.Abs(Position.X - _level.CamX) < 540f;
-        if (_fireCd <= 0f && onScreen && dist > 160f && dist < 700f && _level.PlayerAlive)
+        float fireRange = engaged ? 760f : 700f;
+        if (_fireCd <= 0f && onScreen && dist > 160f && dist < fireRange && _level.PlayerAlive)
         {
-            _fireCd = 2.5f + (float)GD.RandRange(-0.3f, 0.5f);
+            _fireCd = engaged ? 1.5f + (float)GD.RandRange(-0.2f, 0.5f)
+                              : 2.5f + (float)GD.RandRange(-0.3f, 0.5f);
             _aimHold = 0.55f;
             _fig.MuzzleFlash = 1f;
+            _fig.Recoil = 1f;
             _level.EnemyFire(this);
         }
     }
 
+    /// <summary>中弹：第一枪立刻反击；第二枪阵亡，原地留下尸体。</summary>
     public void Hit()
     {
         if (Gone) return;
         _hits++;
         _fig.HurtFlash = 1f;
         Position += new Vector2(10f, 0);
+        _level.Shake(0.12f);
         if (_hits >= 2)
         {
-            _retreat = true;
-            _level.Shake(0.1f);
+            Gone = true;
+            _level.EnemyDied(this);
+            QueueFree();
+        }
+        else
+        {
+            Alert();
         }
     }
 }

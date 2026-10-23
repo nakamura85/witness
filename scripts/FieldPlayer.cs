@@ -124,6 +124,7 @@ public partial class FieldPlayer : CharacterBody2D
         _aimTimer = 0.55f;
         Figure.MuzzleFlash = 1f;
         Figure.Aim = 1f;
+        Figure.Recoil = 1f;   // 躯干后仰 + 后移（SpriteActor 消费）
         float mx = GetGlobalMousePosition().X - GlobalPosition.X;
         if (Mathf.Abs(mx) > 20f) _facing = Mathf.Sign(mx);
         Figure.FacingRight = _facing > 0f;

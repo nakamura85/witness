@@ -1,8 +1,45 @@
-﻿# 见证者（Witness）· v0.6 手绘漫画风试玩版
+# 见证者（Witness）· v0.6 手绘漫画风试玩版
 
 > 二战的历史不是从 1937 年才开始的。要还原事实，就得从源头讲起——1895 年的马关条约、1910 年的日韩合并条约，殖民如何一步步吞下朝鲜半岛与台湾地区，直到 1931 年九一八、1937 年的南京。
 
 一款 **2D 叙事严肃游戏**（Godot 4.7 .NET + C#）。
+
+## 视觉修复 Changelog（v1.6b → v1.7 · 2026-10-24）
+
+> 以下修复全部实机截图验证（自动化巡游脚本 `scripts/VerifyTour.cs` · 2026-10-24 00:2x 巡游完整跑完 `done`，含战斗验证 `CORPSE_OK`：两枪击毙敌兵后 `corpses 5→6`，29 张截图同名覆盖更新）。
+
+### ✅ 已修复 · 走动背景鬼造抖动 + 暴风雪拉线闪烁 + 纸片人动画 + 敌兵不反击 + 阵亡透明消失 + 每波必两人（v1.7）
+
+**问题一：走动时背景树/草疯狂鬼造抖动**——相机用内置 `PositionSmoothing`（在 Camera2D 内部时序更新），而视差层在 `_Process` 里读相机位置再平移，两者差一帧互相拉扯，走动时各视差层来回抽搐。
+
+**修复**（`scripts/JiangqiaoLevel.cs`）：关闭内置平滑，改为 `_Process` 里**手动指数平滑**（`1-exp(-6.5f)`），同一帧里把平滑后的 `_camX` 同时喂给相机与全部视差层——层与层、层与世界之间零时序差，走动丝滑。
+
+**问题二：暴风雪是一条条线 + 时不时一闪而过的白线**——旧逻辑在 `_blizzardIntensity>0.5` 时把**所有雪花强制画成白色斜线**，强度在阈值附近来回穿越时线/圆形态反复切换——这就是那条「一闪而过的白线」。
+
+**修复**（`SnowScreen` 重写）：雪花**永远是柔和圆点**（外晕+实心核），没有几何六角形、没有线条形态；只在暴风雪时给 ≤5px 的半透明顺风短拖影表达速度感；风雪总量 240↔640 随强度连续插值（不再硬切），风速幅度收敛为「风裹着雪」。
+
+**问题三：主角走路/跳跃像纸片人**——旧「假动画」只有 ±0.8px 的微幅起伏，肉眼不可见；跳跃没有任何姿态变化。
+
+**修复**（`scripts/SpriteActor.cs` 重写为**纸娃娃分层动画**）：立绘按髋部（58%H）切成躯干+左右腿三片，走路时两腿以髋为轴剪刀式摆动（±0.36rad）、躯干随步伐起伏+前倾；跳跃收腿（前腿抬起后腿后拖）、落地压腿缓冲（脚底始终贴地）、蹲姿折腿+躯干下沉；脚下接触阴影随步伐变形。 FootprintLayer 顺带修复了 `_Ready` 早于玩家创建的空引用崩溃。
+
+**问题四：开枪僵硬没后坐力**——`FieldPlayer.Fire()` 与敌兵开火现在都置 `Figure.Recoil=1`：躯干短暂后仰 0.26rad + 后移 5px，随 5.5/s 衰减恢复；枪口火光加前向火舌。
+
+**问题五：敌兵没有智商——被打不反击、走到定点背对主角**——旧逻辑敌兵中弹只会「撤退淡出」（往右走背对玩家+alpha 渐隐），这正是「背对着主角」和「原地透明化消失」的来源。
+
+**修复**（`scripts/JiangqiaoLevel.cs` EnemySoldier 重写）：
+- 中弹/听到 900px 内枪声 → **立刻警觉**：举枪瞄准、射击间隔 2.5s→1.5s、推进提速、站位更贴——第一枪必反击
+- 身中两枪 → **阵亡**：原地留下 `CorpseActor` 尸体（含掉落步枪、单侧渗流血迹、接触阴影）+ 血雾雪尘，**不再透明消失**
+- 敌兵全程面向玩家，绝不背对
+
+**问题六：敌人总是恰好两人一起出现**——`CheckWaves` 写死 `SpawnEnemy` 两次。
+
+**修复**：每波人数**随机 1~3**（GD.RandRange），lane 洗牌错位 + 出场位置随机散布 + 第 2/3 人间隔 0.5~0.9s 陆续从雪梁后跟出——没有「每次都恰好两个」的巧合。
+
+**顺带修复**：`shaders/hue_shift.gdshader` 的 `rgb2hsv` 是写坏的非法语法（`vec4.gb`、`p.l`），且 `fragment()` 里用了 Godot 着色器不允许的 `return`——shader 从未编译成功过，已按标准实现重写。
+
+**验证点**：巡游 `CORPSE_OK`（corpses 5→6、enemies_left=0）；像素级对比走路两帧腿部差异 102.7（剪刀步可见）、天空对照区仅 3.5；v13b 主角开枪后坐、v26 雪地新添敌兵尸体、v27 波次敌兵人数随机。
+
+---
 
 ## 视觉修复 Changelog（v1.6b → v1.6o · 2026-10-23）
 
@@ -339,39 +376,47 @@ CorpseActor (Node2D)      → Position=尸体地面位置, Rotation=0（不旋�
 
 **标题 · 见证者（手绘漫画风，程序化绘制，无贴图）**
 
-![标题](docs/screenshots/v00_title.png?v=1.6o)
+![标题](docs/screenshots/v00_title.png?v=1.7)
 
 **东亚大地图 · 时间线 Hub（layer by layer 视差：纸张底 / 地理 / 航线箭头 / 纸条）**
 
-![大地图](docs/screenshots/v01_map.png?v=1.6l)
+![大地图](docs/screenshots/v01_map.png?v=1.7)
 
 **纸条档案 01 · 汉城《日韩合并条约》1910**
 
-![纸条 01](docs/screenshots/v02_note_korea.png?v=1.6l)
+![纸条 01](docs/screenshots/v02_note_korea.png?v=1.7)
 
 **纸条档案 02 · 台北《马关条约》割台 1895**
 
-![纸条 02](docs/screenshots/v03_note_taiwan.png?v=1.6l)
+![纸条 02](docs/screenshots/v03_note_taiwan.png?v=1.7)
 
 **进军箭头生长完成 · 汉城 → 鸭绿江 → 沈阳 → 嫩江江桥**
 
-![进军箭头](docs/screenshots/v04_map_arrows.png?v=1.6o)
+![进军箭头](docs/screenshots/v04_map_arrows.png?v=1.7)
 
 **关卡开场 · 四层视差雪原**
 
-![关卡开场](docs/screenshots/v08_level_start.png?v=1.6o)
+![关卡开场](docs/screenshots/v08_level_start.png?v=1.7)
 
 **行走动画 · 粗墨描边 + 平涂棉军装 + 卡通高光**
 
-![行走](docs/screenshots/v14_walk_a.png?v=1.6o)
+![行走](docs/screenshots/v14_walk_a.png?v=1.7)
 
 **敌兵推进 · 双关东军（前后错位 + 景深缩放）**
 
-![敌兵](docs/screenshots/v12_enemy_advance.png?v=1.6o)
+![敌兵](docs/screenshots/v12_enemy_advance.png?v=1.7)
+
+**主角开枪 · 躯干后坐 + 枪口火舌（纸娃娃分层动画）**
+
+![开枪后坐](docs/screenshots/v13b_player_fire_recoil.png?v=1.7)
+
+**敌兵阵亡 · 雪地留下尸体（掉落步枪 + 单侧渗流血迹），不再透明消失**
+
+![雪地尸体](docs/screenshots/v26_corpse.png?v=1.7)
 
 **桥头堡 · 掩体沙袋前景层（ZIndex 5），人从掩体后经过**
 
-![桥头堡](docs/screenshots/v22_bridge.png?v=1.6o)
+![桥头堡](docs/screenshots/v22_bridge.png?v=1.7)
 
 ## 如何运行（小白版，3 步）
 

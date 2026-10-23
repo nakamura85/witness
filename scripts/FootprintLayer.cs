@@ -39,11 +39,15 @@ public partial class FootprintLayer : Node2D
 
     public override void _Ready()
     {
-        _playerPrevPos = _lvl._player.GlobalPosition;
+        // 关卡构建顺序里 FootprintLayer 先于玩家创建，_player 此时还是 null，
+        // 上一帧位置推迟到 _Process 里首次取样。
+        if (_lvl._player != null)
+            _playerPrevPos = _lvl._player.GlobalPosition;
     }
 
     public override void _Process(double delta)
     {
+        if (_lvl._player == null) return;
         float f = (float)delta;
 
         // 玩家

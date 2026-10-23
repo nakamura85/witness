@@ -88,6 +88,51 @@ public partial class VerifyTour : Node
             await Frames(60);
             await Shot("v13_enemy_fire");
 
+            // —— 战斗验证：开枪击毙一名敌兵 → 阵亡留尸体（不再透明消失）——
+            JiangqiaoLevel lvl = null;
+            foreach (Node n in main.FindChildren("*", "", true, false))
+                if (n is JiangqiaoLevel l) lvl = l;
+            if (lvl != null)
+            {
+                int corpsesBefore = CountNodes<CorpseActor>(main);
+                Log($"corpses_before={corpsesBefore}");
+
+                var fire = typeof(FieldPlayer).GetMethod("Fire",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                var facing = typeof(FieldPlayer).GetField("_facing",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                facing?.SetValue(p, 1f);         // 巡游没动鼠标：强制朝右（敌人在右侧）
+                fire?.Invoke(p, null);           // 第一枪：命中→敌兵警觉反击
+                await Frames(10);
+                await Shot("v13b_player_fire_recoil");
+                await Frames(60);
+                facing?.SetValue(p, 1f);
+                fire?.Invoke(p, null);           // 第二枪：两枪阵亡→留尸体
+                await Frames(40);
+
+                int corpsesAfter = CountNodes<CorpseActor>(main);
+                int enemiesLeft = 0;
+                foreach (var e in lvl._enemies)
+                    if (IsInstanceValid(e) && !e.Gone) enemiesLeft++;
+                Log($"corpses_after={corpsesAfter} enemies_left={enemiesLeft}");
+                Log(corpsesAfter > corpsesBefore ? "CORPSE_OK" : "CORPSE_FAIL");
+                await Shot("v26_corpse");
+            }
+
+            // 敌兵人数随机 1~3：重置位置触发下一波，只记录不判失败
+            p.GlobalPosition = new Vector2(2050, 618);
+            p.Velocity = Vector2.Zero;
+            cam?.ResetSmoothing();
+            await Frames(120);
+            if (lvl != null)
+            {
+                int alive = 0;
+                foreach (var e in lvl._enemies)
+                    if (IsInstanceValid(e) && !e.Gone) alive++;
+                Log($"wave2_alive={alive}");
+            }
+            await Shot("v27_wave2");
+
             // 行走动画：按住 D 两秒，连拍两帧对比
             Input.ActionPress("move_right");
             await Frames(30);
@@ -138,6 +183,14 @@ public partial class VerifyTour : Node
             GD.PrintErr("VERIFY FAIL " + e);
             GetTree().Quit(1);
         }
+    }
+
+    private static int CountNodes<T>(Node root) where T : Node
+    {
+        int n = 0;
+        foreach (Node c in root.FindChildren("*", "", true, false))
+            if (c is T) n++;
+        return n;
     }
 
     private async Task Frames(int n)

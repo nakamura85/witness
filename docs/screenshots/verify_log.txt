@@ -1,4 +1,4 @@
-start 23:33:08
+start 00:17:25
 click 我明白了
 px300=1b1d22ff
 click 新的见证
@@ -20,16 +20,23 @@ px300=8e999fff
 player=True cam=True
 px300=8e999fff
 px300=8e999fff
+corpses_before=5
 px300=8e999fff
+corpses_after=6 enemies_left=0
+CORPSE_OK
 px300=8e999fff
-px300=8e999fff
+wave2_alive=0
+px300=697884ff
+px300=697884ff
+px300=697884ff
 px300=8e999fff
 px300=8e999fff
 px300=8e999fff
 px300=697884ff
 px300=8e999fff
+px300=8e999fff
 px300=697884ff
-px300=5a6267ff
+px300=8e999fff
 px300=8e999fff
 px300=8e999fff
 done
