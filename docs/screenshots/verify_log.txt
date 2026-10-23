@@ -1,4 +1,4 @@
-start 22:13:03
+start 22:52:26
 click 我明白了
 px300=1b1d22ff
 click 新的见证
@@ -15,7 +15,7 @@ px300=e7dabbff
 click 收起纸条
 px300=c9cfcbff
 click 进入关卡
-px300=161514ff
+px300=1a1a18ff
 px300=8e999fff
 player=True cam=True
 px300=8e999fff

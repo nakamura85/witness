@@ -2199,10 +2199,12 @@ public partial class EnemySoldier : Node2D
         }
         _fig.FacingRight = false;
         _fig.Grounded = true;
-        _fig.Crouching = dist < 380f && dist > 240f;
+        // 不再触发 Crouching：单帧立绘的「蹲下」是整体 Y 压扁到 74%，
+        // 蹲着的兵会变成半个身高的矮胖子，站着的同伴随时同框 → 一高一矮非常诡异。
+        // 敌兵只用站立/举枪瞄准（Aim 微前倾，不改变身高）。
         _aimHold = Mathf.Max(0f, _aimHold - f);
-        _fig.Aim = _aimHold > 0f || _fig.Crouching ? 1f : 0f;
-        _fig.Aim = Mathf.MoveToward(_fig.Aim, _aimHold > 0f || _fig.Crouching ? 1f : 0f, f * 5f);
+        _fig.Aim = _aimHold > 0f ? 1f : 0f;
+        _fig.Aim = Mathf.MoveToward(_fig.Aim, _aimHold > 0f ? 1f : 0f, f * 5f);
 
         _fireCd -= f;
         // 只有真的出现在玩家画面里、且在有效射程内才开火：
