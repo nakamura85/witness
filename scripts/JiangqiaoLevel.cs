@@ -448,8 +448,8 @@ public partial class JiangqiaoLevel : Node2D
     {
         if (x > WorldW - 120f) x = WorldW - 120f;
         var e = new EnemySoldier(this, new Vector2(x, GroundY), lane);
-        // 敌人体型统一，景深用 Modulate 淡化（远的稍淡，不是改 Scale 差）
-        e.Scale = Vector2.One;
+        // 敌人体型与玩家统一（玩家 1.22f），景深用 Modulate 淡化
+        e.Scale = new Vector2(1.22f, 1.22f);
         e.Modulate = lane < 0f 
             ? new Color(0.86f, 0.87f, 0.88f, 1f) 
             : new Color(0.97f, 0.97f, 0.98f, 1f);

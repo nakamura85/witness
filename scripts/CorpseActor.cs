@@ -4,15 +4,13 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// 尸体：SpriteActor 立绘旋转 90° 躺地 + 程序化血迹 + 衣物破损。
+/// 尸体：SpriteActor 立绘 + 随机不规则姿势 + 多处不规则血迹（不整整齐齐的椭圆！）。
 /// 
-/// 不使用 .jpg 资产，全部程序化：
-/// • 立绘复用 SpriteActor 的立绘（soldier_ija = 日军尸体，soldier_na = 东北军尸体），整体旋转 90°
-/// • 血迹：暗红椭圆 + 不规则渗血边缘多边形 + 雪上渗入感渐变
-/// • 衣物破损：暗色锯齿多边形叠加在躯干/大腿位置（表示子弹撕开的口子）
+/// 姿势不再统一 90° 平躺——每具尸体有随机歪斜、身体各部位偏移，模拟中弹倒下的自然姿态。
+/// 血迹不再是单个大椭圆——2~3 片不规则血塘 + 几处渗血小斑 + 向不同方向延伸的血丝。
+/// 所有姿势随机性基于 RNG 种子，同一尸体每次 _Draw 结果一致（不闪烁）。
 ///
 /// 尸体放在 GroundArt 之后、人物之前（ZIndex ≈ -5），不挡人物视线但留在弹坑/战壕/铁丝网附近。
-/// 血迹只画在 Origin 一侧（尸体头/脚方向），模拟中弹倒下后的流血方向。
 /// </summary>
 public partial class CorpseActor : Node2D
 {
@@ -20,7 +18,11 @@ public partial class CorpseActor : Node2D
 
     private readonly Sprite2D _sp;
     private readonly Faction _faction;
-    private readonly float _rotation;   // 躺地方向（弧度，0 = 朝右，π = 朝左）
+    private readonly float _bodyRot;    // 身体主旋转角度（弧度），不再是固定 Pi/2
+    private readonly float _spriteRot;  // 立绘自身额外旋转（弧度）
+    private readonly float _spriteOffX; // 立绘水平偏移（模拟中弹侧歪）
+    private readonly float _spriteOffY; // 立绘垂直偏移
+    private readonly float _seed;
 
     /// <summary>
     /// 构造 CorpseActor。
@@ -31,15 +33,22 @@ public partial class CorpseActor : Node2D
     public CorpseActor(Faction faction, Vector2 position, bool facingRight, float rotJitter = -1f)
     {
         _faction = faction;
-        float dir = facingRight ? 0f : Mathf.Pi;
-        if (rotJitter < 0f)
-        {
-            // 随机歪斜（-17° ~ +17°）
-            var rng = new RandomNumberGenerator();
-            rng.Randomize();
-            rotJitter = rng.RandfRange(-0.30f, 0.30f);
-        }
-        _rotation = dir + rotJitter;
+        var rng = new RandomNumberGenerator();
+        rng.Randomize();
+        _seed = rng.Randf();
+
+        // 身体主旋转角度：不是固定 90°，而是 55° ~ 125° 随机（躺着有侧歪）
+        float baseAngle = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f;
+        float bodyJitter = rng.RandfRange(-0.45f, 0.45f);  // ±26° 随机歪斜
+        if (rotJitter < 0f) rotJitter = rng.RandfRange(-0.25f, 0.25f);
+        _bodyRot = baseAngle + bodyJitter + rotJitter;
+
+        // 立绘自身额外旋转 ±20°，让身体和头/腿有点错位（不是一个整齐的整体）
+        _spriteRot = rng.RandfRange(-0.35f, 0.35f);
+
+        // 立绘偏移（让身体中心不正好在 position 点上，模拟中弹后翻滚错位）
+        _spriteOffX = rng.RandfRange(-6f, 6f);
+        _spriteOffY = rng.RandfRange(-10f, -2f);
 
         string texName = faction switch
         {
@@ -54,21 +63,19 @@ public partial class CorpseActor : Node2D
         float height = faction == Faction.Refugee ? 96f : 108f;
         float s = height / tex.GetSize().Y;
 
-        // 躺地：立绘本来是脚底在 y=0 往上长；旋转 90° 后立会变成水平。
-        // 把立绘中心放在原点下方（脚底位置），这样尸体中心大约在 position。
         _sp = new Sprite2D
         {
             Texture = tex,
             Scale = new Vector2(s, s),
-            Position = new Vector2(0, -height * 0.5f),
-            Rotation = Mathf.Pi / 2f,  // 让原本竖直的立绘变成水平躺着
+            Position = new Vector2(_spriteOffX, -height * 0.5f + _spriteOffY),
+            Rotation = Mathf.Pi / 2f + _spriteRot,  // 基本躺平 + 额外歪斜
             FlipH = !facingRight,
         };
         AddChild(_sp);
 
         Position = position;
-        Rotation = _rotation;
-        ZIndex = 0;  // 在 GroundArt(-1) 之上、EnemySoldier(2) 之下
+        Rotation = _bodyRot;
+        ZIndex = 0;
         Modulate = new Color(1f, 0.92f, 0.90f, 1f);  // 尸体略偏冷
 
         QueueRedraw();
@@ -76,106 +83,131 @@ public partial class CorpseActor : Node2D
 
     public override void _Draw()
     {
-        // —— 血迹（先画，在立绘下面）——
         DrawBlood();
-
-        // —— 衣物破损（后画，在立绘上面叠加）——
         DrawTears();
     }
 
     private void DrawBlood()
     {
-        // 尸体头的方向（也是血迹扩散方向）
-        float headX = Mathf.Sin(_rotation) * 30f;
-        float headY = Mathf.Cos(_rotation) * 30f;
+        // 尸体头方向（血迹主要扩散方向）
+        float headDir = _bodyRot;
+        float headX = Mathf.Sin(headDir) * 36f;
+        float headY = Mathf.Cos(headDir) * 36f;
+        var rng = new RandomNumberGenerator();
+        rng.Seed = (ulong)Mathf.RoundToInt(_seed * 1000000f);
 
-        // 主血泊：暗红椭圆 + 不规则边缘
+        // —— 主血塘：不规则多边形（不是椭圆！8-12 个点，边缘锯齿状）——
+        int mainPts = 8 + Mathf.FloorToInt(rng.Randf() * 5f);
+        float mainR = 24f + rng.RandfRange(-4f, 8f);
         var main = new List<Vector2>();
-        int points = 14;
-        float baseR = 32f + (_faction == Faction.IJA ? 4f : 0f);
-        for (int i = 0; i < points; i++)
+        for (int i = 0; i < mainPts; i++)
         {
-            float ang = i / (float)points * Mathf.Tau;
-            float jitter = 1f + Mathf.Sin(i * 2.7f + _rotation * 3f) * 0.18f;
-            float rx = baseR * jitter;
-            float ry = baseR * 0.45f * jitter;
-            float x = Mathf.Cos(ang) * rx;
-            float y = Mathf.Sin(ang) * ry;
-            // 血迹向头部方向拉长
-            x += headX * 0.22f;
+            float ang = i / (float)mainPts * Mathf.Tau + rng.RandfRange(-0.18f, 0.18f);
+            float jitter = 0.55f + rng.Randf() * 0.9f;  // 随机幅度：有的点凹进去有的凸出来
+            float rx = mainR * jitter;
+            float ry = mainR * 0.42f * jitter;
+            float x = Mathf.Cos(ang) * rx + headX * 0.22f;
+            float y = Mathf.Sin(ang) * ry + headY * 0.22f;
             main.Add(new Vector2(x, y));
         }
-        // 主血（干透的暗红）
-        DrawColoredPolygon(main.ToArray(), new Color(0.35f, 0.08f, 0.06f, 0.85f));
+        DrawColoredPolygon(main.ToArray(), new Color(0.32f, 0.07f, 0.05f, 0.85f));
 
-        // 渗血层：更大的半透明淡红（让血看起来渗进雪里）
+        // —— 渗血层：更大的半透明淡红（渗进雪里的感觉）——
         var bleed = new List<Vector2>();
-        for (int i = 0; i < points; i++)
+        for (int i = 0; i < mainPts; i++)
         {
-            float ang = i / (float)points * Mathf.Tau;
-            float jitter = 1f + Mathf.Sin(i * 1.9f + _rotation * 5f) * 0.28f;
-            float rx = (baseR + 14f) * jitter;
-            float ry = (baseR + 14f) * 0.5f * jitter;
-            float x = Mathf.Cos(ang) * rx;
-            float y = Mathf.Sin(ang) * ry;
-            x += headX * 0.28f;
+            float ang = i / (float)mainPts * Mathf.Tau + rng.RandfRange(-0.25f, 0.25f);
+            float jitter = 0.7f + rng.Randf() * 0.8f;
+            float rx = (mainR + 16f) * jitter;
+            float ry = (mainR + 16f) * 0.48f * jitter;
+            float x = Mathf.Cos(ang) * rx + headX * 0.28f;
+            float y = Mathf.Sin(ang) * ry + headY * 0.28f;
             bleed.Add(new Vector2(x, y));
         }
-        DrawColoredPolygon(bleed.ToArray(), new Color(0.52f, 0.14f, 0.10f, 0.25f));
+        DrawColoredPolygon(bleed.ToArray(), new Color(0.50f, 0.13f, 0.09f, 0.22f));
 
-        // 向雪地渗入的细血丝（3~4 条细线，从主血向远处延伸）
-        int drips = 3 + Mathf.FloorToInt(Mathf.Abs(Mathf.Sin(_rotation * 7f)) * 2f);
-        for (int i = 0; i < drips; i++)
+        // —— 小血斑：尸体周围 2-4 个分散的小圆斑（子弹飞溅的血点）——
+        int splatterCount = 2 + Mathf.FloorToInt(rng.Randf() * 3f);
+        for (int i = 0; i < splatterCount; i++)
         {
-            float spread = Mathf.Sin(i * 2.1f + _rotation * 3f) * 0.6f;
-            var drip = new[]
+            float ang = rng.RandfRange(0f, Mathf.Tau);
+            float dist = rng.RandfRange(22f, 68f);
+            float cx = Mathf.Cos(ang) * dist + headX * 0.15f;
+            float cy = Mathf.Sin(ang) * dist;
+            float r = 3f + rng.Randf() * 5f;
+            // 小血斑是不规则多边形（3-5 点），不是圆
+            int sPts = 3 + Mathf.FloorToInt(rng.Randf() * 3f);
+            var spot = new List<Vector2>();
+            for (int k = 0; k < sPts; k++)
             {
-                new Vector2(Mathf.Sin(_rotation + spread) * 14f, Mathf.Cos(_rotation + spread) * 14f),
-                new Vector2(Mathf.Sin(_rotation + spread) * (42f + i * 6f),
-                    Mathf.Cos(_rotation + spread) * (12f + i * 5f)),
-            };
-            DrawLine(drip[0], drip[1], new Color(0.45f, 0.10f, 0.08f, 0.5f), 1.6f, true);
-            // 血丝末端的小圆点
-            DrawCircle(drip[1], 1.8f, new Color(0.45f, 0.10f, 0.08f, 0.6f));
+                float sAng = k / (float)sPts * Mathf.Tau + rng.RandfRange(-0.3f, 0.3f);
+                float sJit = 0.5f + rng.Randf() * 0.7f;
+                spot.Add(new Vector2(cx + Mathf.Cos(sAng) * r * sJit,
+                    cy + Mathf.Sin(sAng) * r * sJit));
+            }
+            DrawColoredPolygon(spot.ToArray(), new Color(0.42f, 0.09f, 0.07f, 0.65f));
         }
 
-        // 头附近的浓血（头部中弹血更集中）
-        DrawSetTransform(new Vector2(headX * 0.8f, headY * 0.8f), _rotation, new Vector2(1.4f, 0.5f));
-        DrawCircle(Vector2.Zero, 8f, new Color(0.28f, 0.06f, 0.05f, 0.75f));
+        // —— 血丝：向不同方向延伸的细红线（3-5 条，长度不同）——
+        int dripCount = 3 + Mathf.FloorToInt(rng.Randf() * 3f);
+        for (int i = 0; i < dripCount; i++)
+        {
+            float spread = Mathf.Sin(i * 2.1f + _bodyRot * 3f) * 0.6f + rng.RandfRange(-0.3f, 0.3f);
+            float baseX = Mathf.Sin(_bodyRot + spread) * 14f + rng.RandfRange(-6f, 6f);
+            float baseY = Mathf.Cos(_bodyRot + spread) * 14f + rng.RandfRange(-6f, 6f);
+            float len = 32f + rng.Randf() * 28f;
+            float tipX = Mathf.Sin(_bodyRot + spread) * len;
+            float tipY = Mathf.Cos(_bodyRot + spread) * (len * 0.45f);
+            // 血丝不是直线——加一个中间控制点让它弯
+            float ctrlX = baseX + (tipX - baseX) * 0.5f + rng.RandfRange(-4f, 4f);
+            float ctrlY = baseY + (tipY - baseY) * 0.5f + rng.RandfRange(-4f, 4f);
+            var dripLine = new List<Vector2>
+            {
+                new Vector2(baseX, baseY),
+                new Vector2(ctrlX, ctrlY),
+                new Vector2(tipX, tipY),
+            };
+            DrawLine(dripLine[0], dripLine[1], new Color(0.42f, 0.09f, 0.07f, 0.5f), 1.5f, true);
+            DrawLine(dripLine[1], dripLine[2], new Color(0.42f, 0.09f, 0.07f, 0.5f), 1.5f, true);
+            // 血丝末端的小圆点
+            DrawCircle(dripLine[2], 1.8f + rng.Randf() * 1.5f,
+                new Color(0.42f, 0.09f, 0.07f, 0.6f));
+        }
+
+        // 头附近浓血：头部中弹血更集中
+        DrawSetTransform(new Vector2(headX * 0.8f, headY * 0.8f), _bodyRot, new Vector2(1.4f, 0.5f));
+        DrawCircle(Vector2.Zero, 9f, new Color(0.28f, 0.06f, 0.05f, 0.75f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 
     private void DrawTears()
     {
-        // 破损碎片：随机位置的暗色锯齿多边形（2-4 片，每片 3-5 个点）
-        int tearCount = 2 + Mathf.FloorToInt(Mathf.Abs(Mathf.Sin(_rotation * 9f)) * 2f);
+        // 破损碎片：2-4 片不规则暗斑（3-6 个角，不是规整的锯齿）
+        int tearCount = 2 + Mathf.FloorToInt(_seed * 3f);
         var rng = new RandomNumberGenerator();
-        rng.Seed = (ulong)(Mathf.Abs((int)(_rotation * 1000)) + 1);
+        rng.Seed = (ulong)(Mathf.Abs((int)(_bodyRot * 1000)) + 1);
 
         for (int i = 0; i < tearCount; i++)
         {
-            // 破损位置：沿身体随机偏移（身体是水平躺着的，所以沿着 rotation 方向找位置）
-            float t = rng.RandfRange(0.2f, 0.9f);  // 沿着身体（头→脚）的位置
-            float bodyLen = 52f;                    // 身体总长度一半
-            float tx = Mathf.Sin(_rotation) * (t - 0.5f) * bodyLen;
-            float ty = Mathf.Cos(_rotation) * (t - 0.5f) * bodyLen;
-            // 破损离身体中心的偏移（垂直方向，模拟在胸前/腿上/手臂）
-            float perpx = Mathf.Cos(_rotation) * rng.RandfRange(-16f, 16f);
-            float perpy = -Mathf.Sin(_rotation) * rng.RandfRange(-16f, 16f);
+            float t = rng.RandfRange(0.15f, 0.88f);
+            float bodyLen = 52f;
+            float tx = Mathf.Sin(_bodyRot) * (t - 0.5f) * bodyLen;
+            float ty = Mathf.Cos(_bodyRot) * (t - 0.5f) * bodyLen;
+            float perpx = Mathf.Cos(_bodyRot) * rng.RandfRange(-16f, 16f);
+            float perpy = -Mathf.Sin(_bodyRot) * rng.RandfRange(-16f, 16f);
             var tearCenter = new Vector2(tx + perpx, ty + perpy);
 
-            int corners = 3 + (int)(rng.Randf() * 3f);  // 3~5 个角
+            int corners = 3 + (int)(rng.Randf() * 4f);
             float r = 7f + rng.RandfRange(-1.5f, 4f);
             var tear = new List<Vector2>();
             for (int c = 0; c < corners; c++)
             {
-                float ang = c / (float)corners * Mathf.Tau + rng.RandfRange(-0.3f, 0.3f);
-                float jitter = r * (0.6f + rng.Randf() * 0.6f);
-                tear.Add(tearCenter + new Vector2(Mathf.Cos(ang) * jitter, Mathf.Sin(ang) * jitter));
+                float ang = c / (float)corners * Mathf.Tau + rng.RandfRange(-0.35f, 0.35f);
+                float jitter = 0.55f + rng.Randf() * 0.7f;
+                tear.Add(tearCenter + new Vector2(Mathf.Cos(ang) * r * jitter,
+                    Mathf.Sin(ang) * r * jitter));
             }
-            // 破损颜色：深褐红（像破布+血混在一起的颜色）
             DrawColoredPolygon(tear.ToArray(), new Color(0.22f, 0.04f, 0.03f, 0.85f));
-            // 破损边缘的小毛边（撕裂纤维）
             foreach (var p in tear)
             {
                 float dirAng = p.AngleTo(tearCenter);
@@ -184,12 +216,12 @@ public partial class CorpseActor : Node2D
             }
         }
 
-        // 头部破损（如果是头部中弹，头周围加一片暗斑）
+        // 头部破损
         if (rng.Randf() < 0.5f)
         {
-            float headX = Mathf.Sin(_rotation) * 50f;
-            float headY = Mathf.Cos(_rotation) * 50f;
-            DrawSetTransform(new Vector2(headX, headY), _rotation, new Vector2(1f, 0.7f));
+            float headX = Mathf.Sin(_bodyRot) * 50f;
+            float headY = Mathf.Cos(_bodyRot) * 50f;
+            DrawSetTransform(new Vector2(headX, headY), _bodyRot, new Vector2(1f, 0.7f));
             DrawCircle(Vector2.Zero, 10f, new Color(0.18f, 0.03f, 0.02f, 0.55f));
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }

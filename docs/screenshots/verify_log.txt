@@ -1,4 +1,4 @@
-start 15:10:56
+start 15:41:38
 click 我明白了
 px300=1b1d22ff
 click 新的见证
@@ -7,7 +7,7 @@ click 纸条 01
 px300=e7dabbff
 click 收起纸条
 click 纸条 02
-px300=d7caadff
+px300=e7dabbff
 click 收起纸条
 px300=c9cfcbff
 click 作战简报
