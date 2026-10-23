@@ -39,6 +39,7 @@ public partial class SpriteActor : Node2D
     public float HurtFlash;
 
     private readonly Sprite2D _sp;
+    private ShaderMaterial _mat;
 
     public readonly float Height;
 
@@ -67,6 +68,19 @@ public partial class SpriteActor : Node2D
             Position = new Vector2(0, -height / 2f),
             FlipH = Facing < 0f,
         };
+
+        // 挂 hue_shift.gdshader（即使当前 hue_offset=0，保留挂载以备未来动态：受击闪红、夜晚变蓝等）
+        var shader = GD.Load<Shader>("res://shaders/hue_shift.gdshader");
+        if (shader != null)
+        {
+            _mat = new ShaderMaterial { Shader = shader };
+            // 东北军用独立立绘 hue_offset=0；关东军原色也是 0。未来可临时改 hue做特效
+            float hueOffset = kind == Kind.NortheastArmy ? 0f : 0f;
+            _mat.SetShaderParameter("hue_offset", hueOffset);
+            _mat.SetShaderParameter("saturation", 1.0f);
+            _sp.Material = _mat;
+        }
+
         AddChild(_sp);
     }
 

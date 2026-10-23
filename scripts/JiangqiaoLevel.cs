@@ -119,9 +119,38 @@ public partial class JiangqiaoLevel : Node2D
         var art = new GroundArt(this) { ZIndex = -1 };
         _game.AddChild(art);
 
+        // 尸体（GroundArt 之上、玩家之下）：每场战役都有阵亡者
+        AddCorpses();
+
         // 掩体沙袋在人之前（ZIndex 5，高于玩家 0 与敌兵 2），
         // 经过时人从垛子后面过，而不是站在垛子顶上。
         _game.AddChild(new CoverArt { ZIndex = 5 });
+    }
+
+    private void AddCorpses()
+    {
+        // 尸体散布点：弹坑旁、战壕边、碉堡前、桥头、铁丝网附近
+        // CorpseActor ZIndex = -5（GroundArt 之上、玩家 0 之下）
+
+        // 1. 弹坑旁（日军，身体朝右倒向弹坑）
+        _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
+            new Vector2(1270, GroundY - 2), false, 0.08f));
+
+        // 2. 另一个弹坑（日军，朝向相反）
+        _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
+            new Vector2(2090, GroundY - 2), true, -0.12f));
+
+        // 3. 战壕边（东北军，头倒在战壕方向）
+        _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
+            new Vector2(1550, GroundY - 2), false, 0.22f));
+
+        // 4. 碉堡前（日军，身体挡在碉堡入口前）
+        _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
+            new Vector2(3000, GroundY - 2), true, -0.18f));
+
+        // 5. 桥头铁路旁（东北军，头朝冰面倒）
+        _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
+            new Vector2(4380, GroundY - 2), true, 0.14f));
     }
 
     private void BuildPlayer()
