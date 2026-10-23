@@ -788,12 +788,14 @@ public partial class JiangqiaoLevel : Node2D
                     new Color(0.92f, 0.94f, 0.94f), 2.5f, true);
             }
 
-            // 枯树线与冷杉混排（远近不整齐，才像真的树线）
-            for (int i = 0; i < 78; i++)
+            // 枯树线 + 白桦混排（嫩江 11 月白桦刚落叶，白树干配雪非常显眼）
+            for (int i = 0; i < 96; i++)
             {
-                float x = -1400 + i * 132 + Mathf.Sin(i * 3.7f) * 26f;
-                float h = 30 + (i * 37 % 34);
-                if (i % 3 == 0)
+                float x = -1400 + i * 108 + Mathf.Sin(i * 3.7f) * 26f;
+                float h = 32 + (i * 37 % 40);
+                if (i % 4 == 0)
+                    Birch(x, 578, h * 1.15f, 0.62f);
+                else if (i % 3 == 0)
                     Tree(x, 578, h * 0.9f, new Color(0.34f, 0.36f, 0.36f, 0.55f), 2.2f);
                 else
                     Fir(x, 580, h + 14, new Color(0.36f, 0.42f, 0.43f, 0.62f), 0.7f);
@@ -978,6 +980,48 @@ public partial class JiangqiaoLevel : Node2D
             }
         }
 
+        /// <summary>白桦：白细干 + 黑斑纹 + 稀疏枯枝（冬天落叶后只剩细枝）。</summary>
+        private void Birch(float x, float baseY, float h, float alpha)
+        {
+            float sway = Mathf.Sin(_windTime * 0.8f + x * 0.022f) * 0.04f;
+            var trunk = new Color(0.82f, 0.84f, 0.84f, alpha);
+            var dark = new Color(0.22f, 0.22f, 0.22f, alpha * 0.85f);
+
+            // 白色细树干（顶端略尖，下方略粗）
+            DrawLine(new Vector2(x, baseY), new Vector2(x + 2, baseY - h), trunk, 2.8f, true);
+            // 树干上的横纹黑斑（白桦标志性特征）
+            for (int k = 0; k < 5; k++)
+            {
+                float ty = baseY - h * (0.18f + k * 0.15f);
+                float bw = 4f + Mathf.Sin(k * 1.7f) * 2f;
+                DrawSetTransform(new Vector2(x, ty), 0, Vector2.One);
+                DrawRect(new Rect2(-bw / 2f, -1.2f, bw, 2.4f), dark);
+            }
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+            // 稀疏枯枝（冬天白桦只剩细枝）
+            for (int i = 0; i < 5; i++)
+            {
+                float t = 0.30f + i * 0.13f;
+                float y = baseY - h * t;
+                float dir = i % 2 == 0 ? 1f : -1f;
+                float len = h * (0.18f - i * 0.018f);
+                DrawSetTransform(new Vector2(x + 1, y), sway * (1f + i * 0.1f), Vector2.One);
+                DrawLine(new Vector2(x + 1, y), new Vector2(x + 1 + dir * len, y - len * 0.7f), dark, 1.6f, true);
+                // 小枝的末梢分叉
+                if (i % 2 == 0)
+                    DrawLine(new Vector2(x + 1 + dir * len * 0.6f, y - len * 0.45f),
+                        new Vector2(x + 1 + dir * len * 0.9f, y - len * 0.85f), dark, 1f, true);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+            // 顶端一撮细枝（最尖处）
+            DrawSetTransform(new Vector2(x + 2, baseY - h), sway * 1.3f, Vector2.One);
+            DrawLine(new Vector2(0, 0), new Vector2(-4, -10), dark, 1.4f, true);
+            DrawLine(new Vector2(0, 0), new Vector2(5, -8), dark, 1.4f, true);
+            DrawLine(new Vector2(0, 0), new Vector2(-2, -14), dark, 1.4f, true);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        }
+
         private static Vector2[] Curved(Vector2 a, Vector2 control, Vector2 b, int steps)
         {
             var pts = new Vector2[steps + 1];
@@ -1046,25 +1090,67 @@ public partial class JiangqiaoLevel : Node2D
 
         private void DrawRiverIce()
         {
-            // 桥下的江面
+            // 桥下的江面（冰封）
             var ice = new[]
             {
                 new Vector2(4460, GroundY), new Vector2(5220, GroundY), new Vector2(5220, 780),
                 new Vector2(4460, 780),
             };
             DrawColoredPolygon(ice, new Color(0.72f, 0.79f, 0.82f));
-            for (int i = 0; i < 9; i++)
+            // 冰面上层：更亮的冰壳（半透明白）
+            DrawColoredPolygon(new[]
             {
-                float x = 4480 + i * 92;
-                DrawLine(new Vector2(x, GroundY + 12), new Vector2(x + 54, 760),
-                    new Color(0.52f, 0.60f, 0.66f, 0.35f), 1.6f, true);
+                new Vector2(4460, GroundY), new Vector2(5220, GroundY),
+                new Vector2(5220, GroundY + 28), new Vector2(4460, GroundY + 28),
+            }, new Color(0.88f, 0.92f, 0.93f, 0.5f));
+
+            // 冰裂缝：不规则折线（用噪声偏移中间点，不是直竖线）
+            for (int i = 0; i < 14; i++)
+            {
+                float x = 4475 + i * 54;
+                var crack = new List<Vector2>();
+                int steps = 5;
+                for (int s = 0; s <= steps; s++)
+                {
+                    float t = (float)s / steps;
+                    float px = x + Mathf.Sin(i * 2.3f + s * 1.7f) * 18f * (1f - Mathf.Abs(t - 0.5f) * 1.4f);
+                    float py = GroundY + 8 + t * 160f + Mathf.Sin(i * 0.7f + s * 2.1f) * 4f;
+                    crack.Add(new Vector2(px, py));
+                }
+                DrawPolyline(crack.ToArray(), new Color(0.50f, 0.58f, 0.64f, 0.42f), 1.8f, true);
+                // 裂缝上的高光细线
+                DrawPolyline(crack.ToArray(), new Color(0.88f, 0.93f, 0.96f, 0.25f), 0.8f, true);
             }
-            // 冰上的雪块
-            for (int i = 0; i < 12; i++)
+            // 斜向的交叉裂缝（更自然）
+            for (int i = 0; i < 6; i++)
             {
-                var c = new Vector2(4500 + i * 62, GroundY + 26 + (i % 3) * 20);
+                float x0 = 4490 + i * 110;
+                float y0 = GroundY + 40 + (i % 3) * 30;
+                var crack = new List<Vector2>
+                {
+                    new Vector2(x0, y0),
+                    new Vector2(x0 + 24, y0 + 32),
+                    new Vector2(x0 + 48, y0 + 58),
+                    new Vector2(x0 + 72, y0 + 84),
+                };
+                DrawPolyline(crack.ToArray(), new Color(0.48f, 0.56f, 0.62f, 0.38f), 1.6f, true);
+            }
+
+            // 冰上的雪块（冻在冰面上）
+            for (int i = 0; i < 14; i++)
+            {
+                var c = new Vector2(4485 + i * 52 + Mathf.Sin(i * 1.9f) * 14f,
+                    GroundY + 24 + (i % 4) * 22);
                 DrawSetTransform(c, 0, new Vector2(1.6f, 0.28f));
-                DrawCircle(Vector2.Zero, 13f, new Color(0.93f, 0.95f, 0.95f, 0.75f));
+                DrawCircle(Vector2.Zero, 13f + (i % 3) * 3f, new Color(0.93f, 0.95f, 0.95f, 0.75f));
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+            // 远处冰面上的冻土堆（小冰丘）
+            for (int i = 0; i < 5; i++)
+            {
+                var c = new Vector2(4520 + i * 140, GroundY + 540);
+                DrawSetTransform(c, 0, new Vector2(1.8f, 0.5f));
+                DrawCircle(Vector2.Zero, 10f, new Color(0.78f, 0.83f, 0.86f, 0.6f));
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
@@ -1186,6 +1272,71 @@ public partial class JiangqiaoLevel : Node2D
             {
                 DrawArc(new Vector2(x, GroundY - 2), 10f, Mathf.Pi, Mathf.Tau, 14, new Color(0.30f, 0.30f, 0.26f), 6f, true);
                 DrawLine(new Vector2(x + 18, GroundY - 1), new Vector2(x + 60, GroundY - 12), new Color(0.22f, 0.20f, 0.18f), 2f, true);
+            }
+
+            // 碉堡（梯形混凝土 + 射击孔 + 积雪）：1931 江桥阵地的土木碉堡
+            foreach (float bx in new[] { 1550f, 3050f, 4050f })
+            {
+                // 接触阴影（先画，在碉堡下面）
+                DrawSetTransform(new Vector2(bx + 24f, GroundY - 1f), 0, new Vector2(1f, 0.22f));
+                DrawCircle(Vector2.Zero, 40f, new Color(0.12f, 0.13f, 0.14f, 0.32f));
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                // 碉堡本体：梯形（前窄后宽）
+                float bw = 56f; float fh = 38f;
+                var bunker = new[]
+                {
+                    new Vector2(bx + 28f, GroundY),
+                    new Vector2(bx + bw + 28f, GroundY),
+                    new Vector2(bx + bw + 10f, GroundY - fh),
+                    new Vector2(bx + 46f, GroundY - fh),
+                };
+                DrawColoredPolygon(bunker, new Color(0.48f, 0.46f, 0.42f));
+                // 侧面受光（高光条）
+                var hl = new[]
+                {
+                    new Vector2(bx + bw + 10f, GroundY - fh),
+                    new Vector2(bx + bw + 28f, GroundY),
+                    new Vector2(bx + bw + 34f, GroundY),
+                    new Vector2(bx + bw + 16f, GroundY - fh),
+                };
+                DrawColoredPolygon(hl, new Color(0.58f, 0.56f, 0.52f));
+                // 碉堡描边
+                DrawPolyline(new[]
+                {
+                    new Vector2(bx + 28f, GroundY), new Vector2(bx + 46f, GroundY - fh),
+                    new Vector2(bx + bw + 10f, GroundY - fh), new Vector2(bx + bw + 28f, GroundY),
+                }, new Color(0.20f, 0.19f, 0.17f, 0.85f), 1.6f, true);
+
+                // 射击孔（暗色长条 + 十字线表示射击位）
+                float spx = bx + 38f; float spy = GroundY - 22f;
+                DrawRect(new Rect2(spx, spy, 22, 10), new Color(0.08f, 0.09f, 0.10f, 0.95f));
+                DrawLine(new Vector2(spx + 11, spy), new Vector2(spx + 11, spy + 10),
+                    new Color(0.40f, 0.38f, 0.34f, 0.7f), 1.4f, true);
+                DrawLine(new Vector2(spx, spy + 5), new Vector2(spx + 22, spy + 5),
+                    new Color(0.40f, 0.38f, 0.34f, 0.7f), 1.4f, true);
+
+                // 碉堡顶上的积雪（梯形积雪帽）
+                var snow = new[]
+                {
+                    new Vector2(bx + 43f, GroundY - fh - 1),
+                    new Vector2(bx + bw + 12f, GroundY - fh - 1),
+                    new Vector2(bx + bw + 6f, GroundY - fh - 6),
+                    new Vector2(bx + 49f, GroundY - fh - 6),
+                };
+                DrawColoredPolygon(snow, new Color(0.92f, 0.94f, 0.94f, 0.9f));
+                DrawPolyline(new[]
+                {
+                    new Vector2(bx + 43f, GroundY - fh - 1),
+                    new Vector2(bx + bw + 12f, GroundY - fh - 1),
+                }, new Color(0.98f, 0.99f, 0.99f), 2.2f, true);
+
+                // 碉堡旁边的铁丝网桩（一根木桩 + 一根铁丝连到远处）
+                float fx = bx - 30f;
+                DrawLine(new Vector2(fx, GroundY), new Vector2(fx - 2, GroundY - 52),
+                    new Color(0.30f, 0.28f, 0.26f), 2.8f, true);
+                DrawLine(new Vector2(fx - 2, GroundY - 44), new Vector2(fx + 4, GroundY - 44),
+                    new Color(0.30f, 0.28f, 0.26f), 1.6f, true);
             }
         }
     }
