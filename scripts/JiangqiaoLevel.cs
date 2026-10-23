@@ -1003,6 +1003,7 @@ public partial class JiangqiaoLevel : Node2D
                 DrawSetTransform(new Vector2(nx, 670), 0, new Vector2(2f, 0.30f));
                 DrawCircle(Vector2.Zero, 20f, new Color(0.95f, 0.96f, 0.96f, 0.8f));
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                nx += gap;  // 随机间距推进（缺失会导致死循环画树直到渲染服务器爆掉）
             }
             // 两棵略高的枯树，打破规则性（基线同样压在画面下缘）
             for (int i = 0; i < 7; i++)
