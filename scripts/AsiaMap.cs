@@ -534,17 +534,29 @@ public partial class AsiaMap : Control
             }
         }
 
-        // —— 第 1 层：手绘漫画地图照片做底 ——
-        private static readonly Texture2D _mapBg = GD.Load<Texture2D>("res://assets/art/map_bg.jpg");
+        // —— 第 1 层：纸（桌面木纹由底下的 ColorRect 负责）——
         private void DrawPaper()
         {
-            // 照片底图：KeepAspectCovered 铺满整张纸区域
             var sheet = new Rect2(30, 74, 1220, 566);
             DrawRect(new Rect2(sheet.Position + new Vector2(7, 9), sheet.Size), new Color(0, 0, 0, 0.34f));
-            if (_mapBg != null)
-                DrawTextureRect(_mapBg, sheet, false, new Color(1f, 0.97f, 0.92f));
-            else
-                DrawRect(sheet, Paper);   // fallback
+            DrawRect(sheet, Paper);
+
+            // 纸纤维与污渍
+            for (int i = 0; i < 240; i++)
+            {
+                var p = new Vector2(34 + Hash(i, 1.3f) * 1212, 78 + Hash(i, 9.7f) * 558);
+                DrawCircle(p, 0.7f + Hash(i, 4.1f) * 1.3f,
+                    new Color(0.42f, 0.34f, 0.22f, 0.03f + 0.045f * Hash(i, 2.2f)));
+            }
+
+            // 一道横向折痕
+            DrawLine(new Vector2(30, 452), new Vector2(1250, 448), new Color(0.35f, 0.28f, 0.18f, 0.07f), 1.4f, true);
+            DrawLine(new Vector2(30, 453), new Vector2(1250, 449), new Color(1f, 0.98f, 0.92f, 0.10f), 1f, true);
+
+            // 海域铺底：陆地随后盖在上面
+            DrawRect(Frame, Sea);
+            DrawRect(new Rect2(Frame.Position, new Vector2(Frame.Size.X, 120)),
+                new Color(0.42f, 0.50f, 0.52f, 0.05f));
         }
 
         // —— 第 2 层：经纬网（淡淡的，只在图框内）——
