@@ -996,28 +996,41 @@ public partial class JiangqiaoLevel : Node2D
             DrawPolyline(crest.Select(p => p + new Vector2(0, 10)).ToArray(),
                 new Color(0.70f, 0.75f, 0.78f, 0.35f), 8f, true);
 
-            // 芦苇：成簇的弯曲叶片，根部压在雪檐里（只到小腿高度，避免抢人物视线）
-            float windPush = Mathf.Sin(_windTime * 1.4f) * 12f;
-            for (int i = 0; i < 34; i++)
+            // 芦苇：成簇的三角叶片，根部压在雪檐里（枯草黄色+雪帽，不是黑线！）
+            float windPush = Mathf.Sin(_windTime * 1.4f) * 6f;  // 风力不要太夸张，符合冬天芦苇的倒伏感
+            Color reedBase = new Color(0.42f, 0.38f, 0.28f);    // 枯草黄褐
+            Color reedTip = new Color(0.62f, 0.58f, 0.44f);     // 顶部稍浅
+            for (int i = 0; i < 28; i++)
             {
-                float x = -1350 + i * 330 + Mathf.Sin(i * 2.3f) * 52f;
+                float x = -1350 + i * 380 + Mathf.Sin(i * 2.3f) * 62f;
                 float baseY = 722 + Mathf.Sin(x * 0.006f) * 9f;
-                float h = 52 + (i * 41 % 44);
-                for (int b = 0; b < 8; b++)
+                float h = 48 + (i * 37 % 38);
+                // 每簇5-6片三角叶（不是单根线！）
+                int blades = 5 + (i % 2);
+                for (int b = 0; b < blades; b++)
                 {
-                    float dx = (b - 4) * 3.4f + Mathf.Sin(b * 2.1f) * 1.6f;
-                    float lean = Mathf.Sin(i * 1.3f + b * 0.7f) * 15f + 5f + windPush * (0.5f + 0.5f * Mathf.Sin(i * 0.7f));
-                    var root = new Vector2(x + dx, baseY);
-                    var mid = new Vector2(x + dx * 1.3f + lean * 0.45f, baseY - h * 0.55f);
-                    var tip = new Vector2(x + dx * 1.9f + lean, baseY - h - (b % 3) * 9f);
-                    var blade = Curved(root, mid, tip, 6);
-                    DrawPolyline(blade, new Color(0.16f, 0.17f, 0.17f, 0.58f), 2.2f, true);
-                    if (b % 4 == 0)
-                        DrawCircle(tip, 1.4f, new Color(0.93f, 0.95f, 0.95f, 0.6f));
+                    float dx = (b - blades * 0.5f) * 5.2f + Mathf.Sin(b * 1.7f) * 2f;
+                    float lean = Mathf.Sin(i * 1.1f + b * 0.6f) * 12f + 3f + windPush * (0.4f + 0.6f * Mathf.Sin(i * 0.7f));
+                    float tipX = x + dx + lean;
+                    float tipY = baseY - h - (b % 3) * 7f;
+                    float midX = x + dx * 1.2f + lean * 0.3f;
+                    float midY = baseY - h * 0.6f;
+                    // 叶片是宽三角（底宽4px，顶尖），有弧度
+                    var blade = Curved(new Vector2(x + dx - 2f, baseY), new Vector2(midX - 1f, midY), new Vector2(tipX, tipY), 5);
+                    var blade2 = Curved(new Vector2(x + dx + 2f, baseY), new Vector2(midX + 1f, midY), new Vector2(tipX, tipY), 5);
+                    // 填充三角（连接blade和blade2的对应点）
+                    var fill = new List<Vector2>(blade);
+                    fill.AddRange(blade2.AsEnumerable().Reverse());
+                    float t = (float)b / blades;
+                    Color bladeColor = reedBase.Lerp(reedTip, t);
+                    DrawColoredPolygon(fill.ToArray(), bladeColor);
+                    // 叶片的细墨边（统一画风）
+                    DrawPolyline(blade, InkStyle.InkSoft, InkStyle.ThinStroke, true);
+                    DrawPolyline(blade2, InkStyle.InkSoft, InkStyle.ThinStroke, true);
                 }
-                // 根部的雪团
-                DrawSetTransform(new Vector2(x, baseY + 1f), 0, new Vector2(1.8f, 0.3f));
-                DrawCircle(Vector2.Zero, 12f, new Color(0.96f, 0.97f, 0.97f, 0.55f));
+                // 根部的雪团（压在雪里的根部）
+                DrawSetTransform(new Vector2(x, baseY + 1f), 0, new Vector2(2.2f, 0.35f));
+                DrawCircle(Vector2.Zero, 14f, new Color(0.96f, 0.97f, 0.97f, 0.6f));
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
