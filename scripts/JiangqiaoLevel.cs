@@ -1608,34 +1608,34 @@ public partial class JiangqiaoLevel : Node2D
         }
 
         private readonly List<Flake> _flakes = new();
+        private readonly RandomNumberGenerator _rng = new();
         public float Wind = 0.6f;
         private float _gust;
-        private float _blizzardT;        // 当前暴风雪剩余时间（0 = 无暴风雪）
-        private float _nextBlizzard;     // 下次暴风雪倒计时
-        private float _blizzardIntensity; // 0~1 插值，控制过渡
-        public float Blizzard => _blizzardIntensity;  // 外部可读取（远景/UI 变暗）
+        private float _blizzardT;
+        private float _nextBlizzard;
+        private float _blizzardIntensity;
+        public float Blizzard => _blizzardIntensity;
 
         public override void _Ready()
         {
-            var rng = new RandomNumberGenerator();
-            rng.Seed = 20311104;
-            for (int i = 0; i < 160; i++) AddFlake(rng);
-            _nextBlizzard = 25f + rng.Randf() * 20f;  // 开局 25~45 秒后第一次暴风雪
+            _rng.Seed = 20311104;
+            for (int i = 0; i < 160; i++) AddFlake();
+            _nextBlizzard = 25f + _rng.Randf() * 20f;
         }
 
-        private void AddFlake(RandomNumberGenerator rng)
+        private void AddFlake()
         {
-            float depth = rng.Randf();
+            float depth = _rng.Randf();
             _flakes.Add(new Flake
             {
-                X = rng.Randf() * 1280f,
-                Y = rng.Randf() * 720f,
+                X = _rng.Randf() * 1280f,
+                Y = _rng.Randf() * 720f,
                 Spd = 22f + depth * 78f,
                 Size = 0.6f + depth * 2.8f,
-                Sway = rng.Randf() * Mathf.Tau,
+                Sway = _rng.Randf() * Mathf.Tau,
                 Depth = depth,
                 Hex = depth > 0.78f,
-                Rot = rng.Randf() * Mathf.Tau,
+                Rot = _rng.Randf() * Mathf.Tau,
             });
         }
 
@@ -1663,42 +1663,36 @@ public partial class JiangqiaoLevel : Node2D
                 if (_blizzardT <= 0f)
                 {
                     _blizzardT = 0f;
-                    _nextBlizzard = 20f + GD.Randf() * 25f;  // 暴风雪后冷却 20~45 秒
+                    _nextBlizzard = 20f + _rng.Randf() * 25f;
                 }
             }
             else if (_nextBlizzard <= 0f)
             {
-                _blizzardT = 8f + GD.Randf() * 7f;  // 暴风雪持续 8~15 秒
+                _blizzardT = 8f + _rng.Randf() * 7f;
             }
 
-            // 暴风雪强度平滑过渡
+            // 平滑过渡
             float targetBlizzard = _blizzardT > 0f ? 1f : 0f;
             _blizzardIntensity = Mathf.Lerp(_blizzardIntensity, targetBlizzard, f * 0.6f);
 
-            // 动态增减雪粒（暴风雪时翻倍到 ~320 颗）
-            int targetCount = _blizzardIntensity > 0.3f ? 320 : 160;
-            if (_flakes.Count < targetCount)
-            {
-                var rng = new RandomNumberGenerator();
-                rng.Randomize();
-                for (int i = _flakes.Count; i < targetCount; i++) AddFlake(rng);
-            }
-            else if (_flakes.Count > targetCount)
-            {
+            // 动态增减：暴风雪时 ~520 颗（伸手不见五指），平时 160
+            int targetCount = _blizzardIntensity > 0.3f ? 520 : 160;
+            while (_flakes.Count < targetCount) AddFlake();
+            if (_flakes.Count > targetCount)
                 _flakes.RemoveRange(targetCount, _flakes.Count - targetCount);
-            }
 
             // 阵风 + 暴风雪额外风
             _gust = Mathf.Sin(t * 0.3f) * 0.4f + Mathf.Sin(t * 1.7f) * 0.15f;
-            float extraWind = _blizzardIntensity * 2.4f;  // 暴风雪时风速再 +2.4
+            float extraWind = _blizzardIntensity * 3.2f;
             for (int i = 0; i < _flakes.Count; i++)
             {
                 var p = _flakes[i];
-                float spdMul = 1f + _blizzardIntensity * 1.5f;
+                float spdMul = 1f + _blizzardIntensity * 1.8f;
                 p.Y += p.Spd * spdMul * f;
-                float driftX = (-30f * (Wind + extraWind) - p.Spd * 0.18f - _gust * (24f + _blizzardIntensity * 40f)) * f
-                    + Mathf.Sin(t * 1.6f + p.Sway) * 12f * f * (1f + _blizzardIntensity);
-                p.X += driftX;
+                float baseHoriz = -30f * (Wind + extraWind) - p.Spd * 0.18f;
+                float gustHoriz = -_gust * (24f + _blizzardIntensity * 55f);
+                float swayHoriz = Mathf.Sin(t * 1.6f + p.Sway) * 12f * f * (1f + _blizzardIntensity);
+                p.X += (baseHoriz + gustHoriz) * f + swayHoriz;
                 p.Rot += f * 0.8f * (1f + p.Depth);
                 if (p.Y > 730f) { p.Y = -10f; p.X = (p.X + 397f) % 1280f; }
                 if (p.X < -20f) p.X += 1300f;
@@ -1710,19 +1704,32 @@ public partial class JiangqiaoLevel : Node2D
 
         public override void _Draw()
         {
-            // 暴风雪时整屏加一层淡白雾（远景被吃掉）
-            if (_blizzardIntensity > 0.15f)
+            // 暴风雪 fog：垂直渐变遮罩
+            // 顶部（地平线方向）最浓 → 完全吃掉远景；底部（玩家脚边）稍透明
+            if (_blizzardIntensity > 0.12f)
             {
                 var s = GetViewportRect().Size;
-                var r = new Color(0.72f, 0.77f, 0.80f, 0.18f * _blizzardIntensity);
-                DrawRect(new Rect2(0, 0, s.X, s.Y), r);
+                float topAlpha = 0.42f * _blizzardIntensity;    // 地平线处几乎完全遮罩
+                float midAlpha = 0.25f * _blizzardIntensity;
+                float botAlpha = 0.08f * _blizzardIntensity;    // 脚边还能看见地面
+                // 用三个水平 Rect 堆成伪渐变（不用 GradientTexture2D——缓存嫌麻烦）
+                float midY = s.Y * 0.55f;
+                float botY = s.Y * 0.82f;
+                DrawRect(new Rect2(0, 0, s.X, midY), new Color(0.72f, 0.77f, 0.80f, topAlpha));
+                DrawRect(new Rect2(0, midY, s.X, botY - midY), new Color(0.74f, 0.78f, 0.81f, midAlpha));
+                DrawRect(new Rect2(0, botY, s.X, s.Y - botY), new Color(0.78f, 0.81f, 0.83f, botAlpha));
+                // 再加一层非常淡的整体 haze
+                DrawRect(new Rect2(0, 0, s.X, s.Y), new Color(0.82f, 0.85f, 0.87f, 0.06f * _blizzardIntensity));
             }
+
             foreach (var p in _flakes)
             {
                 float a = 0.28f + p.Depth * 0.5f;
-                a *= (1f + _blizzardIntensity * 0.5f);  // 暴风雪时雪花更亮
-                if (p.Hex && p.Size > 1.5f)
+                a *= (1f + _blizzardIntensity * 0.5f);
+
+                if (p.Hex && p.Size > 1.5f && _blizzardIntensity < 0.4f)
                 {
+                    // 六角形雪花（只在平静时可见；暴风雪时全变斜线）
                     DrawSetTransform(new Vector2(p.X, p.Y), p.Rot, Vector2.One);
                     var pts = new Vector2[6];
                     for (int i = 0; i < 6; i++)
@@ -1736,9 +1743,23 @@ public partial class JiangqiaoLevel : Node2D
                 }
                 else
                 {
-                    DrawCircle(new Vector2(p.X, p.Y), p.Size, new Color(0.97f, 0.98f, 1f, a));
-                    if (p.Depth > 0.7f)
-                        DrawLine(new Vector2(p.X, p.Y), new Vector2(p.X - 4f - _blizzardIntensity * 6f, p.Y + 3f),
+                    // 圆形雪花（含暴风雪时所有雪花变斜线）
+                    if (_blizzardIntensity > 0.5f)
+                    {
+                        // 暴风雪斜线：水平飘飞的白色细线（拖尾）
+                        float tailLen = 6f + p.Depth * 10f + _blizzardIntensity * 12f;
+                        DrawLine(
+                            new Vector2(p.X, p.Y),
+                            new Vector2(p.X + tailLen, p.Y + 1.5f),  // 略微向下
+                            new Color(0.98f, 0.99f, 1f, a * 0.9f),
+                            1f + p.Size * 0.3f, true);
+                    }
+                    else
+                    {
+                        DrawCircle(new Vector2(p.X, p.Y), p.Size, new Color(0.97f, 0.98f, 1f, a));
+                    }
+                    if (p.Depth > 0.7f && _blizzardIntensity < 0.5f)
+                        DrawLine(new Vector2(p.X, p.Y), new Vector2(p.X - 4f, p.Y + 3f),
                             new Color(1, 1, 1, a * 0.45f), 1f, true);
                 }
             }
