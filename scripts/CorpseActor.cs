@@ -127,7 +127,8 @@ public partial class CorpseActor : Node2D
     private void DrawContactShadow()
     {
         float ang = _body.Rotation;
-        var center = new Vector2(Mathf.Sin(ang) * 54f, 2f);   // 躯干中心正下方
+        // 躯干中心下方、并向左偏移（冬日太阳在画面右上，投影朝左下）
+        var center = new Vector2(Mathf.Sin(ang) * 54f - 7f, 2f);
         DrawSetTransform(center, ang - Mathf.Pi / 2f, new Vector2(1f, 0.15f));
         DrawCircle(Vector2.Zero, 64f, new Color(0.10f, 0.09f, 0.08f, 0.20f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
@@ -171,7 +172,6 @@ public partial class CorpseActor : Node2D
     {
         float ang = _body.Rotation;
         // 锚点：躯干中心。立绘高 108、脚底在节点原点，躺倒后躯干中心在沿身方向 54px 处
-        // ——血从躯干（中弹部位）下方渗出，不是从脚底渗出（之前血塘画在原点，和身体脱节）。
         float bcX = Mathf.Sin(ang) * 54f;
         float bcY = Mathf.Cos(ang) * 54f + 4f;    // +4 沉进雪面
         // 头部位置（沿身 ~90px），头部中弹的浓血集中在这里
@@ -180,77 +180,100 @@ public partial class CorpseActor : Node2D
         var rng = new RandomNumberGenerator();
         rng.Seed = (ulong)Mathf.RoundToInt(_seed * 1000000f);
 
-        // —— 主血塘：不规则多边形（不是椭圆！8-12 个点，边缘锯齿状）——
-        int mainPts = 8 + Mathf.FloorToInt(rng.Randf() * 5f);
-        float mainR = 24f + rng.RandfRange(-4f, 8f);
+        // 血只会朝一个方向渗（地势低的一侧），绝不环绕尸体一圈——
+        // 对称的红色光环是「贴纸感」的根源。
+        float flow = rng.Randf() > 0.5f ? 1f : -1f;
+        var blood = new Color(0.30f, 0.06f, 0.05f);
+        var bloodMid = new Color(0.36f, 0.08f, 0.06f);
+
+        // —— 主血塘：藏在身下、朝 flow 侧拖出一条「舌形」——
+        // 轮廓：沿流向不对称（朝 flow 拉长、背向短），横向上中间宽两端窄。
+        int mainPts = 10 + Mathf.FloorToInt(rng.Randf() * 4f);
+        float mainLen = 34f + rng.Randf() * 16f;      // 朝流向的延伸半径
+        float mainWide = 15f + rng.Randf() * 6f;      // 横向最大半宽
         var main = new List<Vector2>();
         for (int i = 0; i < mainPts; i++)
         {
-            float a = i / (float)mainPts * Mathf.Tau + rng.RandfRange(-0.18f, 0.18f);
-            float jitter = 0.55f + rng.Randf() * 0.9f;  // 随机幅度：有的点凹进去有的凸出来
-            float rx = mainR * jitter * 1.35f;          // 沿身方向拉长（血顺着身体渗）
-            float ry = mainR * 0.38f * jitter;
-            float x = bcX + Mathf.Cos(ang) * rx + Mathf.Cos(ang + Mathf.Pi / 2f) * ry;
-            float y = bcY + Mathf.Sin(ang) * rx + Mathf.Sin(ang + Mathf.Pi / 2f) * ry;
-            main.Add(new Vector2(x, y));
+            float a = i / (float)mainPts * Mathf.Tau + rng.RandfRange(-0.15f, 0.15f);
+            float ca = Mathf.Cos(a);   // 沿流向分量（带符号）
+            float sa = Mathf.Sin(a);   // 横向分量
+            float stretch = ca * flow > 0f ? 1f : 0.40f;          // 顺流长、逆流短
+            float jitter = 0.72f + rng.Randf() * 0.56f;
+            float rx = mainLen * stretch * jitter;
+            float ry = mainWide * (0.45f + 0.55f * (1f - Mathf.Abs(ca))) * jitter;
+            main.Add(new Vector2(bcX + ca * rx, bcY + sa * ry));
         }
-        DrawColoredPolygon(main.ToArray(), new Color(0.32f, 0.07f, 0.05f, 0.85f));
+        DrawColoredPolygon(main.ToArray(), new Color(blood, 0.88f));
 
-        // —— 渗血层：更大的半透明淡红（渗进雪里的感觉）——
+        // —— 渗血层：顺流再拖远一截的淡红（血渗进雪里扩散），同样单侧 ——
         var bleed = new List<Vector2>();
         for (int i = 0; i < mainPts; i++)
         {
-            float a = i / (float)mainPts * Mathf.Tau + rng.RandfRange(-0.25f, 0.25f);
-            float jitter = 0.7f + rng.Randf() * 0.8f;
-            float rx = (mainR + 18f) * jitter * 1.4f;
-            float ry = (mainR + 18f) * 0.42f * jitter;
-            float x = bcX + Mathf.Cos(ang) * rx + Mathf.Cos(ang + Mathf.Pi / 2f) * ry;
-            float y = bcY + Mathf.Sin(ang) * rx + Mathf.Sin(ang + Mathf.Pi / 2f) * ry;
-            bleed.Add(new Vector2(x, y));
+            float a = i / (float)mainPts * Mathf.Tau + rng.RandfRange(-0.22f, 0.22f);
+            float ca = Mathf.Cos(a);
+            float sa = Mathf.Sin(a);
+            float stretch = ca * flow > 0f ? 1.25f : 0.45f;
+            float jitter = 0.75f + rng.Randf() * 0.5f;
+            float rx = (mainLen + 16f) * stretch * jitter;
+            float ry = (mainWide + 7f) * (0.4f + 0.6f * (1f - Mathf.Abs(ca))) * jitter;
+            bleed.Add(new Vector2(bcX + flow * mainLen * 0.30f + ca * rx, bcY + sa * ry));
         }
-        DrawColoredPolygon(bleed.ToArray(), new Color(0.50f, 0.13f, 0.09f, 0.22f));
+        DrawColoredPolygon(bleed.ToArray(), new Color(0.48f, 0.12f, 0.08f, 0.16f));
 
-        // —— 小血斑：沿身体两侧的水平带状散布（血在雪面上平铺，不往天上溅）——
-        int splatterCount = 2 + Mathf.FloorToInt(rng.Randf() * 3f);
+        // —— 小血斑：绝大多数落在顺流侧的血塘外围，少量贴近身体另一侧 ——
+        int splatterCount = 3 + Mathf.FloorToInt(rng.Randf() * 3f);
         for (int i = 0; i < splatterCount; i++)
         {
-            float cx = bcX + Mathf.Sin(ang) * rng.RandfRange(-72f, 72f)
-                     + Mathf.Cos(ang) * rng.RandfRange(-26f, 26f);
-            float cy = bcY + rng.RandfRange(-5f, 9f);
-            float r = 3f + rng.Randf() * 5f;
-            // 小血斑是不规则多边形（3-5 点），不是圆
-            int sPts = 3 + Mathf.FloorToInt(rng.Randf() * 3f);
+            bool farSide = i < splatterCount - 1;   // 最后一个留给逆流侧
+            float cx = bcX + flow * rng.RandfRange(mainLen * 0.85f, mainLen * 1.7f);
+            if (!farSide) cx = bcX - flow * rng.RandfRange(18f, 34f);
+            float cy = bcY + rng.RandfRange(-9f, 9f);
+            float r = 1.6f + rng.Randf() * 3.4f;    // 离主体越远越小
+            int sPts = 4 + Mathf.FloorToInt(rng.Randf() * 3f);
             var spot = new List<Vector2>();
             for (int k = 0; k < sPts; k++)
             {
                 float sAng = k / (float)sPts * Mathf.Tau + rng.RandfRange(-0.3f, 0.3f);
-                float sJit = 0.5f + rng.Randf() * 0.7f;
+                float sJit = 0.55f + rng.Randf() * 0.7f;
                 spot.Add(new Vector2(cx + Mathf.Cos(sAng) * r * sJit,
                     cy + Mathf.Sin(sAng) * r * sJit));
             }
-            DrawColoredPolygon(spot.ToArray(), new Color(0.42f, 0.09f, 0.07f, 0.65f));
+            DrawColoredPolygon(spot.ToArray(), new Color(bloodMid, 0.6f));
         }
 
-        // —— 血丝：贴着雪面向低处流（3-5 条，长度不同，不是朝天放射）——
-        int dripCount = 3 + Mathf.FloorToInt(rng.Randf() * 3f);
+        // —— 血丝：贴雪面顺流而行的锥形细流（根部粗、末端细，不带圆点收尾）——
+        int dripCount = 2 + Mathf.FloorToInt(rng.Randf() * 2f);
         for (int i = 0; i < dripCount; i++)
         {
-            float dir = rng.Randf() > 0.5f ? 1f : -1f;
-            float len = 30f + rng.Randf() * 30f;
-            var p0 = new Vector2(bcX + dir * rng.RandfRange(6f, 18f), bcY + rng.RandfRange(-3f, 2f));
-            var p2 = new Vector2(p0.X + dir * len, bcY + rng.RandfRange(1f, 5f));
-            var p1 = new Vector2((p0.X + p2.X) * 0.5f + rng.RandfRange(-5f, 5f),
-                (p0.Y + p2.Y) * 0.5f + rng.RandfRange(-3f, 3f));
-            DrawLine(p0, p1, new Color(0.42f, 0.09f, 0.07f, 0.5f), 1.5f, true);
-            DrawLine(p1, p2, new Color(0.42f, 0.09f, 0.07f, 0.5f), 1.5f, true);
-            // 血丝末端的小圆点
-            DrawCircle(p2, 1.8f + rng.Randf() * 1.5f,
-                new Color(0.42f, 0.09f, 0.07f, 0.6f));
+            float len = 26f + rng.Randf() * 34f;
+            float y0 = bcY + rng.RandfRange(-4f, 4f);
+            float x0 = bcX + flow * rng.RandfRange(mainLen * 0.4f, mainLen * 0.7f);
+            // 波动前进的路径（4 个控制点）
+            int steps = 4;
+            var path = new Vector2[steps + 1];
+            for (int s = 0; s <= steps; s++)
+            {
+                float t = s / (float)steps;
+                path[s] = new Vector2(
+                    x0 + flow * len * t,
+                    y0 + Mathf.Sin(t * Mathf.Pi + i * 2.1f) * 3f + t * rng.RandfRange(-1f, 3f));
+            }
+            for (int s = 0; s < steps; s++)
+                DrawLine(path[s], path[s + 1], new Color(bloodMid, 0.55f),
+                    2.2f * (1f - s / (float)steps) + 0.5f, true);
         }
 
-        // 头部浓血：头部中弹血更集中（位置锚到真正的头部，不是 29px 的半途）
-        DrawSetTransform(new Vector2(headX, headY), 0, new Vector2(1.5f, 0.5f));
-        DrawCircle(Vector2.Zero, 9f, new Color(0.28f, 0.06f, 0.05f, 0.75f));
+        // 头部浓血：不规则小血塘压在头位下方、顺流偏一点（不再是圆形气球）
+        DrawSetTransform(new Vector2(headX + flow * 4f, headY), 0, new Vector2(1.5f, 0.5f));
+        int headPts = 8;
+        var headPool = new List<Vector2>();
+        for (int i = 0; i < headPts; i++)
+        {
+            float a = i / (float)headPts * Mathf.Tau + rng.RandfRange(-0.2f, 0.2f);
+            float r = 8f * (0.6f + rng.Randf() * 0.7f);
+            headPool.Add(new Vector2(Mathf.Cos(a) * r, Mathf.Sin(a) * r));
+        }
+        DrawColoredPolygon(headPool.ToArray(), new Color(0.26f, 0.05f, 0.04f, 0.7f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 

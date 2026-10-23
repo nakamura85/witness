@@ -141,7 +141,7 @@ public partial class SpriteActor : Node2D
         {
             shadowScaleX = 1.8f;
             shadowScaleY = 0.35f;
-            DrawSetTransform(new Vector2(0, -2), 0,
+            DrawSetTransform(new Vector2(-3, -2), 0,
                 new Vector2(shadowScaleX, shadowScaleY));
         }
         else if (Moving && Grounded)
@@ -150,12 +150,12 @@ public partial class SpriteActor : Node2D
             float stretch = Mathf.Max(0.75f, 1.25f + step * 0.5f);
             shadowScaleX = stretch;
             shadowScaleY = 1f / stretch * 0.55f;
-            DrawSetTransform(new Vector2(-Facing * step * 1.5f, -2), 0,
+            DrawSetTransform(new Vector2(-3 - Facing * step * 1.5f, -2), 0,
                 new Vector2(shadowScaleX, shadowScaleY));
         }
         else
         {
-            DrawSetTransform(new Vector2(0, -2), 0, new Vector2(2.6f, 0.55f));
+            DrawSetTransform(new Vector2(-3, -2), 0, new Vector2(2.6f, 0.55f));
         }
         DrawCircle(Vector2.Zero, shadowRadius,
             new Color(0.10f, 0.09f, 0.08f, 0.28f));

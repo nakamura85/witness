@@ -59,9 +59,10 @@ public partial class FigureActor : Node2D
     public override void _Draw()
     {
         // 手绘漫画风接触阴影：一个压扁的扁椭圆，平涂 GroundShadow 冷色
+        // （略微向左偏——冬日太阳在画面右上，投影朝左下）
         if (Grounded)
         {
-            DrawSetTransform(new Vector2(0, -1), 0, new Vector2(1.05f, 0.22f));
+            DrawSetTransform(new Vector2(-2.5f, -1), 0, new Vector2(1.05f, 0.22f));
             DrawCircle(Vector2.Zero, 15.5f, InkStyle.GroundShadow);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }

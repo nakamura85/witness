@@ -843,6 +843,9 @@ public partial class JiangqiaoLevel : Node2D
                     DrawLine(new Vector2(x - w * 0.41f, ly), new Vector2(x + w * 0.41f, ly),
                         InkStyle.AdobeWallShadow, InkStyle.ThinStroke, true);
                 }
+                // 墙面背光带（左侧一条暗面——冬日太阳在画面右上，光从右来）
+                DrawRect(new Rect2(x - w * 0.42f, wallTop, 5f, wallH),
+                    new Color(InkStyle.AdobeWallShadow, 0.6f));
                 // 墙脚埋雪（土坯墙下半截被雪埋，只剩上半截露着）
                 DrawColoredPolygon(new[]
                 {
@@ -891,12 +894,12 @@ public partial class JiangqiaoLevel : Node2D
                 };
                 // 屋顶主体（先填色再墨边）
                 InkStyle.PenStroke(this, roofTri, InkStyle.PlankRoof, InkStyle.InkColor, InkStyle.BoldStroke);
-                // 屋顶暗面（右半侧阴影）
+                // 屋顶暗面（左半侧背阴——太阳在画面右上，右坡受光、左坡背光）
                 var roofShadow = new[]
                 {
                     new Vector2(ridgeX, ridgeY),
-                    new Vector2(eavesR, wallTop),
-                    new Vector2(ridgeX + 6f, wallTop),
+                    new Vector2(eavesL, wallTop),
+                    new Vector2(ridgeX - 6f, wallTop),
                 };
                 DrawColoredPolygon(roofShadow, InkStyle.PlankRoofShadow);
                 // 木板瓦竖向纹理（屋顶上每隔 10px 一条细线，模拟瓦缝）
@@ -1074,49 +1077,83 @@ public partial class JiangqiaoLevel : Node2D
 
         /// <summary>
         /// 落叶枯树（史实：嫩江平原的蒙古黄榆/小叶杨，11 月阔叶树全部落叶只剩枝桠）：
-        /// 弯曲主干 + 分叉枝桠 + 顶梢，弯度/分枝/高度逐棵随机，绝无两棵相同。
+        /// 主干和枝桠全部是贝塞尔曲线（真实树木没有直线——枝条先平伸再上翘、末梢下挂），
+        /// 弯度/分枝/高度逐棵随机，绝无两棵相同，也绝无「天线/直线玩具」感。
         /// </summary>
         private void BareTree(float x, float baseY, float h, Color c, float w, float leanDeg = 0f)
         {
             float sway = Mathf.Sin(_windTime * 0.9f + x * 0.018f) * 0.03f + Mathf.DegToRad(leanDeg);
             DrawSetTransform(new Vector2(x, baseY), sway, Vector2.One);
 
-            // 弯主干：3 段折线，越往上越细，弯向随 x 变化（每棵弯法不同）
-            var nodes = new Vector2[4];
-            nodes[0] = Vector2.Zero;
-            for (int i = 1; i <= 3; i++)
-            {
-                float t = i / 3f;
-                float bend = Mathf.Sin(x * 0.05f + i * 2.3f) * h * 0.055f;
-                nodes[i] = new Vector2(bend * t + Mathf.Sign(bend) * t * t * h * 0.04f, -h * t);
-            }
-            for (int i = 0; i < 3; i++)
-                DrawLine(nodes[i], nodes[i + 1], c, w * (1f - i * 0.24f), true);
-            // 顶梢
-            DrawLine(nodes[3], nodes[3] + new Vector2(Mathf.Sin(x * 1.3f) * 5f, -h * 0.12f),
-                c, w * 0.26f, true);
+            // 弯主干：二次贝塞尔平滑单弯（每棵弯向/弯度不同），分段变细画出锥形
+            float bend = Mathf.Sin(x * 0.73f) * h * 0.17f;
+            var trunk = Curved(new Vector2(0, 0),
+                new Vector2(bend, -h * 0.55f),
+                new Vector2(bend * 1.6f + Mathf.Sin(x * 1.9f) * h * 0.06f, -h), 8);
+            int segs = trunk.Length - 1;
+            for (int i = 0; i < segs; i++)
+                DrawLine(trunk[i], trunk[i + 1], c, w * (1f - (i + 0.5f) / segs * 0.55f), true);
+            var top = trunk[segs];
 
-            // 枝桠：主干各节点向两侧伸出（1-3 根），带二级小枝；长短角度逐棵不同
-            for (int i = 1; i < nodes.Length; i++)
+            // 枝桠：主干不同高度向左右交替伸出的弯曲枝（先平伸再上翘——真实阔叶树枝形）
+            int branchCount = 3 + (int)(Mathf.Abs(Mathf.Sin(x * 0.37f + 1.3f)) * 2.9f);  // 3-5 根
+            for (int b = 0; b < branchCount; b++)
             {
-                float t = i / (float)(nodes.Length - 1);
-                int branches = 1 + (int)(Mathf.Abs(Mathf.Sin(x * 0.7f + i * 1.9f)) * 1.9f) + (i == 3 ? 1 : 0);
-                for (int b = 0; b < branches; b++)
-                {
-                    float dir = (i + b) % 2 == 0 ? 1f : -1f;
-                    float len = h * (0.44f - t * 0.20f) *
-                        (0.65f + 0.7f * Mathf.Abs(Mathf.Sin(x + i * 3.1f + b * 2.4f)));
-                    var tip = nodes[i] + new Vector2(dir * len,
-                        -len * (0.35f + 0.3f * Mathf.Abs(Mathf.Cos(x + b))));
-                    DrawLine(nodes[i], tip, c, Mathf.Max(1.4f, w * 0.42f * (1f - t * 0.35f)), true);
-                    // 二级小枝 2 根（一上挑一下垂，枯枝的自然乱感）
-                    DrawLine(tip, tip + new Vector2(dir * len * 0.38f, -len * 0.16f),
-                        c, Mathf.Max(1f, w * 0.22f), true);
-                    DrawLine(tip, tip + new Vector2(dir * len * 0.12f, len * 0.24f),
-                        c, Mathf.Max(0.9f, w * 0.18f), true);
-                }
+                float t = 0.40f + 0.56f * b / Mathf.Max(1f, branchCount - 1f);   // 0.40..0.96
+                var anchor = PathPoint(trunk, t);
+                float side = b % 2 == 0 ? 1f : -1f;
+                float len = h * (0.36f - t * 0.18f) *
+                    (0.75f + 0.5f * Mathf.Abs(Mathf.Sin(x + b * 2.7f)));
+                float rise = len * (0.30f + 0.22f * Mathf.Abs(Mathf.Sin(x * 0.5f + b * 1.1f)));
+                var tip = anchor + new Vector2(side * len, -rise);
+                var ctrl = anchor + new Vector2(side * len * 0.55f, -rise * 0.15f); // 控制点低：先平后翘
+                var branch = Curved(anchor, ctrl, tip, 6);
+                int bs = branch.Length - 1;
+                for (int i = 0; i < bs; i++)
+                    DrawLine(branch[i], branch[i + 1], c,
+                        Mathf.Max(1.1f, w * 0.38f * (1f - t * 0.4f) * (1f - i / (float)bs * 0.6f)), true);
+
+                // 二级小枝：枝中段上挑一根 + 末梢下挂一根（枯枝的自然乱感，全是曲线）
+                var mid = PathPoint(branch, 0.55f);
+                var midBranch = Curved(mid, mid + new Vector2(side * len * 0.10f, -len * 0.04f),
+                    mid + new Vector2(side * len * 0.22f, -len * 0.20f), 4);
+                DrawPolyline(midBranch, c, Mathf.Max(0.9f, w * 0.16f), true);
+                var droop = Curved(tip, tip + new Vector2(side * len * 0.08f, len * 0.02f),
+                    tip + new Vector2(side * len * 0.14f, len * 0.16f), 4);
+                DrawPolyline(droop, c, Mathf.Max(0.8f, w * 0.13f), true);
+            }
+
+            // 顶梢：2-3 根向上的细梢（高低错落，不是对称三叉）
+            int sprouts = 2 + (int)(Mathf.Abs(Mathf.Sin(x * 2.1f)) * 1.9f);
+            for (int s = 0; s < sprouts; s++)
+            {
+                float side = s % 2 == 0 ? 1f : -1f;
+                float sl = h * (0.10f + 0.05f * Mathf.Abs(Mathf.Sin(x + s * 1.7f)));
+                var sprout = Curved(top, top + new Vector2(side * sl * 0.2f, -sl * 0.5f),
+                    top + new Vector2(side * sl * (0.5f + 0.4f * Mathf.Sin(x * 0.9f + s)), -sl), 4);
+                DrawPolyline(sprout, c, Mathf.Max(0.9f, w * 0.18f), true);
             }
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        }
+
+        /// <summary>折线路径上取 t∈[0,1] 处的点（按段长近似，用于在曲线干/枝上长出分枝）。</summary>
+        private static Vector2 PathPoint(Vector2[] pts, float t)
+        {
+            float total = 0f;
+            var segLens = new float[pts.Length - 1];
+            for (int i = 0; i < pts.Length - 1; i++)
+            {
+                segLens[i] = pts[i].DistanceTo(pts[i + 1]);
+                total += segLens[i];
+            }
+            float d = Mathf.Clamp(t, 0f, 1f) * total;
+            for (int i = 0; i < segLens.Length; i++)
+            {
+                if (d <= segLens[i] || i == segLens.Length - 1)
+                    return pts[i].Lerp(pts[i + 1], segLens[i] <= 0f ? 0f : d / segLens[i]);
+                d -= segLens[i];
+            }
+            return pts[pts.Length - 1];
         }
 
         /// <summary>灌木柳丛（史实：旱柳沿江洼地成丛）：贴地一蓬拱形细枝 + 根部积雪。</summary>
@@ -1193,23 +1230,60 @@ public partial class JiangqiaoLevel : Node2D
             }
         }
 
+        /// <summary>
+        /// 中景阔叶枯树：弯曲主干 + 先平后翘的弧形枝。雪只以「短雪帽」形式
+        /// 贴在部分枝条的**上侧**（雪落在枝背上），不再是沿枝平行的白线
+        /// ——那种白线远看像没掉光的叶子，不符合 11 月全落叶的史实。
+        /// </summary>
         private void Tree(float x, float baseY, float h, Color c, float w)
         {
-            DrawLine(new Vector2(x, baseY), new Vector2(x + 4, baseY - h), c, w, true);
-            float sway = Mathf.Sin(_windTime * 0.9f + x * 0.018f) * 0.035f;
-            for (int i = 0; i < 7; i++)
+            float sway = Mathf.Sin(_windTime * 0.9f + x * 0.018f) * 0.03f;
+            DrawSetTransform(new Vector2(x, baseY), sway, Vector2.One);
+
+            // 弯主干：贝塞尔曲线 + 分段变细
+            float bend = Mathf.Sin(x * 0.61f + 0.8f) * h * 0.15f;
+            var trunk = Curved(new Vector2(0, 0), new Vector2(bend, -h * 0.55f),
+                new Vector2(bend * 1.5f, -h), 7);
+            int segs = trunk.Length - 1;
+            for (int i = 0; i < segs; i++)
+                DrawLine(trunk[i], trunk[i + 1], c, w * (1f - (i + 0.5f) / segs * 0.5f), true);
+            var top = trunk[segs];
+
+            var snow = new Color(0.93f, 0.95f, 0.95f, 0.8f);
+            int branchCount = 3 + (int)(Mathf.Abs(Mathf.Sin(x * 0.53f)) * 2.4f);  // 3-5 根
+            for (int b = 0; b < branchCount; b++)
             {
-                float t = 0.28f + i * 0.10f;
-                float y = baseY - h * t;
-                float dir = i % 2 == 0 ? 1f : -1f;
-                float len = h * (0.30f - i * 0.022f);
-                DrawSetTransform(new Vector2(x + 3, y), sway * (1f + i * 0.15f), Vector2.One);
-                DrawLine(new Vector2(x + 3, y), new Vector2(x + 3 + dir * len, y - len * 0.55f), c, Mathf.Max(1.4f, w * 0.55f), true);
-                DrawLine(new Vector2(x + 6 + dir * len * 0.6f, y - len * 0.30f),
-                    new Vector2(x + 6 + dir * len * 0.9f, y - len * 0.40f),
-                    new Color(0.90f, 0.92f, 0.92f, 0.55f), Mathf.Max(1.2f, w * 0.4f), true);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                float t = 0.38f + 0.58f * b / Mathf.Max(1f, branchCount - 1f);
+                var anchor = PathPoint(trunk, t);
+                float side = b % 2 == 0 ? 1f : -1f;
+                float len = h * (0.30f - t * 0.12f) *
+                    (0.8f + 0.4f * Mathf.Abs(Mathf.Sin(x + b * 2.1f)));
+                float rise = len * (0.30f + 0.15f * Mathf.Abs(Mathf.Sin(x * 0.7f + b)));
+                var tip = anchor + new Vector2(side * len, -rise);
+                var ctrl = anchor + new Vector2(side * len * 0.55f, -rise * 0.12f);
+                var branch = Curved(anchor, ctrl, tip, 5);
+                int bs = branch.Length - 1;
+                float bw = Mathf.Max(1.2f, w * 0.5f * (1f - t * 0.35f));
+                for (int i = 0; i < bs; i++)
+                    DrawLine(branch[i], branch[i + 1], c, bw * (1f - i / (float)bs * 0.5f), true);
+
+                // 雪帽：隔一根枝给一小截，贴着枝线上侧（雪真的「落」在枝上）
+                if (b % 2 == 0)
+                    for (int i = 0; i < 2 && i < bs; i++)
+                        DrawLine(branch[i] + new Vector2(0, -bw * 0.35f),
+                            branch[i + 1] + new Vector2(0, -bw * 0.35f), snow, bw * 0.9f, true);
+
+                // 末梢小枝上挑
+                var tw = Curved(tip, tip + new Vector2(side * len * 0.10f, -len * 0.06f),
+                    tip + new Vector2(side * len * 0.20f, -len * 0.16f), 3);
+                DrawPolyline(tw, c, Mathf.Max(0.9f, w * 0.2f), true);
             }
+
+            // 顶梢
+            var topS = Curved(top, top + new Vector2(Mathf.Sin(x) * 3f, -h * 0.06f),
+                top + new Vector2(Mathf.Sin(x * 1.3f) * 6f, -h * 0.12f), 4);
+            DrawPolyline(topS, c, Mathf.Max(1f, w * 0.25f), true);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 
         /// <summary>白桦：白细干 + 黑斑纹 + 稀疏枯枝（冬天落叶后只剩细枝）。</summary>
@@ -1231,7 +1305,7 @@ public partial class JiangqiaoLevel : Node2D
             }
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
-            // 稀疏枯枝（冬天白桦只剩细枝）
+            // 稀疏枯枝（冬天白桦只剩细枝）——细枝同样是微弯曲线，不是直线
             for (int i = 0; i < 5; i++)
             {
                 float t = 0.30f + i * 0.13f;
@@ -1239,11 +1313,17 @@ public partial class JiangqiaoLevel : Node2D
                 float dir = i % 2 == 0 ? 1f : -1f;
                 float len = h * (0.18f - i * 0.018f);
                 DrawSetTransform(new Vector2(x + 1, y), sway * (1f + i * 0.1f), Vector2.One);
-                DrawLine(new Vector2(x + 1, y), new Vector2(x + 1 + dir * len, y - len * 0.7f), dark, 1.6f, true);
-                // 小枝的末梢分叉
+                var twig = Curved(new Vector2(0, 0), new Vector2(dir * len * 0.5f, -len * 0.18f),
+                    new Vector2(dir * len, -len * 0.7f), 4);
+                DrawPolyline(twig, dark, 1.6f, true);
+                // 小枝的末梢分叉（继续上挑）
                 if (i % 2 == 0)
-                    DrawLine(new Vector2(x + 1 + dir * len * 0.6f, y - len * 0.45f),
-                        new Vector2(x + 1 + dir * len * 0.9f, y - len * 0.85f), dark, 1f, true);
+                {
+                    var fork = Curved(new Vector2(dir * len, -len * 0.7f),
+                        new Vector2(dir * len * 1.05f, -len * 0.88f),
+                        new Vector2(dir * len * 1.2f, -len * 1.08f), 3);
+                    DrawPolyline(fork, dark, 1f, true);
+                }
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
             // 顶端一撮细枝（最尖处）
@@ -1276,9 +1356,11 @@ public partial class JiangqiaoLevel : Node2D
         {
             float k = 1f / (1f + Air / 240f);
             float a = 0.44f / (1f + Air / 110f);
-            DrawSetTransform(new Vector2(X, GroundY - 1f), 0, new Vector2(1f, 0.26f));
+            // 投影朝左下偏（太阳在画面右上），腾空越高偏得越多、影子越小越淡
+            float skew = 3f + Air * 0.045f;
+            DrawSetTransform(new Vector2(X - skew, GroundY - 1f), 0, new Vector2(1f, 0.26f));
             DrawCircle(Vector2.Zero, 21f * k, new Color(0.12f, 0.13f, 0.16f, a));
-            DrawSetTransform(new Vector2(X + 4f, GroundY - 1f), 0, new Vector2(1f, 0.16f));
+            DrawSetTransform(new Vector2(X - skew * 2.2f, GroundY - 1f), 0, new Vector2(1f, 0.16f));
             DrawCircle(Vector2.Zero, 12f * k, new Color(0.12f, 0.13f, 0.16f, a * 0.55f));
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
@@ -1454,8 +1536,8 @@ public partial class JiangqiaoLevel : Node2D
                 // 枕木：先墨边描框再填木色 → 手绘漫画风
                 InkStyle.InkRect(this, new Rect2(x, 619, 22, 14),
                     new Color(0.42f, 0.34f, 0.26f), InkStyle.InkColor, InkStyle.Stroke);
-                // 枕木阴影边（右下）
-                InkStyle.InkRect(this, new Rect2(x + 2, 627, 22, 6),
+                // 枕木阴影边（左下背光）
+                InkStyle.InkRect(this, new Rect2(x - 2, 627, 22, 6),
                     new Color(0.26f, 0.20f, 0.14f), InkStyle.InkSoft, InkStyle.ThinStroke);
             }
             // 钢轨：粗墨色线（先描深再填浅）
@@ -1500,13 +1582,13 @@ public partial class JiangqiaoLevel : Node2D
                 // 墩身（混凝土矩形 + 墨边）
                 InkStyle.InkRect(this, new Rect2(px - 15, GroundY + 2, 30, 120),
                     new Color(0.38f, 0.40f, 0.42f), InkStyle.InkSoft, InkStyle.Stroke);
-                // 墩身阴影面（右侧）
+                // 墩身阴影面（左侧背光——太阳在画面右上）
                 var pierShadow = new[]
                 {
-                    new Vector2(px + 12, GroundY + 2),
-                    new Vector2(px + 15, GroundY + 2),
-                    new Vector2(px + 15, GroundY + 122),
-                    new Vector2(px + 12, GroundY + 122),
+                    new Vector2(px - 15, GroundY + 2),
+                    new Vector2(px - 12, GroundY + 2),
+                    new Vector2(px - 12, GroundY + 122),
+                    new Vector2(px - 15, GroundY + 122),
                 };
                 DrawColoredPolygon(pierShadow, new Color(0.24f, 0.26f, 0.28f, 0.7f));
                 // 底部破冰棱（三角形尖端，向下30px）
@@ -1613,9 +1695,10 @@ public partial class JiangqiaoLevel : Node2D
             foreach (float x in new[] { 620f, 1030f, 2470f, 3690f })
             {
                 // 接触阴影：箱子是“压进雪里”的，不是一个色块贴在雪面上。
-                DrawSetTransform(new Vector2(x + 15f, GroundY - 1f), 0, new Vector2(1f, 0.24f));
+                // 投影偏向左下（太阳在画面右上）
+                DrawSetTransform(new Vector2(x + 12f, GroundY - 1f), 0, new Vector2(1f, 0.24f));
                 DrawCircle(Vector2.Zero, 20.5f, new Color(0.13f, 0.14f, 0.15f, 0.32f));
-                DrawCircle(new Vector2(2.5f, 0f), 12.5f, new Color(0.11f, 0.12f, 0.13f, 0.24f));
+                DrawCircle(new Vector2(-4f, 0f), 12.5f, new Color(0.11f, 0.12f, 0.13f, 0.24f));
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
                 DrawRect(new Rect2(x, GroundY - 26, 30, 26), new Color(0.44f, 0.36f, 0.24f));
@@ -1836,15 +1919,15 @@ public partial class JiangqiaoLevel : Node2D
             DrawLine(new Vector2(13.5f, 3f), new Vector2(15f, 0f), InkStyle.InkSoft, 1.2f, true);
             DrawLine(new Vector2(13.5f, 0f), new Vector2(15.5f, 0f), InkStyle.InkSoft, 1.4f, true);
 
-            // 6. 右下硬边阴影（漫画式，沙包叠起来会有投影）
+            // 6. 左下硬边阴影（漫画式投影——太阳在画面右上，影子落在左下）
             var shadowMask = new[]
             {
-                new Vector2(2f, 0f), new Vector2(14f, 0f), new Vector2(14f, 7f), new Vector2(2f, 7f)
+                new Vector2(-14f, 0f), new Vector2(-2f, 0f), new Vector2(-2f, 7f), new Vector2(-14f, 7f)
             };
             DrawColoredPolygon(shadowMask, InkStyle.SackShadow);
 
-            // 7. 卡通高光（左上一个小圆点）
-            InkStyle.KawaiiHighlight(this, new Vector2(-4f, -4f), 1.6f, new Color(0.92f, 0.84f, 0.68f, 0.85f));
+            // 7. 卡通高光（右上受光角一个小圆点）
+            InkStyle.KawaiiHighlight(this, new Vector2(4f, -4f), 1.6f, new Color(0.92f, 0.84f, 0.68f, 0.85f));
 
             // 8. 顶上积雪（沙包叠起来，顶上会有雪）
             float snowR = Mathf.Clamp(6.4f * k + sd.SnowExtra, 4f, 9f);
