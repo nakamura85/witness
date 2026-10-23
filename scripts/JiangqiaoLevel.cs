@@ -1055,28 +1055,70 @@ public partial class JiangqiaoLevel : Node2D
         /// <summary>冷杉：塔形树冠 + 雪压枝线。</summary>
         private void Fir(float x, float baseY, float h, Color c, float alpha)
         {
-            var trunk = new Color(c, alpha * 0.9f);
-            DrawLine(new Vector2(x, baseY), new Vector2(x, baseY - h * 0.32f), trunk, 2.6f, true);
+            // 冷杉/云杉：冬天（嫩江 11 月）针叶仍保持深绿色，层间挂雪。
+            // 轮廓是连续圆锥（不是分段三角堆），内部有 6 条层线模拟针叶层叠。
+            Color fill = new Color(c, alpha);
+            Color darkFill = new Color(c.R * 0.55f, c.G * 0.55f, c.B * 0.55f, alpha);
+            Color trunkFill = new Color(0.32f, 0.26f, 0.20f, alpha * 0.9f);
+            Color snow = new Color(0.94f, 0.96f, 0.97f, alpha);
 
             float sway = Mathf.Sin(_windTime * 1.1f + x * 0.015f) * 0.03f;
+            DrawSetTransform(new Vector2(x, 0), sway, Vector2.One);
 
-            for (int k = 0; k < 4; k++)
+            // 树干（4 点梯形多边形 + 墨边，比之前的单线条粗壮明显）
+            float trunkTop = baseY - h * 0.32f;
+            var trunkPoly = new[]
             {
-                float ty = baseY - h * (0.22f + 0.20f * k);
-                float w = h * 0.30f * (1f - k * 0.21f);
-                float top = ty - h * 0.30f;
-                DrawSetTransform(new Vector2(x, ty + h * 0.15f), sway * (1f + k * 0.3f), Vector2.One);
-                var tri = new[]
-                {
-                    new Vector2(x - w, ty), new Vector2(x, top), new Vector2(x + w, ty),
-                };
-                DrawColoredPolygon(tri, new Color(c, alpha));
-                DrawLine(new Vector2(x - w * 0.94f, ty - 1.5f), new Vector2(x, top + 2f),
-                    new Color(0.90f, 0.93f, 0.94f, 0.60f * alpha + 0.18f), 2.2f, true);
-                DrawLine(new Vector2(x, top + 2f), new Vector2(x + w * 0.94f, ty - 1.5f),
-                    new Color(0.86f, 0.90f, 0.91f, 0.45f * alpha + 0.14f), 1.8f, true);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                new Vector2(-1.8f, baseY),
+                new Vector2(-0.8f, trunkTop),
+                new Vector2(0.8f, trunkTop),
+                new Vector2(1.8f, baseY),
+            };
+            InkStyle.PenStroke(this, trunkPoly, trunkFill, InkStyle.InkColor, InkStyle.ThinStroke);
+
+            // 连续圆锥树冠（7 点轮廓，整体下宽上窄的自然圆锥，不是分段三角堆！）
+            float crownBottomY = trunkTop;
+            float crownTopY = baseY - h * 0.97f;
+            float crownBottomW = h * 0.46f;
+            var crown = new[]
+            {
+                new Vector2(-crownBottomW * 0.15f, crownBottomY + 1f),
+                new Vector2(-crownBottomW, crownBottomY - h * 0.04f),
+                new Vector2(-crownBottomW * 0.38f, crownBottomY - h * 0.22f),
+                new Vector2(0f, crownTopY),
+                new Vector2(crownBottomW * 0.38f, crownBottomY - h * 0.22f),
+                new Vector2(crownBottomW, crownBottomY - h * 0.04f),
+                new Vector2(crownBottomW * 0.15f, crownBottomY + 1f),
+            };
+            InkStyle.PenStroke(this, crown, fill, InkStyle.InkColor, InkStyle.BoldStroke);
+
+            // 树冠内部 5 条横向层线（模拟针叶层叠，暗绿色细线）
+            int layerCount = 6;
+            for (int k = 1; k < layerCount; k++)
+            {
+                float t = (float)k / layerCount;
+                float ly = crownBottomY - (crownBottomY - crownTopY) * t;
+                float lw = crownBottomW * (1f - t * 0.92f);
+                float sag = Mathf.Sin(k * 0.7f + _windTime * 0.5f) * h * 0.006f;
+                DrawLine(
+                    new Vector2(-lw * 0.85f, ly + h * 0.012f + sag),
+                    new Vector2(lw * 0.85f, ly + h * 0.012f + sag),
+                    darkFill, 1.3f, true);
             }
+
+            // 层线之间挂雪（3 条亮白色细弧，冬天冷杉的积雪感）
+            for (int k = 1; k < layerCount; k += 2)
+            {
+                float t = (float)k / layerCount;
+                float ly = crownBottomY - (crownBottomY - crownTopY) * t - h * 0.008f;
+                float lw = crownBottomW * (1f - t * 0.92f);
+                DrawLine(
+                    new Vector2(-lw * 0.58f, ly),
+                    new Vector2(lw * 0.58f, ly),
+                    snow, 2.2f, true);
+            }
+
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 
         // —— 前景：贴镜头掠过的芦苇与雪檐（加深景深）——
