@@ -96,22 +96,24 @@ public partial class Main : Node
     public void ShowContentWarning() => Swap(new ContentWarning(this));
     public void ShowTitle() => Swap(new TitleScreen(this));
     public void ShowHub() => Swap(new ArchiveHub(this));
+    public void ShowAsiaMap() => Swap(new AsiaMap(this));
     public void ShowGallery(bool fromHub = false) => Swap(new GalleryUi(this, fromHub));
     public void ShowSettlement() => Swap(new SettlementUi(this));
 
     public void StartPrologue() => Swap(new PrologueLevel(this));
     public void StartNanjing() => Swap(new Level(this));
+    public void StartJiangqiao() => Swap(new JiangqiaoLevel(this));
 
-    /// <summary>新的见证：重置进度后进入记忆档案馆（v0.2 起以档案馆为中枢）。</summary>
+    /// <summary>新的见证：先走 1895/1910 源头纸条 → 东亚大地图 → 1931 嫩江江桥。</summary>
     public void StartNewGame()
     {
         GameState.I.Reset();
-        ShowHub();
+        ShowAsiaMap();
     }
 
     public void ContinueGame()
     {
-        if (GameState.I.LoadSave()) ShowHub();
+        if (GameState.I.LoadSave()) ShowAsiaMap();
         else StartNewGame();
     }
 }

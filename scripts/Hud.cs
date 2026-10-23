@@ -66,13 +66,15 @@ public partial class Hud : CanvasLayer
         root.AddChild(_ring);
 
         _toast = MakeLabel(17, paper);
+        Outline(_toast, 5, new Color(0.08f, 0.07f, 0.06f, 0.85f));
         _toast.SetAnchorsPreset(Control.LayoutPreset.CenterBottom);
         _toast.Position = new Vector2(-400, -168);
         _toast.CustomMinimumSize = new Vector2(800, 0);
         _toast.HorizontalAlignment = HorizontalAlignment.Center;
         root.AddChild(_toast);
 
-        _tutorial = MakeLabel(15, faded);
+        _tutorial = MakeLabel(16, new Color(0.88f, 0.85f, 0.76f));
+        Outline(_tutorial, 5, new Color(0.06f, 0.06f, 0.06f, 0.92f));
         _tutorial.SetAnchorsPreset(Control.LayoutPreset.CenterBottom);
         _tutorial.Position = new Vector2(-360, -66);
         _tutorial.CustomMinimumSize = new Vector2(720, 0);
@@ -87,6 +89,13 @@ public partial class Hud : CanvasLayer
         l.AddThemeColorOverride("font_color", color);
         l.MouseFilter = Control.MouseFilterEnum.Ignore;
         return l;
+    }
+
+    /// <summary>浅色雪地上压一层深色描边，保证浮字可读。</summary>
+    private static void Outline(Label l, int size, Color color)
+    {
+        l.AddThemeColorOverride("font_outline_color", color);
+        l.AddThemeConstantOverride("outline_size", size);
     }
 
     public void SetDate(string text) => _date.Text = text;

@@ -37,6 +37,11 @@ public class WitnessState
     public bool PrologueDone;                                 // 是否通关「源头 1895–1910」
     public HashSet<string> PrologueCollected = new();         // 已拾取的史料碎片 id
     public HashSet<string> ProloguePlaced = new();            // 已放回时间线的碎片 id
+    public bool MapNoteKorea;                                 // 东亚大地图：已读《日韩合并条约》纸条
+    public bool MapNoteTaiwan;                                // 东亚大地图：已读《马关条约》割台纸条
+    public bool MapOrdered;                                   // 东亚大地图：三张纸条已按年代归档
+    public bool JiangqiaoDone;                                // 是否通关 1931 嫩江江桥试玩关
+    public HashSet<string> JiangqiaoTestimony = new();        // 已记录的江桥证言 id
 
     /// <summary>关卡内可收集的 6 件证据（对应史料卡 1-6）。</summary>
     public static readonly string[] EvidenceIds = { "film", "rabe", "vautrin", "roster", "medical", "letter" };
