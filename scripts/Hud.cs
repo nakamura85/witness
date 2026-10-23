@@ -31,8 +31,9 @@ public partial class Hud : CanvasLayer
         var faded = new Color(0.72f, 0.68f, 0.58f);
         var red = new Color(0.72f, 0.30f, 0.24f);
 
-        _date = MakeLabel(20, paper);
+        _date = MakeLabel(18, paper);
         _date.Position = new Vector2(18, 12);
+        _date.CustomMinimumSize = new Vector2(900, 0);
         root.AddChild(_date);
 
         _sneak = MakeLabel(14, red);
