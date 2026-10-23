@@ -448,10 +448,11 @@ public partial class JiangqiaoLevel : Node2D
     {
         if (x > WorldW - 120f) x = WorldW - 120f;
         var e = new EnemySoldier(this, new Vector2(x, GroundY), lane);
-        // 两人一律 1.18 会让轮廓一模一样；微差一档，一前一后才立得起来。
-        float s = lane < 0f ? 1.14f : 1.19f;
-        e.Scale = new Vector2(s, s);
-        e.Modulate = lane < 0f ? new Color(0.94f, 0.95f, 0.96f) : Colors.White;
+        // 敌人体型统一，景深用 Modulate 淡化（远的稍淡，不是改 Scale 差）
+        e.Scale = Vector2.One;
+        e.Modulate = lane < 0f 
+            ? new Color(0.86f, 0.87f, 0.88f, 1f) 
+            : new Color(0.97f, 0.97f, 0.98f, 1f);
         _game.AddChild(e);
         _enemies.Add(e);
 
@@ -697,9 +698,9 @@ public partial class JiangqiaoLevel : Node2D
             var r1 = Ridge(492f, 76f, mid, 3.7f, 0.0110f, 0.058f);
             var r2 = Ridge(524f, 48f, near, 6.1f, 0.0160f, 0.078f);
 
-            // 雪只挂在峰脊迎风坡，极淡 → 不再是一条条白线分隔层
-            RidgeSnow(r1, new Color(0.93f, 0.96f, 0.97f, 0.10f), lineW: 1.3f, lenMax: 3);
-            RidgeSnow(r2, new Color(0.88f, 0.92f, 0.94f, 0.04f), lineW: 1.1f, lenMax: 2);
+            // 雪只挂在最高的山尖（局部最高点才画，不是整条脊线）
+            RidgeSnow(r1, new Color(0.93f, 0.96f, 0.97f, 0.08f), lineW: 1.1f, lenMax: 1);
+            RidgeSnow(r2, new Color(0.88f, 0.92f, 0.94f, 0.03f), lineW: 1.0f, lenMax: 1);
 
             // 山脚雾：一条窄带，只把山脚和雪原接起来
             var haze = VGradient(new Color(0.82f, 0.86f, 0.87f, 0f), new Color(0.82f, 0.86f, 0.87f, 0.72f));
@@ -728,16 +729,29 @@ public partial class JiangqiaoLevel : Node2D
         private void RidgeSnow(List<Vector2> r, Color snow, float lineW = 1.4f, int lenMax = 3)
         {
             int drawn = 0;
-            for (int i = 1; i < r.Count - 1; i++)
+            for (int i = 3; i < r.Count - 3; i++)
             {
-                if (r[i].Y >= r[i - 1].Y) continue;
-                if (drawn++ >= lenMax * 28) break;  // 每脊最多画 lenMax*28 条，别整条覆盖
-                var a = r[i];
-                var b = r[i + 1];
-                var d = (b - a).Normalized();
-                var up = new Vector2(-d.Y, d.X);
-                float len = 8f + 6f * Mathf.Abs(Mathf.Sin(i * 0.73f));
-                DrawLine(a + up * 1.2f, a + d * len, snow, lineW, true);
+                // 只在局部最高点（比前后3个点都高/Y更小）才画，避免整条脊线都挂雪
+                bool isPeak = true;
+                for (int k = -3; k <= 3; k++)
+                {
+                    if (k == 0) continue;
+                    if (r[i].Y >= r[i + k].Y) { isPeak = false; break; }
+                }
+                if (!isPeak) continue;
+                if (drawn++ >= lenMax * 12) break;  // 每脊最多画 lenMax*12 个山尖雪团
+                var peak = r[i];
+                // 画一个小巧的雪帽三角，不是长线
+                var hat = new[]
+                {
+                    peak + new Vector2(-10f, 3f),
+                    peak,
+                    peak + new Vector2(10f, 3f),
+                    peak + new Vector2(6f, 6f),
+                    peak + new Vector2(-6f, 6f),
+                };
+                DrawColoredPolygon(hat, new Color(snow.R, snow.G, snow.B, snow.A * 0.6f));
+                DrawPolyline(new[] { hat[0], hat[1], hat[2] }, snow, lineW, true);
             }
         }
 
