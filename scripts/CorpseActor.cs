@@ -23,20 +23,11 @@ public partial class CorpseActor : Node2D
     private enum Pose { Prone, Supine, SideLying }
 
     private readonly Sprite2D _sp;
+    private readonly Node2D _body;      // 中间旋转节点：负责水平躺倒
     private readonly Faction _faction;
     private readonly Pose _pose;
-    private readonly float _bodyRot;     // 身体主旋转角度（弧度）
-    private readonly float _spriteRot;   // 立绘自身额外旋转（弧度，轻微歪斜）
-    private readonly float _spriteOffX;  // 立绘水平偏移
-    private readonly float _spriteOffY;  // 立绘垂直偏移
-    private readonly bool _flipV;        // 是否上下翻转（俯卧时需要）
     private readonly float _seed;
 
-    /// <summary>
-    /// 构造 CorpseActor。
-    /// position: 尸体腰部/臀部位置（地面上）。
-    /// facingRight: 冲锋朝向（中弹前的运动方向）。
-    /// </summary>
     public CorpseActor(Faction faction, Vector2 position, bool facingRight, float rotJitter = -1f)
     {
         _faction = faction;
@@ -44,40 +35,28 @@ public partial class CorpseActor : Node2D
         rng.Randomize();
         _seed = rng.Randf();
 
-        // —— 基于冲锋中弹方向决定倒下姿势（史实化）——
+        // 先决定头朝哪个方向（史实化）
         float r = rng.Randf();
+        float headAngle;  // 90° 或 -90°（水平躺）
         if (r < 0.70f)
         {
-            // 70%：冲锋中弹向前扑倒 → 俯卧 face-down
             _pose = Pose.Prone;
-            _bodyRot = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f; // 基本躺平
-            _flipV = true;                                             // 立绘上下翻转（头朝下）
+            // 冲锋中弹向前扑 → 头朝冲锋方向
+            headAngle = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f;
         }
         else if (r < 0.95f)
         {
-            // 25%：站立中弹向后倒 → 仰卧 face-up
             _pose = Pose.Supine;
-            _bodyRot = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f; // 正常躺平
-            _flipV = false;
+            // 站立中弹向后倒 → 头朝反方向
+            headAngle = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f;
         }
         else
         {
-            // 5%：侧面中弹侧卧
             _pose = Pose.SideLying;
-            _bodyRot = (facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f) 
-                       + rng.RandfRange(-0.25f, 0.25f);
-            _flipV = false;
+            headAngle = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f;
         }
-
-        // 所有姿势只加轻微 ±15° 歪斜（模拟中弹瞬间的重心偏移）
-        _bodyRot += rng.RandfRange(-0.25f, 0.25f);  // ±15°
-
-        // 立绘自身也加轻微歪斜 ±10°
-        _spriteRot = rng.RandfRange(-0.18f, 0.18f);
-
-        // 立绘轻微偏移（身体不是机械地正好压在 position 上）
-        _spriteOffX = rng.RandfRange(-4f, 4f);
-        _spriteOffY = rng.RandfRange(-6f, 0f);
+        // ±15° 轻微歪斜
+        headAngle += rng.RandfRange(-0.26f, 0.26f);
 
         string texName = faction switch
         {
@@ -92,21 +71,41 @@ public partial class CorpseActor : Node2D
         float height = faction == Faction.Refugee ? 96f : 108f;
         float s = height / tex.GetSize().Y;
 
+        // —— 三层结构，每层只做一件事：——
+        // CorpseActor (Node2D): Position=尸体位置, Rotation=0（不旋转）
+        //   └─ _body (Node2D): Rotation=90°水平躺倒 + 轻微歪斜
+        //       └─ _sp (Sprite2D): 原始方向，只翻转头朝哪
+
+        _body = new Node2D
+        {
+            Rotation = headAngle,
+        };
+
+        bool headTowardRight = _pose switch
+        {
+            Pose.Prone => facingRight,       // 向前扑 → 头朝冲锋方向
+            Pose.Supine => !facingRight,     // 向后倒 → 头朝反方向
+            _ => rng.Randf() > 0.5f,
+        };
+
         _sp = new Sprite2D
         {
             Texture = tex,
             Scale = new Vector2(s, s),
-            Position = new Vector2(_spriteOffX, -height * 0.5f + _spriteOffY),
-            Rotation = Mathf.Pi / 2f + _spriteRot,
-            FlipH = !facingRight,
-            FlipV = _flipV,
+            // 注意：Sprite2D 原始方向是头朝上（Y负），旋转 90° 后头就朝 X正方向（右）
+            // 所以 headTowardRight=true 时 FlipH=false；头朝左时 FlipH=true
+            Position = new Vector2(0, -height * 0.5f),  // 立绘脚底在原点
+            FlipH = !headTowardRight,
+            FlipV = false,  // 永远不上下翻转！侧面横版里尸体就是水平躺的
         };
-        AddChild(_sp);
+
+        _body.AddChild(_sp);
+        AddChild(_body);
 
         Position = position;
-        Rotation = _bodyRot;
+        Rotation = 0f;
         ZIndex = 0;
-        Modulate = new Color(1f, 0.92f, 0.90f, 1f);  // 尸体略偏冷色
+        Modulate = new Color(1f, 0.92f, 0.90f, 1f);
 
         QueueRedraw();
     }
@@ -120,7 +119,7 @@ public partial class CorpseActor : Node2D
     private void DrawBlood()
     {
         // 尸体头方向（血迹主要扩散方向）
-        float headDir = _bodyRot;
+        float headDir = _body.Rotation;
         float headX = Mathf.Sin(headDir) * 36f;
         float headY = Mathf.Cos(headDir) * 36f;
         var rng = new RandomNumberGenerator();
@@ -182,12 +181,12 @@ public partial class CorpseActor : Node2D
         int dripCount = 3 + Mathf.FloorToInt(rng.Randf() * 3f);
         for (int i = 0; i < dripCount; i++)
         {
-            float spread = Mathf.Sin(i * 2.1f + _bodyRot * 3f) * 0.6f + rng.RandfRange(-0.3f, 0.3f);
-            float baseX = Mathf.Sin(_bodyRot + spread) * 14f + rng.RandfRange(-6f, 6f);
-            float baseY = Mathf.Cos(_bodyRot + spread) * 14f + rng.RandfRange(-6f, 6f);
+            float spread = Mathf.Sin(i * 2.1f + _body.Rotation * 3f) * 0.6f + rng.RandfRange(-0.3f, 0.3f);
+            float baseX = Mathf.Sin(_body.Rotation + spread) * 14f + rng.RandfRange(-6f, 6f);
+            float baseY = Mathf.Cos(_body.Rotation + spread) * 14f + rng.RandfRange(-6f, 6f);
             float len = 32f + rng.Randf() * 28f;
-            float tipX = Mathf.Sin(_bodyRot + spread) * len;
-            float tipY = Mathf.Cos(_bodyRot + spread) * (len * 0.45f);
+            float tipX = Mathf.Sin(_body.Rotation + spread) * len;
+            float tipY = Mathf.Cos(_body.Rotation + spread) * (len * 0.45f);
             // 血丝不是直线——加一个中间控制点让它弯
             float ctrlX = baseX + (tipX - baseX) * 0.5f + rng.RandfRange(-4f, 4f);
             float ctrlY = baseY + (tipY - baseY) * 0.5f + rng.RandfRange(-4f, 4f);
@@ -205,7 +204,7 @@ public partial class CorpseActor : Node2D
         }
 
         // 头附近浓血：头部中弹血更集中
-        DrawSetTransform(new Vector2(headX * 0.8f, headY * 0.8f), _bodyRot, new Vector2(1.4f, 0.5f));
+        DrawSetTransform(new Vector2(headX * 0.8f, headY * 0.8f), _body.Rotation, new Vector2(1.4f, 0.5f));
         DrawCircle(Vector2.Zero, 9f, new Color(0.28f, 0.06f, 0.05f, 0.75f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
@@ -215,16 +214,16 @@ public partial class CorpseActor : Node2D
         // 破损碎片：2-4 片不规则暗斑（3-6 个角，不是规整的锯齿）
         int tearCount = 2 + Mathf.FloorToInt(_seed * 3f);
         var rng = new RandomNumberGenerator();
-        rng.Seed = (ulong)(Mathf.Abs((int)(_bodyRot * 1000)) + 1);
+        rng.Seed = (ulong)(Mathf.Abs((int)(_body.Rotation * 1000)) + 1);
 
         for (int i = 0; i < tearCount; i++)
         {
             float t = rng.RandfRange(0.15f, 0.88f);
             float bodyLen = 52f;
-            float tx = Mathf.Sin(_bodyRot) * (t - 0.5f) * bodyLen;
-            float ty = Mathf.Cos(_bodyRot) * (t - 0.5f) * bodyLen;
-            float perpx = Mathf.Cos(_bodyRot) * rng.RandfRange(-16f, 16f);
-            float perpy = -Mathf.Sin(_bodyRot) * rng.RandfRange(-16f, 16f);
+            float tx = Mathf.Sin(_body.Rotation) * (t - 0.5f) * bodyLen;
+            float ty = Mathf.Cos(_body.Rotation) * (t - 0.5f) * bodyLen;
+            float perpx = Mathf.Cos(_body.Rotation) * rng.RandfRange(-16f, 16f);
+            float perpy = -Mathf.Sin(_body.Rotation) * rng.RandfRange(-16f, 16f);
             var tearCenter = new Vector2(tx + perpx, ty + perpy);
 
             int corners = 3 + (int)(rng.Randf() * 4f);
@@ -249,9 +248,9 @@ public partial class CorpseActor : Node2D
         // 头部破损
         if (rng.Randf() < 0.5f)
         {
-            float headX = Mathf.Sin(_bodyRot) * 50f;
-            float headY = Mathf.Cos(_bodyRot) * 50f;
-            DrawSetTransform(new Vector2(headX, headY), _bodyRot, new Vector2(1f, 0.7f));
+            float headX = Mathf.Sin(_body.Rotation) * 50f;
+            float headY = Mathf.Cos(_body.Rotation) * 50f;
+            DrawSetTransform(new Vector2(headX, headY), _body.Rotation, new Vector2(1f, 0.7f));
             DrawCircle(Vector2.Zero, 10f, new Color(0.18f, 0.03f, 0.02f, 0.55f));
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }

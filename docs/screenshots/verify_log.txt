@@ -1,6 +1,6 @@
-start 16:04:32
+start 16:49:34
 click 我明白了
-px300=1b1d22ff
+px300=a9a18fff
 click 新的见证
 px300=c9cfcbff
 click 纸条 01
