@@ -132,16 +132,32 @@ public partial class SpriteActor : Node2D
         if (_landT > 0f) _landT = Mathf.Max(0f, _landT - f * 5.5f);
 
         bool air = Airborne || !Grounded;
-        bool walking = !air && !Vaulting && !Crouched && (Moving || Speed > 2f);
+        bool standingWalk = !air && !Vaulting && !Crouched && (Moving || Speed > 2f);
+        bool crouchWalk = !air && !Vaulting && Crouched && (Moving || Speed > 2f);
+        bool anyWalk = standingWalk || crouchWalk;
+
+        // —— 翻转：Facing<0 时三个 Sprite2D 全部 FlipH（立绘原生朝右）——
+        // 注释写了 FlipH 但之前从未实际设置 → 导致"面向右倒着走"
+        bool flip = !FacingRight;
+        _torso.FlipH = flip;
+        _legBack.FlipH = flip;
+        _legFront.FlipH = flip;
 
         // —— 腿：剪刀步 / 跳跃收腿 / 蹲姿折叠 ——
         float legK = 1f; // 腿的纵向压缩（蹲/落地缓冲时 <1，脚底要贴回地面）
         float swing = Mathf.Sin(Phase);
         float frontRot = 0f, backRot = 0f;
-        if (walking)
+        if (standingWalk)
         {
             frontRot = -swing * 0.36f * Facing;   // 前腿向前摆（Facing 翻转方向）
             backRot = swing * 0.36f * Facing;
+        }
+        else if (crouchWalk)
+        {
+            // 蹲走：腿小幅度摆动（不像站姿剪刀步那么大），同时保持弯曲
+            legK = 0.72f;
+            frontRot = (-0.32f - swing * 0.16f) * Facing;
+            backRot = (0.24f + swing * 0.14f) * Facing;
         }
         else if (air)
         {
@@ -171,6 +187,13 @@ public partial class SpriteActor : Node2D
             torsoRot = -0.30f * Facing;
             torsoY += 3f;
         }
+        else if (crouchWalk)
+        {
+            // 蹲走：保持蹲姿压缩 + 小幅度重心起伏（不会像站姿那么大）
+            torsoScale = new Vector2(1.06f, 0.84f);
+            torsoY += Height * 0.16f - Mathf.Abs(Mathf.Cos(Phase)) * 1.2f + 0.6f;
+            torsoRot = (0.10f + Mathf.Sin(Phase * 2f) * 0.02f) * Facing;
+        }
         else if (Crouched)
         {
             torsoScale = new Vector2(1.06f, 0.84f);
@@ -182,7 +205,7 @@ public partial class SpriteActor : Node2D
             torsoRot = -0.06f * Facing;
             torsoScale = new Vector2(0.98f, 1.04f);
         }
-        else if (walking)
+        else if (standingWalk)
         {
             torsoY += -Mathf.Abs(Mathf.Cos(Phase)) * 2.6f + 1.3f; // 迈步重心起伏
             torsoRot = (0.085f + Mathf.Sin(Phase * 2f) * 0.03f) * Facing;
@@ -230,6 +253,7 @@ public partial class SpriteActor : Node2D
         if (_torso == null) return;
 
         // —— 脚下接触阴影：随步伐轻微变形，始终钉在地面 ——
+        // 蹲姿（无论静态还是蹲走）阴影都固定，只有站姿走路才跟随步伐伸缩
         float shadowScaleX, shadowScaleY;
         if (Crouched)
         {

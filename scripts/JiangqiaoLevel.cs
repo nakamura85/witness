@@ -285,7 +285,9 @@ public partial class JiangqiaoLevel : Node2D
 
     public override void _Process(double delta)
     {
-        float f = (float)delta;
+        // Clamp delta 防止大跳帧（某帧卡顿导致 delta 远大于 1/60s，
+        // 指数平滑 k 突增 → 视差层平移跳变 → 树草鬼畜 + 白线闪烁）
+        float f = Mathf.Min(0.05f, (float)delta);
         _elapsed += f;
 
         // 视差：相机 X 手动平滑，且必须在同一帧里同时喂给相机与视差层，
@@ -699,6 +701,7 @@ public partial class JiangqiaoLevel : Node2D
         public int Kind { get; }
         public float Factor { get; }
         private float _windTime;
+        private float _redrawAccum;
 
         public Backdrop(JiangqiaoLevel lvl, int kind, float factor, int z)
         {
@@ -710,8 +713,20 @@ public partial class JiangqiaoLevel : Node2D
 
         public override void _Process(double delta)
         {
-            _windTime += (float)delta * 0.6f;
-            if (Kind == KindMid || Kind == KindFore) QueueRedraw();
+            float f = Mathf.Min(0.05f, (float)delta);
+            _windTime += f * 0.6f;
+            // 风动画很慢（0.9 rad/s），不需要 60fps 重绘。
+            // 每 ~0.12s 重绘一次 = 约 8fps，足够平滑显示 wind sway。
+            // 降低频率可以消除 Mid 层每帧重绘导致的 crest 白线闪烁。
+            if (Kind == KindMid || Kind == KindFore)
+            {
+                _redrawAccum += f;
+                if (_redrawAccum >= 0.12f)
+                {
+                    QueueRedraw();
+                    _redrawAccum = 0f;
+                }
+            }
         }
 
         public override void _Draw()

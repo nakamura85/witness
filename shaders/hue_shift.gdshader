@@ -27,6 +27,10 @@ void fragment() {
     // 保持 alpha 透明
     if (tex.a < 0.02) {
         COLOR = tex;
+    } else if (abs(hue_offset) < 0.001 && abs(saturation - 1.0) < 0.001) {
+        // hue_offset≈0 且 saturation≈1 时跳过 HSV 转换
+        // —— round-trip 会对低饱和度像素（皮肤色）引入浮点误差 → 主角蓝皮肤/敌人青皮肤
+        COLOR = tex;
     } else {
         vec3 hsv = rgb2hsv(tex.rgb);
         hsv.x = fract(hsv.x + hue_offset);   // 旋转色相
