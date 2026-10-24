@@ -3,13 +3,14 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// 手绘 sprite 角色（v1.1：纸娃娃分层动画）。
+/// 手绘 sprite 角色（v1.2：纸娃娃分层动画 + 子容器翻转）。
 ///
 /// 白底 AI 立绘经 ChromaKey 抠图后，按髋部分成三片：
 ///   • 后腿（纹理左半下半身）→ 躯干（上半身，盖住髋部接缝）→ 前腿（右半下半身）
 /// 走路时两腿以髋为轴剪刀式摆动、躯干随步伐起伏 + 前倾；
-/// 跳跃收腿、落地压腿缓冲、开枪躯干后仰 —— 不再是整张立绘平移的"纸片人"。
-/// 立绘原生朝右，Facing&lt;0 时 FlipH。
+/// 跳跃收腿、落地压腿缓冲、开枪躯干后仰；
+/// Facing<0 时用子 Node2D 容器 Scale.X=-1 整体翻转（比 FlipH 更安全，
+/// 不会在 Centered=false 的 Sprite2D 上产生位置偏移）。
 /// </summary>
 public partial class SpriteActor : Node2D
 {
@@ -33,6 +34,9 @@ public partial class SpriteActor : Node2D
     /// <summary>开枪后坐量 1→0，躯干短暂后仰 + 后移。</summary>
     public float Recoil;
 
+    // 翻转子容器：所有立绘 Sprite2D 作为其子节点
+    // Facing<0 时 Scale.X=-1 整体水平镜像，比 FlipH 更安全
+    private readonly Node2D _flip = new();
     private Sprite2D _torso, _legBack, _legFront;
     private ShaderMaterial _mat;
     private bool _wasGrounded = true;
@@ -48,7 +52,7 @@ public partial class SpriteActor : Node2D
         {
             Kind.Vautrin => ("vautrin", 104f, false),
             Kind.Soldier => ("soldier_ija", 108f, false),
-            Kind.NortheastArmy => ("soldier_na", 108f, false),  // 色相旋转后的东北军立绘
+            Kind.NortheastArmy => ("soldier_na", 108f, false),  // 原始东北军立绘
             Kind.RefugeeWoman => ("refugee_woman", 96f, false),
             Kind.RefugeeMan => ("refugee_man", 100f, false),
             Kind.Child => ("refugee_child", 68f, false),
@@ -59,6 +63,7 @@ public partial class SpriteActor : Node2D
         var tex = ChromaKey.Cutout($"res://assets/art/sprites/{name}.jpg", 0.03f, 0.05f);
         if (tex == null) return;
 
+        // 仅在需要色相旋转时才创建 shader（默认 hue_offset=0 跳过 HSV round-trip）
         var shader = GD.Load<Shader>("res://shaders/hue_shift.gdshader");
         if (shader != null)
         {
@@ -94,10 +99,11 @@ public partial class SpriteActor : Node2D
         };
         _torso.Material = _mat;
 
-        // 绘制顺序：后腿 → 躯干 → 前腿（剪刀步时一后一前，接缝被躯干下摆压住）
-        AddChild(_legBack);
-        AddChild(_torso);
-        AddChild(_legFront);
+        // 立绘子容器：所有 Sprite2D 都 AddChild 到 _flip
+        AddChild(_flip);
+        _flip.AddChild(_legBack);
+        _flip.AddChild(_torso);
+        _flip.AddChild(_legFront);
     }
 
     private Sprite2D MakeLeg(Godot.Texture2D tex, float x0, float w, float s)
@@ -134,14 +140,10 @@ public partial class SpriteActor : Node2D
         bool air = Airborne || !Grounded;
         bool standingWalk = !air && !Vaulting && !Crouched && (Moving || Speed > 2f);
         bool crouchWalk = !air && !Vaulting && Crouched && (Moving || Speed > 2f);
-        bool anyWalk = standingWalk || crouchWalk;
 
-        // —— 翻转：Facing<0 时三个 Sprite2D 全部 FlipH（立绘原生朝右）——
-        // 注释写了 FlipH 但之前从未实际设置 → 导致"面向右倒着走"
-        bool flip = !FacingRight;
-        _torso.FlipH = flip;
-        _legBack.FlipH = flip;
-        _legFront.FlipH = flip;
+        // —— 翻转：子容器 Scale.X = FacingRight ? 1 : -1 ——
+        // 比 Sprite2D.FlipH 更安全（FlipH 在 Centered=false 上会产生位置偏移）
+        _flip.Scale = new Vector2(FacingRight ? 1f : -1f, 1f);
 
         // —— 腿：剪刀步 / 跳跃收腿 / 蹲姿折叠 ——
         float legK = 1f; // 腿的纵向压缩（蹲/落地缓冲时 <1，脚底要贴回地面）
@@ -149,7 +151,7 @@ public partial class SpriteActor : Node2D
         float frontRot = 0f, backRot = 0f;
         if (standingWalk)
         {
-            frontRot = -swing * 0.36f * Facing;   // 前腿向前摆（Facing 翻转方向）
+            frontRot = -swing * 0.36f * Facing;   // 前腿向前摆（翻转容器会镜像方向，这里乘以 Facing 补偿）
             backRot = swing * 0.36f * Facing;
         }
         else if (crouchWalk)
