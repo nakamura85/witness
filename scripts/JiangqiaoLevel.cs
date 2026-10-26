@@ -44,6 +44,7 @@ public partial class JiangqiaoLevel : Node2D
     private Node2D _game;
     private Hud _hud;
     private Label _hpLabel;
+    private AmmoBar _ammoBar;
     private ColorRect _flash;
     private ColorRect _blackout;
     private Backdrop[] _layers;
@@ -130,29 +131,44 @@ public partial class JiangqiaoLevel : Node2D
         AddChild(_sky);
     }
 
-    /// <summary>可进屋搜索的民房：远近各放，破损/烧毁是战争的痕迹。</summary>
+    /// <summary>
+    /// 村庄两排房：远排只是战争的布景（烧塌的骨架 / 远处残屋，进不去），
+    /// 近排三栋各种损毁程度——残破的、还算完整的、烧毁的——其中有的能进屋搜索。
+    /// 层次感：远排整体抬高一点（lift），画得小一点、淡一点。
+    /// </summary>
     private void BuildHouses()
     {
-        // h1 江边村舍（半毁）：离家门口不远，最先教会玩家"屋里有东西"
-        var h1 = new EnterableHouse("h1", new Vector2(830, GroundY), "house_ruined_near", 320f);
-        // h2 烧塌的院落（重毁）：中线之后的补给点
-        var h2 = new EnterableHouse("h2", new Vector2(2760, GroundY), "house_burned_near", 360f);
-        _game.AddChild(h1);
-        _game.AddChild(h2);
-        _houses.Add(h1);
-        _houses.Add(h2);
+        // —— 远排：布景残屋，不可进入（lift > 0 = 视觉上更远） ——
+        AddHouse("f1", 520f, "house_burned_near", 200f, false, 14f);
+        AddHouse("f2", 1180f, "house_skeleton_near", 215f, false, 16f);
+        AddHouse("f3", 3830f, "house_ruined_near", 220f, false, 12f);
+
+        // —— 近排：可进入的搜索点（完整民居教玩家"完整的屋里反而有货"） ——
+        AddHouse("h1", 830f, "house_ruined_near", 320f, true, 0f);
+        AddHouse("h3", 1830f, "house_intact_near", 330f, true, 0f);
+        AddHouse("h2", 2760f, "house_burned_near", 360f, true, 0f);
+    }
+
+    private void AddHouse(string id, float x, string tex, float w, bool enterable, float lift)
+    {
+        var h = new EnterableHouse(id, new Vector2(x, GroundY), tex, w, enterable, lift);
+        _game.AddChild(h);
+        if (enterable) _houses.Add(h);
     }
 
     /// <summary>雪地里捡得到的枪：有的是死者掉的还有子弹，有的已经冻坏打不响。</summary>
     private void BuildPickups()
     {
-        // 预置尸体旁的枪：一部分变成可拾取实体，一部分仍画在尸体上（不是每支都捡得到）
-        AddPickup(1270 + 78, GroundY - 3, RollCondition());
-        AddPickup(2090 - 64, GroundY - 3, RollCondition());
-        AddPickup(620, GroundY - 3, WeaponPickup.Kind.Broken, 0);
-        AddPickup(3690 + 40, GroundY - 3, RollCondition());
-        AddPickup(2470 + 90, GroundY - 3, RollCondition());
+        // 预置尸体旁的枪：一部分变成可拾取实体，一部分仍画在尸体上（不是每支都捡得到）。
+        // 落点带随机滑动，枪不会整整齐齐排一排。
+        AddPickup(1270 + 78 + Jit(18), GroundY - 3 - Jit(3), RollCondition());
+        AddPickup(2090 - 64 + Jit(18), GroundY - 3 - Jit(3), RollCondition());
+        AddPickup(620 + Jit(22), GroundY - 3 - Jit(3), WeaponPickup.Kind.Broken, 0);
+        AddPickup(3690 + 40 + Jit(18), GroundY - 3 - Jit(3), RollCondition());
+        AddPickup(2470 + 90 + Jit(18), GroundY - 3 - Jit(3), RollCondition());
     }
+
+    private static float Jit(float amp) => (float)GD.RandRange(-amp, amp);
 
     private (WeaponPickup.Kind, int) RollCondition()
     {
@@ -332,6 +348,11 @@ public partial class JiangqiaoLevel : Node2D
         _hpLabel.CustomMinimumSize = new Vector2(180, 0);
         _hpLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
         layer.AddChild(_hpLabel);
+
+        // 弹药改用子弹图标：打掉一发暗一发，拾取了再点亮，不再用点点点
+        _ammoBar = new AmmoBar { Position = new Vector2(920, 34) };
+        _ammoBar.Bind(_player);
+        layer.AddChild(_ammoBar);
     }
 
     private void BuildScreenFx()
@@ -502,14 +523,21 @@ public partial class JiangqiaoLevel : Node2D
             return;
         }
         _player.Ammo += p.Ammo;
+        if (_player.Ammo > _player.AmmoMax) _player.AmmoMax = _player.Ammo;
         _hud.Toast($"捡获一支步枪，里面还剩 {p.Ammo} 发。");
         Shake(0.06f);
     }
 
     private void OpenHouse(EnterableHouse h)
     {
-        var ui = new HouseInteriorUi(h.Id, h.Id == "h1" ? "江边村舍（半毁）" : "烧塌的院落");
-        ui.GotAmmo += n => _player.Ammo += n;
+        string title = h.Id switch
+        {
+            "h1" => "江边村舍（半毁）",
+            "h3" => "没打完的民居（还算完整）",
+            _ => "烧塌的院落",
+        };
+        var ui = new HouseInteriorUi(h.Id, title);
+        ui.GotAmmo += n => { _player.Ammo += n; if (_player.Ammo > _player.AmmoMax) _player.AmmoMax = _player.Ammo; };
         ui.GotGrenade += n => _player.Grenades += n;
         ui.Closed += () => _houseUi = null;
         AddChild(ui);
@@ -669,10 +697,9 @@ public partial class JiangqiaoLevel : Node2D
         else
             _hud.ShowPrompt("");
 
-        // 右上生命 / 弹药 / 手榴弹
+        // 右上生命 / 弹药（图标条自己重绘） / 手榴弹
         string dots = _player.Hp >= 3 ? "● ● ●" : _player.Hp == 2 ? "● ● ○" : _player.Hp == 1 ? "● ○ ○" : "○ ○ ○";
-        string ammoDots = new string('●', Mathf.Clamp(_player.Ammo, 0, 12));
-        _hpLabel.Text = $"生命  {dots}    弹药 {ammoDots} {_player.Ammo}    手榴弹 ×{_player.Grenades}";
+        _hpLabel.Text = $"生命  {dots}    手榴弹 ×{_player.Grenades}";
 
         // 目标在屏幕外时给纸色箭头
         Vector2 target = near != null
@@ -1746,6 +1773,9 @@ public partial class JiangqiaoLevel : Node2D
         // —— 预计算的随机参数（全部在 _Ready 生成一次，_Draw 不做 Randf）——
         private float[] _craterX = System.Array.Empty<float>();
         private float[] _craterR = System.Array.Empty<float>();
+        private float[] _crateX = System.Array.Empty<float>();     // 弹药木箱：位置/高矮/歪斜每只不同
+        private float[] _crateH = System.Array.Empty<float>();
+        private float[] _crateRot = System.Array.Empty<float>();
         private float[] _bunkerX = System.Array.Empty<float>();
         private float[] _bunkerBW = System.Array.Empty<float>();
         private float[] _bunkerFH = System.Array.Empty<float>();
@@ -1778,6 +1808,20 @@ public partial class JiangqiaoLevel : Node2D
             }
             _craterX = craterListX.ToArray();
             _craterR = craterListR.ToArray();
+
+            // 弹药木箱：错开沙包垛位摆放，每只高矮/歪斜略不同（不再像贴图一样复制叠上去）
+            var crateListX = new List<float>();
+            var crateListH = new List<float>();
+            var crateListRot = new List<float>();
+            foreach (float x in new[] { 730f, 1450f, 2680f, 3960f })
+            {
+                crateListX.Add(x + rng.RandfRange(-18f, 18f));
+                crateListH.Add(30f + rng.RandfRange(-3f, 4f));
+                crateListRot.Add(rng.RandfRange(-0.10f, 0.10f));
+            }
+            _crateX = crateListX.ToArray();
+            _crateH = crateListH.ToArray();
+            _crateRot = crateListRot.ToArray();
 
             // 碉堡位置 ±18、宽 ±6、高 ±5
             var bxList = new List<float>();
@@ -2095,12 +2139,17 @@ public partial class JiangqiaoLevel : Node2D
             if (crate != null)
             {
                 var csz = crate.GetSize();
-                foreach (float x in new[] { 620f, 1030f, 2470f, 3690f })
+                for (int ci = 0; ci < _crateX.Length; ci++)
                 {
-                    float ch = 30f;
+                    float x = _crateX[ci];
+                    float ch = _crateH[ci];
                     float cw = ch * csz.X / csz.Y;
+                    float rot = _crateRot[ci];
+                    // half-buried look: sink 2px into the snow, tilt each box its own way
                     SnowShadow.Draw(this, new Vector2(x + 10f, GroundY - 1f), cw * 0.55f, 0.28f);
-                    DrawTextureRect(crate, new Rect2(x + 8f - cw * 0.5f, GroundY - ch, cw, ch), false);
+                    DrawSetTransform(new Vector2(x + 8f, GroundY - 1f), rot, Vector2.One);
+                    DrawTextureRect(crate, new Rect2(-cw * 0.5f, -ch + 2f, cw, ch), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
             }
 
@@ -2689,6 +2738,7 @@ public partial class Testimony : Node2D
     public bool Recorded;
 
     private float _t;
+    private Texture2D _boxTex;
 
     public Testimony(JiangqiaoLevel level, string id, Vector2 pos, string title, string[] lines, string source)
     {
@@ -2700,6 +2750,8 @@ public partial class Testimony : Node2D
         Source = source;
         Recorded = GameState.I.S.JiangqiaoTestimony.Contains(id);
         ZIndex = 3;
+        // same watercolor pipeline as every other prop, so the box matches the scene art
+        _boxTex = GD.Load<Texture2D>("res://assets/art/props/telcrate.png");
     }
 
     public override void _Process(double delta)
@@ -2713,43 +2765,20 @@ public partial class Testimony : Node2D
         var paper = new Color(0.93f, 0.90f, 0.80f);
 
         // unified ground shadow, box and page sit in the same light as everything else
-        SnowShadow.Draw(this, new Vector2(2, -1), 24f, 0.26f);
-        SnowShadow.Draw(this, new Vector2(20, -1), 13f, 0.20f);
+        SnowShadow.Draw(this, new Vector2(2, -1), 26f, 0.26f);
+        SnowShadow.Draw(this, new Vector2(22, -1), 13f, 0.20f);
 
-        // field telephone crate: front / top / side faces, plank seams, snow cap.
-        // warm weathered wood + one crisp ink outline, sits like a real box in the snow
-        float bx0 = -17f, bx1 = 11f, by0 = -30f, dx = 8f, dy = -6f;
-        var woodDark = new Color(0.23f, 0.17f, 0.11f);
-        var ink = new Color(0.16f, 0.13f, 0.10f);
-        // side face (right)
-        DrawColoredPolygon(new[] { new Vector2(bx1, by0), new Vector2(bx1 + dx, by0 + dy), new Vector2(bx1 + dx, -5f + dy), new Vector2(bx1, -1f) },
-            new Color(0.19f, 0.14f, 0.09f));
-        // top face
-        DrawColoredPolygon(new[] { new Vector2(bx0, by0), new Vector2(bx0 + dx, by0 + dy), new Vector2(bx1 + dx, by0 + dy), new Vector2(bx1, by0) },
-            new Color(0.52f, 0.42f, 0.30f));
-        // front face
-        DrawRect(new Rect2(bx0, by0, bx1 - bx0, 29), new Color(0.42f, 0.33f, 0.23f));
-        // plank seams
-        for (int i = 1; i < 3; i++)
-            DrawLine(new Vector2(bx0 + 1, by0 + i * 9.5f), new Vector2(bx1 - 1, by0 + i * 9.5f), woodDark, 1.4f, true);
-        // front outline + top edge outline
-        DrawRect(new Rect2(bx0, by0, bx1 - bx0, 29), ink, false, 1.6f);
-        DrawPolyline(new[]
+        // field telephone crate: watercolor sprite from the same art pipeline,
+        // half-buried in the snow like everything else on this field
+        if (_boxTex != null)
         {
-            new Vector2(bx0, by0), new Vector2(bx0 + dx, by0 + dy),
-            new Vector2(bx1 + dx, by0 + dy), new Vector2(bx1 + dx, -5f + dy),
-            new Vector2(bx1, -1f), new Vector2(bx1, by0),
-        }, ink, 1.4f, true);
-        // snow cap over the top lip
-        DrawLine(new Vector2(bx0 + 2, by0 + dy + 1.5f), new Vector2(bx1 + dx - 2, by0 + dy + 1.5f),
-            new Color(0.94f, 0.96f, 0.97f, 0.9f), 3.2f, true);
-        DrawLine(new Vector2(bx0 + 4, by0 - 1.5f), new Vector2(bx1 - 3, by0 - 1.5f),
-            new Color(0.94f, 0.96f, 0.97f, 0.75f), 2.2f, true);
-        // crank handle + handset cord
-        DrawRect(new Rect2(-13, -27, 21, 7), new Color(0.26f, 0.22f, 0.18f));
-        DrawCircle(new Vector2(12, -26), 3.2f, new Color(0.55f, 0.45f, 0.26f));
-        DrawLine(new Vector2(15, -23), new Vector2(22, -12), new Color(0.20f, 0.17f, 0.14f), 1.5f, true);
-        DrawLine(new Vector2(bx0, -24), new Vector2(-24, -10), new Color(0.22f, 0.19f, 0.15f), 1.3f, true);
+            var sz = _boxTex.GetSize();
+            float bh = 34f;
+            float bw = bh * sz.X / sz.Y;
+            DrawSetTransform(new Vector2(-2f, -1f), -0.06f, Vector2.One);
+            DrawTextureRect(_boxTex, new Rect2(-bw * 0.5f, -bh, bw, bh), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        }
 
         // testimony page in the snow, small tilt so it reads as dropped not planted
         var page = new[]
@@ -2776,6 +2805,53 @@ public partial class Testimony : Node2D
         DrawCircle(new Vector2(-3, -34), 15f + pulse * 3f, new Color(glowC.R, glowC.G, glowC.B, 0.06f + 0.05f * pulse));
         DrawCircle(new Vector2(-3, -34), 8f + pulse * 2f, new Color(glowC.R, glowC.G, glowC.B, 0.10f + 0.07f * pulse));
         DrawCircle(new Vector2(-3, -34), 2.6f, new Color(glowC.R, glowC.G, glowC.B, 0.45f + 0.25f * pulse));
+    }
+}
+
+/// <summary>
+/// HUD 弹药条：一颗子弹一个图标。开枪打掉的那发不消失——变成暗壳留在弹排里；
+/// 拾取补给时把新弹点亮、并把总容量撑大。右上角一排右对齐。
+/// </summary>
+public partial class AmmoBar : Control
+{
+    private FieldPlayer _p;
+    private const float IconW = 6f, IconH = 15f, Gap = 2.5f, RowW = 330f;
+
+    public void Bind(FieldPlayer p) { _p = p; }
+
+    public override void _Process(double delta) => QueueRedraw();
+
+    public override void _Draw()
+    {
+        if (_p == null) return;
+        int total = Mathf.Max(_p.AmmoMax, _p.Ammo);
+        int shown = Mathf.Min(total, 40);
+        float step = IconW + Gap;
+
+        for (int i = 0; i < shown; i++)
+        {
+            // right-aligned row: newest rounds pile in from the right
+            float x = RowW - (i + 1) * step;
+            bool live = i < _p.Ammo;
+            var casing = live ? new Color(0.84f, 0.66f, 0.28f) : new Color(0.40f, 0.37f, 0.32f, 0.85f);
+            var tip = live ? new Color(0.60f, 0.42f, 0.19f) : new Color(0.31f, 0.29f, 0.26f, 0.85f);
+
+            // cartridge: brass body + rounded nose, faint dark rim so it reads on snow paper
+            DrawRect(new Rect2(x, 6f, IconW, IconH - 4f), casing);
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(x, 6f), new Vector2(x + IconW, 6f),
+                new Vector2(x + IconW, 3.2f), new Vector2(x + IconW * 0.5f, 0.5f),
+                new Vector2(x, 3.2f),
+            }, tip);
+            DrawRect(new Rect2(x, IconH + 1f, IconW, 1.4f), new Color(0, 0, 0, 0.25f));
+        }
+
+        // count badge so the number is still exact when the row overflows
+        var font = ThemeDB.FallbackFont;
+        DrawString(font, new Vector2(RowW - shown * step - 40f, 15f),
+            $"{_p.Ammo}/{total}", HorizontalAlignment.Left, -1, 12,
+            new Color(0.86f, 0.82f, 0.72f));
     }
 }
 

@@ -106,11 +106,11 @@ public partial class CorpseActor : Node2D
         var rng = new RandomNumberGenerator();
         rng.Seed = (ulong)(Mathf.RoundToInt(_seed * 1000000f) + 7);
 
-        float dropDist = rng.RandfRange(30f, 100f);
+        float dropDist = rng.RandfRange(34f, 110f);
         float side = rng.Randf() > 0.30f ? 1f : 0.4f;
         float rx = HeadSign() * dropDist * side;
-        float ry = rng.RandfRange(4f, 13f);
-        float ang = rng.RandfRange(-0.56f, 0.56f);
+        float ry = rng.RandfRange(4f, 15f);
+        float ang = rng.RandfRange(-0.85f, 0.85f);
 
         DrawSetTransform(new Vector2(rx, ry), ang, Vector2.One);
         var wood = new Color(0.34f, 0.25f, 0.17f, 0.96f);

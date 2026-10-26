@@ -21,6 +21,7 @@ public partial class FieldPlayer : CharacterBody2D
 
     // ammo economy: belt rounds run out, loot rifles from the dead to keep fighting
     public int Ammo = 15;
+    public int AmmoMax = 15;   // rounds ever carried; spent rounds stay on the HUD as dim shells
     public int Grenades = 1;
 
     private float _facing = 1f;

@@ -47,13 +47,17 @@ public partial class WeaponPickup : Node2D
     {
         var rng = new RandomNumberGenerator();
         rng.Seed = (ulong)(Mathf.RoundToInt(_seed * 1000000f) + 31);
-        float ang = rng.RandfRange(-0.30f, 0.30f);
+        // a dropped rifle lands messy: big random angle, random slide offset, random scale
+        float ang = rng.RandfRange(-0.85f, 0.85f);
         bool flip = rng.Randf() > 0.5f;
+        float ox = rng.RandfRange(-13f, 13f);
+        float oy = rng.RandfRange(-2f, 4f);
+        float sc = rng.RandfRange(0.90f, 1.08f);
 
-        // contact shadow
-        SnowShadow.Draw(this, new Vector2(0f, 2f), 40f, 0.24f);
+        // contact shadow follows the slid position
+        SnowShadow.Draw(this, new Vector2(ox, oy + 2f), 40f * sc, 0.24f);
 
-        DrawSetTransform(Vector2.Zero, flip ? -ang : ang, new Vector2(flip ? -1f : 1f, 1f));
+        DrawSetTransform(new Vector2(ox, oy), flip ? -ang : ang, new Vector2(flip ? -sc : sc, sc));
         var wood = Condition == Kind.Broken
             ? new Color(0.28f, 0.21f, 0.15f, 0.96f)
             : new Color(0.36f, 0.27f, 0.18f, 0.96f);
@@ -93,7 +97,7 @@ public partial class WeaponPickup : Node2D
         }
 
         // snow settled over the stock
-        DrawSetTransform(new Vector2(0f, 4f), 0, new Vector2(1.4f, 0.38f));
+        DrawSetTransform(new Vector2(ox, oy + 4f), 0, new Vector2(1.4f, 0.38f));
         DrawCircle(Vector2.Zero, 12f, new Color(0.90f, 0.93f, 0.94f, 0.70f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }

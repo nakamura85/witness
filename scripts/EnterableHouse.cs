@@ -14,20 +14,27 @@ public partial class EnterableHouse : Node2D
     private readonly string _id;
     private readonly Texture2D _tex;
     private readonly float _w;
+    private readonly bool _enterable;
+    private readonly float _lift;
 
     public string Id => _id;
+    public bool Enterable => _enterable;
     public float DoorX => Position.X + _w * 0.18f;
     public float HalfW => _w * 0.5f;
 
     private static readonly Dictionary<string, Texture2D> _texCache = new();
 
-    public EnterableHouse(string id, Vector2 pos, string texName, float w)
+    public EnterableHouse(string id, Vector2 pos, string texName, float w,
+        bool enterable = true, float lift = 0f)
     {
         _id = id;
         _tex = LoadTex(texName);
         _w = w;
+        _enterable = enterable;
+        _lift = lift;
         Position = pos;
-        ZIndex = -3;   // behind ground art and people, house stands on its own ground line
+        // lifted houses sit a step further back in the depth row
+        ZIndex = lift > 0f ? -4 : -3;
     }
 
     private static Texture2D LoadTex(string name)
@@ -43,33 +50,37 @@ public partial class EnterableHouse : Node2D
         if (_tex == null) return;
         var sz = _tex.GetSize();
         float h = _w * sz.Y / sz.X;
+        // local space: node Position sits ON the ground line, so ground = local y 0
+        float gl = 0f;
+        // far houses sink slightly into the snow haze to sell the depth row
+        var fade = _lift > 0f ? new Color(1f, 1f, 1f, 0.88f) : Colors.White;
 
         // contact shadow along the base
-        DrawSetTransform(new Vector2(_w * 0.5f, GroundLine() - 1f), 0, new Vector2(1.15f, 0.24f));
+        DrawSetTransform(new Vector2(_w * 0.5f, gl - 1f), 0, new Vector2(1.15f, 0.24f));
         DrawCircle(Vector2.Zero, _w * 0.5f, new Color(0.10f, 0.09f, 0.08f, 0.26f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
         // house body, bottom sits on the snow line
-        DrawTextureRect(_tex, new Rect2(0f, GroundLine() - h, _w, h), false);
+        DrawTextureRect(_tex, new Rect2(0f, gl - h, _w, h), false, fade);
+
+        if (!_enterable) return;   // scenery ruin: no door light, nothing to search
 
         // door: dark opening + faint warm light, marks the enterable spot
         float dx = _w * 0.18f;
         float dw = 26f;
         float dh = 52f;
-        DrawRect(new Rect2(dx - dw * 0.5f, GroundLine() - dh, dw, dh), new Color(0.10f, 0.08f, 0.07f, 0.96f));
-        DrawRect(new Rect2(dx - dw * 0.5f, GroundLine() - dh, dw, 5f), new Color(0.30f, 0.24f, 0.18f, 0.9f));
-        DrawLine(new Vector2(dx - dw * 0.5f, GroundLine() - dh), new Vector2(dx - dw * 0.5f, GroundLine()),
+        DrawRect(new Rect2(dx - dw * 0.5f, gl - dh, dw, dh), new Color(0.10f, 0.08f, 0.07f, 0.96f));
+        DrawRect(new Rect2(dx - dw * 0.5f, gl - dh, dw, 5f), new Color(0.30f, 0.24f, 0.18f, 0.9f));
+        DrawLine(new Vector2(dx - dw * 0.5f, gl - dh), new Vector2(dx - dw * 0.5f, gl),
             new Color(0.22f, 0.18f, 0.14f, 0.9f), 2f, true);
-        DrawLine(new Vector2(dx + dw * 0.5f, GroundLine() - dh), new Vector2(dx + dw * 0.5f, GroundLine()),
+        DrawLine(new Vector2(dx + dw * 0.5f, gl - dh), new Vector2(dx + dw * 0.5f, gl),
             new Color(0.22f, 0.18f, 0.14f, 0.9f), 2f, true);
 
         // doorstep snow disturbed
-        DrawSetTransform(new Vector2(dx, GroundLine() - 1f), 0, new Vector2(1.4f, 0.3f));
+        DrawSetTransform(new Vector2(dx, gl - 1f), 0, new Vector2(1.4f, 0.3f));
         DrawCircle(Vector2.Zero, 20f, new Color(0.86f, 0.89f, 0.91f, 0.7f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
-
-    private float GroundLine() => JiangqiaoLevel.GroundY;
 }
 
 /// <summary>
