@@ -94,10 +94,7 @@ public partial class CorpseActor : Node2D
 
     private void DrawContactShadow(float len)
     {
-        var center = new Vector2(HeadSign() * len * 0.45f, 1f);
-        DrawSetTransform(center, 0, new Vector2(1.9f, 0.30f));
-        DrawCircle(Vector2.Zero, len * 0.42f, new Color(0.10f, 0.09f, 0.08f, 0.20f));
-        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        SnowShadow.Draw(this, new Vector2(HeadSign() * len * 0.12f, 1f), len * 0.34f, 0.22f);
     }
 
     private float HeadSign() => _headRight ? 1f : -1f;
@@ -131,12 +128,13 @@ public partial class CorpseActor : Node2D
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 
-    // snow drift covering the feet, body looks like lying there for a while already
+    // snow drift covering the feet, small and tight to the body so the
+    // corpse reads as sunk into the snow, not floating on a white pad
     private void DrawSnowDrift()
     {
-        var drift = new Vector2(HeadSign() * 12f, 2f);
-        DrawSetTransform(drift, 0, new Vector2(2.1f, 0.55f));
-        DrawCircle(Vector2.Zero, 15f, new Color(0.90f, 0.93f, 0.94f, 0.92f));
+        var drift = new Vector2(HeadSign() * 10f, 3f);
+        DrawSetTransform(drift, 0, new Vector2(1.6f, 0.42f));
+        DrawCircle(Vector2.Zero, 11f, new Color(0.90f, 0.93f, 0.94f, 0.82f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }

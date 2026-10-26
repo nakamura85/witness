@@ -257,6 +257,9 @@ public partial class JiangqiaoLevel : Node2D
         _player.Down += OnPlayerDown;
         _player.DryFired += OnDryFired;
         _game.AddChild(_player);
+        // GroundShadow node owns the player shadow, figure must not draw a second one
+        // (two overlapping ellipses = the dark mud puddle under his legs)
+        _player.Figure.DrawShadow = false;
 
         _cam = new Camera2D
         {
@@ -445,6 +448,9 @@ public partial class JiangqiaoLevel : Node2D
         else                              // night falls, no moon tonight (月已落)
             tint = new Color(0.40f, 0.44f, 0.58f);
         _tint.Color = tint;
+
+        // shadow kit follows the same clock: sun azimuth + night softness
+        SnowShadow.DayT = t;
 
         if (_sky != null) _sky.Art.DayT = t;
     }
@@ -1720,13 +1726,14 @@ public partial class JiangqiaoLevel : Node2D
         public override void _Draw()
         {
             float k = 1f / (1f + Air / 240f);
-            float a = 0.44f / (1f + Air / 110f);
-            // 投影朝左下偏（太阳在画面右上），腾空越高偏得越多、影子越小越淡
-            float skew = 3f + Air * 0.045f;
-            DrawSetTransform(new Vector2(X - skew, GroundY - 1f), 0, new Vector2(1f, 0.26f));
-            DrawCircle(Vector2.Zero, 21f * k, new Color(0.12f, 0.13f, 0.16f, a));
-            DrawSetTransform(new Vector2(X - skew * 2.2f, GroundY - 1f), 0, new Vector2(1f, 0.16f));
-            DrawCircle(Vector2.Zero, 12f * k, new Color(0.12f, 0.13f, 0.16f, a * 0.55f));
+            float a = 0.30f / (1f + Air / 110f);
+            // same kit tone + sun direction as everything else on the ground
+            float dir = SnowShadow.DirX();
+            float skew = (3f + Air * 0.045f) * (dir == 0f ? -0.6f : dir);
+            DrawSetTransform(new Vector2(X - skew, GroundY - 1f), 0, new Vector2(1f, 0.24f));
+            DrawCircle(Vector2.Zero, 20f * k, new Color(0.12f, 0.13f, 0.16f, a));
+            DrawSetTransform(new Vector2(X - skew * 2.1f, GroundY - 1f), 0, new Vector2(1f, 0.15f));
+            DrawCircle(Vector2.Zero, 13f * k, new Color(0.12f, 0.13f, 0.16f, a * 0.5f));
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
     }
@@ -2092,9 +2099,7 @@ public partial class JiangqiaoLevel : Node2D
                 {
                     float ch = 30f;
                     float cw = ch * csz.X / csz.Y;
-                    DrawSetTransform(new Vector2(x + 10f, GroundY - 1f), 0, new Vector2(1f, 0.24f));
-                    DrawCircle(Vector2.Zero, cw * 0.55f, new Color(0.13f, 0.14f, 0.15f, 0.32f));
-                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    SnowShadow.Draw(this, new Vector2(x + 10f, GroundY - 1f), cw * 0.55f, 0.28f);
                     DrawTextureRect(crate, new Rect2(x + 8f - cw * 0.5f, GroundY - ch, cw, ch), false);
                 }
             }
@@ -2113,9 +2118,7 @@ public partial class JiangqiaoLevel : Node2D
                 float bw = _bunkerBW[bi];
                 float fh = _bunkerFH[bi];
                 // 接触阴影（先画，在碉堡下面）
-                DrawSetTransform(new Vector2(bx + 24f, GroundY - 1f), 0, new Vector2(1f, 0.22f));
-                DrawCircle(Vector2.Zero, 40f, new Color(0.12f, 0.13f, 0.14f, 0.32f));
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                SnowShadow.Draw(this, new Vector2(bx + 24f, GroundY - 1f), 40f, 0.28f);
 
                 // 碉堡本体：梯形（前窄后宽）
                 var bunker = new[]
@@ -2234,9 +2237,7 @@ public partial class JiangqiaoLevel : Node2D
                 var s = _stacks[i];
                 float cx = s.X;
 
-                DrawSetTransform(new Vector2(cx, GroundY - 1f), 0, new Vector2(1f, 0.22f));
-                DrawCircle(Vector2.Zero, s.W * 0.55f, new Color(0.13f, 0.14f, 0.15f, 0.30f));
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                SnowShadow.Draw(this, new Vector2(cx, GroundY - 1f), s.W * 0.55f, 0.30f);
 
                 bool flip = i % 2 == 1;
                 if (flip)
@@ -2711,58 +2712,70 @@ public partial class Testimony : Node2D
     {
         var paper = new Color(0.93f, 0.90f, 0.80f);
 
-        // 影子：电话木箱 + 纸页各压一片，物件才陷在雪里
-        DrawSetTransform(new Vector2(1, -1), 0, new Vector2(1, 0.26f));
-        DrawCircle(Vector2.Zero, 19f, new Color(0.12f, 0.13f, 0.14f, 0.26f));
-        DrawSetTransform(new Vector2(18, -1), 0, new Vector2(1, 0.24f));
-        DrawCircle(Vector2.Zero, 12f, new Color(0.12f, 0.13f, 0.14f, 0.20f));
-        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        // unified ground shadow, box and page sit in the same light as everything else
+        SnowShadow.Draw(this, new Vector2(2, -1), 24f, 0.26f);
+        SnowShadow.Draw(this, new Vector2(20, -1), 13f, 0.20f);
 
-        // 野战电话：木箱 + 摇柄 + 听筒线。箱体分正面 / 顶面 / 侧面三块，
-        // 不然就是一个描边方块，摆在雪地上像个界标。
-        var bx0 = -14f; var bx1 = 8f; var by0 = -26f; var dx = 7f; var dy = -5f;
+        // field telephone crate: front / top / side faces, plank seams, snow cap.
+        // warm weathered wood + one crisp ink outline, sits like a real box in the snow
+        float bx0 = -17f, bx1 = 11f, by0 = -30f, dx = 8f, dy = -6f;
+        var woodDark = new Color(0.23f, 0.17f, 0.11f);
+        var ink = new Color(0.16f, 0.13f, 0.10f);
+        // side face (right)
+        DrawColoredPolygon(new[] { new Vector2(bx1, by0), new Vector2(bx1 + dx, by0 + dy), new Vector2(bx1 + dx, -5f + dy), new Vector2(bx1, -1f) },
+            new Color(0.19f, 0.14f, 0.09f));
+        // top face
         DrawColoredPolygon(new[] { new Vector2(bx0, by0), new Vector2(bx0 + dx, by0 + dy), new Vector2(bx1 + dx, by0 + dy), new Vector2(bx1, by0) },
-            new Color(0.47f, 0.38f, 0.28f));
-        DrawColoredPolygon(new[] { new Vector2(bx1, by0), new Vector2(bx1 + dx, by0 + dy), new Vector2(bx1 + dx, -6f + dy), new Vector2(bx1, -1f) },
-            new Color(0.24f, 0.19f, 0.14f));
-        DrawRect(new Rect2(bx0, by0, bx1 - bx0, 25), new Color(0.36f, 0.28f, 0.20f));
-        DrawRect(new Rect2(bx0, by0, bx1 - bx0, 25), new Color(0.16f, 0.13f, 0.10f), false, 1.6f);
+            new Color(0.52f, 0.42f, 0.30f));
+        // front face
+        DrawRect(new Rect2(bx0, by0, bx1 - bx0, 29), new Color(0.42f, 0.33f, 0.23f));
+        // plank seams
+        for (int i = 1; i < 3; i++)
+            DrawLine(new Vector2(bx0 + 1, by0 + i * 9.5f), new Vector2(bx1 - 1, by0 + i * 9.5f), woodDark, 1.4f, true);
+        // front outline + top edge outline
+        DrawRect(new Rect2(bx0, by0, bx1 - bx0, 29), ink, false, 1.6f);
         DrawPolyline(new[]
         {
             new Vector2(bx0, by0), new Vector2(bx0 + dx, by0 + dy),
-            new Vector2(bx1 + dx, by0 + dy), new Vector2(bx1 + dx, -6f + dy),
+            new Vector2(bx1 + dx, by0 + dy), new Vector2(bx1 + dx, -5f + dy),
             new Vector2(bx1, -1f), new Vector2(bx1, by0),
-        }, new Color(0.16f, 0.13f, 0.10f), 1.3f, true);
-        // 箱盖上的雪
-        DrawLine(new Vector2(bx0 + 3, by0 + dy + 1), new Vector2(bx1 + dx - 2, by0 + dy + 1),
-            new Color(0.90f, 0.93f, 0.94f, 0.72f), 1.6f, true);
-        DrawRect(new Rect2(-11, -23, 22, 8), new Color(0.23f, 0.20f, 0.17f));
-        DrawCircle(new Vector2(9, -22), 3f, new Color(0.52f, 0.42f, 0.24f));
-        DrawLine(new Vector2(14, -18), new Vector2(21, -9), new Color(0.20f, 0.17f, 0.14f), 1.4f, true);
-        DrawLine(new Vector2(-14, -20), new Vector2(-23, -8), new Color(0.22f, 0.19f, 0.15f), 1.2f, true);
+        }, ink, 1.4f, true);
+        // snow cap over the top lip
+        DrawLine(new Vector2(bx0 + 2, by0 + dy + 1.5f), new Vector2(bx1 + dx - 2, by0 + dy + 1.5f),
+            new Color(0.94f, 0.96f, 0.97f, 0.9f), 3.2f, true);
+        DrawLine(new Vector2(bx0 + 4, by0 - 1.5f), new Vector2(bx1 - 3, by0 - 1.5f),
+            new Color(0.94f, 0.96f, 0.97f, 0.75f), 2.2f, true);
+        // crank handle + handset cord
+        DrawRect(new Rect2(-13, -27, 21, 7), new Color(0.26f, 0.22f, 0.18f));
+        DrawCircle(new Vector2(12, -26), 3.2f, new Color(0.55f, 0.45f, 0.26f));
+        DrawLine(new Vector2(15, -23), new Vector2(22, -12), new Color(0.20f, 0.17f, 0.14f), 1.5f, true);
+        DrawLine(new Vector2(bx0, -24), new Vector2(-24, -10), new Color(0.22f, 0.19f, 0.15f), 1.3f, true);
 
-        // 雪里的纸页
+        // testimony page in the snow, small tilt so it reads as dropped not planted
         var page = new[]
         {
-            new Vector2(8, -6), new Vector2(24, -8), new Vector2(26, 1), new Vector2(10, 2),
+            new Vector2(9, -5), new Vector2(25, -8), new Vector2(27, 1), new Vector2(11, 3),
         };
         DrawColoredPolygon(page, paper);
         DrawPolyline(new[] { page[0], page[1], page[2], page[3], page[0] }, new Color(0.35f, 0.29f, 0.22f), 1.2f, true);
         for (int i = 0; i < 3; i++)
-            DrawLine(new Vector2(11, -4 + i * 2), new Vector2(23, -4.5f + i * 2), new Color(0.42f, 0.36f, 0.28f), 0.9f, true);
+            DrawLine(new Vector2(12, -3 + i * 2.2f), new Vector2(24, -5f + i * 2.2f), new Color(0.42f, 0.36f, 0.28f), 0.9f, true);
 
         if (Recorded)
         {
-            DrawCircle(new Vector2(0, -34), 6f, new Color(0.42f, 0.55f, 0.35f));
-            DrawLine(new Vector2(-2.6f, -34), new Vector2(-0.4f, -31.5f), new Color(0.94f, 0.95f, 0.88f), 1.6f, true);
-            DrawLine(new Vector2(-0.4f, -31.5f), new Vector2(3.2f, -37.5f), new Color(0.94f, 0.95f, 0.88f), 1.6f, true);
+            DrawCircle(new Vector2(0, -38), 6f, new Color(0.42f, 0.55f, 0.35f));
+            DrawLine(new Vector2(-2.6f, -38), new Vector2(-0.4f, -35.5f), new Color(0.94f, 0.95f, 0.88f), 1.6f, true);
+            DrawLine(new Vector2(-0.4f, -35.5f), new Vector2(3.2f, -41.5f), new Color(0.94f, 0.95f, 0.88f), 1.6f, true);
             return;
         }
 
-        // 呼吸光圈：告诉玩家这里可以记录
+        // waiting to be recorded: a soft warm lantern glow rising from the box,
+        // no more big flat ring floating around the whole crate
         float pulse = 0.5f + 0.5f * Mathf.Sin(_t * 2.2f);
-        DrawArc(new Vector2(0, -10), 20f + pulse * 5f, 0, Mathf.Tau, 30,
-            new Color(0.88f, 0.72f, 0.38f, 0.20f + 0.15f * pulse), 2f, true);
+        var glowC = new Color(0.93f, 0.80f, 0.52f);
+        DrawCircle(new Vector2(-3, -34), 15f + pulse * 3f, new Color(glowC.R, glowC.G, glowC.B, 0.06f + 0.05f * pulse));
+        DrawCircle(new Vector2(-3, -34), 8f + pulse * 2f, new Color(glowC.R, glowC.G, glowC.B, 0.10f + 0.07f * pulse));
+        DrawCircle(new Vector2(-3, -34), 2.6f, new Color(glowC.R, glowC.G, glowC.B, 0.45f + 0.25f * pulse));
     }
 }
 

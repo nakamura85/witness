@@ -51,9 +51,7 @@ public partial class WeaponPickup : Node2D
         bool flip = rng.Randf() > 0.5f;
 
         // contact shadow
-        DrawSetTransform(new Vector2(0f, 2f), 0, new Vector2(1.6f, 0.28f));
-        DrawCircle(Vector2.Zero, 42f, new Color(0.10f, 0.09f, 0.08f, 0.22f));
-        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        SnowShadow.Draw(this, new Vector2(0f, 2f), 40f, 0.24f);
 
         DrawSetTransform(Vector2.Zero, flip ? -ang : ang, new Vector2(flip ? -1f : 1f, 1f));
         var wood = Condition == Kind.Broken
@@ -95,8 +93,8 @@ public partial class WeaponPickup : Node2D
         }
 
         // snow settled over the stock
-        DrawSetTransform(new Vector2(0f, 3f), 0, new Vector2(1.8f, 0.5f));
-        DrawCircle(Vector2.Zero, 16f, new Color(0.90f, 0.93f, 0.94f, 0.85f));
+        DrawSetTransform(new Vector2(0f, 4f), 0, new Vector2(1.4f, 0.38f));
+        DrawCircle(Vector2.Zero, 12f, new Color(0.90f, 0.93f, 0.94f, 0.70f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }

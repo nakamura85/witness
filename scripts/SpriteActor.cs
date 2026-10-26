@@ -37,6 +37,9 @@ public partial class SpriteActor : Node2D
     /// <summary>自动化截图用：true 时暂停火光/受击/后坐衰减（低帧率下截不到火光）。</summary>
     public bool FreezeFx;
 
+    /// <summary>contact shadow drawn by SnowShadow kit; player turns this off, level GroundShadow handles him</summary>
+    public bool DrawShadow = true;
+
     /// <summary>专姿立绘激活时的枪口锚点（flip 空间；NaN=未激活，走纸娃娃估算）。</summary>
     private Vector2 _poseMuzzle = new(float.NaN, float.NaN);
 
@@ -138,8 +141,8 @@ public partial class SpriteActor : Node2D
         // 髋部桥接片：取下半身中段顶部一小条（盖在腿之上、躯干之下），
         // 不随腿剪刀摆——专门盖住两腿绕髋旋转时中缝张开 + 腰部分离，
         // 让脚/身体/手脚在视觉上连成一体（修正"动起来手脚头分离"的观感）。
-        float hipHalf = texW * 0.24f;
-        float pelvisH = (_legR / s) * 0.40f;     // 只盖住髋部顶端，下方腿照常摆动
+        float hipHalf = texW * 0.30f;
+        float pelvisH = (_legR / s) * 0.50f;     // cover the hip top, legs still swing below
         _hip = new Sprite2D
         {
             Texture = tex,
@@ -250,8 +253,10 @@ public partial class SpriteActor : Node2D
         float frontRot = 0f, backRot = 0f;
         if (standingWalk)
         {
-            frontRot = -swing * 0.36f * Facing;   // 前腿向前摆（翻转容器会镜像方向，这里乘以 Facing 补偿）
-            backRot = swing * 0.36f * Facing;
+            // swing kept small: a wide scissor opens the crotch seam of the
+            // split texture and the legs read like ghost doubles
+            frontRot = -swing * 0.20f * Facing;
+            backRot = swing * 0.20f * Facing;
         }
         else if (Prone)
         {
@@ -384,38 +389,14 @@ public partial class SpriteActor : Node2D
     {
         if (_torso == null) return;
 
-        // —— 脚下接触阴影：随步伐轻微变形，始终钉在地面 ——
-        // 蹲姿（无论静态还是蹲走）阴影都固定，只有站姿走路才跟随步伐伸缩
-        float shadowScaleX, shadowScaleY;
-        if (Prone)
+        // one unified ground shadow, tone and sun angle come from SnowShadow kit;
+        // no more per-state pulsing blob that reads like a ghost under the legs
+        if (DrawShadow)
         {
-            // 匍匐：影子沿身体拉长（身长=站立身高，中心随 pox 偏移前移）
-            DrawSetTransform(new Vector2(Facing * Height * 0.17f, -2), 0,
-                new Vector2(3.1f, 0.30f));
+            float stretch = Prone ? 2.6f : Crouched ? 1.5f : 1.15f;
+            SnowShadow.Draw(this, new Vector2(Prone ? Facing * Height * 0.16f : -1f, -1f),
+                Height * 0.13f, 0.26f, stretch);
         }
-        else if (Crouched)
-        {
-            shadowScaleX = 1.8f;
-            shadowScaleY = 0.35f;
-            DrawSetTransform(new Vector2(-3, -2), 0,
-                new Vector2(shadowScaleX, shadowScaleY));
-        }
-        else if ((Moving || Speed > 2f) && Grounded && !Airborne)
-        {
-            float step = Mathf.Sin(Phase);
-            float stretch = Mathf.Max(0.75f, 1.25f + step * 0.5f);
-            shadowScaleX = stretch;
-            shadowScaleY = 1f / stretch * 0.55f;
-            DrawSetTransform(new Vector2(-3 - Facing * step * 1.5f, -2), 0,
-                new Vector2(shadowScaleX, shadowScaleY));
-        }
-        else
-        {
-            DrawSetTransform(new Vector2(-3, -2), 0, new Vector2(2.6f, 0.55f));
-        }
-        DrawCircle(Vector2.Zero, Height * 0.115f,
-            new Color(0.10f, 0.09f, 0.08f, 0.28f));
-        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
         // —— 瞄准指示线 ——
         if (Aim > 0.5f)
