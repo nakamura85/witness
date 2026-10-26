@@ -56,8 +56,12 @@ public partial class EnterableHouse : Node2D
         var fade = _lift > 0f ? new Color(1f, 1f, 1f, 0.88f) : Colors.White;
 
         // contact shadow along the base
+        // v2.8: this was a hard rimmed DrawCircle. Stretched over the full
+        // house width the rim showed up as a pale slab lying on the snow, so
+        // it now uses the radial falloff sprite.
         DrawSetTransform(new Vector2(_w * 0.5f, gl - 1f), 0, new Vector2(1.15f, 0.24f));
-        DrawCircle(Vector2.Zero, _w * 0.5f, new Color(0.10f, 0.09f, 0.08f, 0.26f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.10f, 0.09f, 0.08f), 0.26f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
         // house body, bottom sits on the snow line
@@ -77,8 +81,10 @@ public partial class EnterableHouse : Node2D
             new Color(0.22f, 0.18f, 0.14f, 0.9f), 2f, true);
 
         // doorstep snow disturbed
+        // v2.8: radial falloff, so the trodden patch has no hard rim
         DrawSetTransform(new Vector2(dx, gl - 1f), 0, new Vector2(1.4f, 0.3f));
-        DrawCircle(Vector2.Zero, 20f, new Color(0.86f, 0.89f, 0.91f, 0.7f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.86f, 0.89f, 0.91f), 0.7f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }

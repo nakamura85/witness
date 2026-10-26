@@ -97,17 +97,17 @@ public partial class VerifyTour : Node
                 int corpsesBefore = CountNodes<CorpseActor>(main);
                 Log($"corpses_before={corpsesBefore}");
 
-                var fire = typeof(FieldPlayer).GetMethod("Fire",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                var facing = typeof(FieldPlayer).GetField("_facing",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                facing?.SetValue(p, 1f);         // 巡游没动鼠标：强制朝右（敌人在右侧）
-                fire?.Invoke(p, null);           // 第一枪：命中→敌兵警觉反击
+                // v2.8: the old code reached into the private "Fire" method by
+                // reflection and called it with no arguments. "Fire" now takes
+                // a facing argument, so that call threw
+                // TargetParameterCountException and killed the tour half way
+                // through. FieldPlayer exposes ForceFire for exactly this,
+                // and it takes the facing directly - no field poking needed.
+                p.ForceFire(1f);                 // 第一枪：命中→敌兵警觉反击
                 await Frames(10);
                 await Shot("v13b_player_fire_recoil");
                 await Frames(60);
-                facing?.SetValue(p, 1f);
-                fire?.Invoke(p, null);           // 第二枪：两枪阵亡→留尸体
+                p.ForceFire(1f);                 // 第二枪：两枪阵亡→留尸体
                 await Frames(40);
 
                 int corpsesAfter = CountNodes<CorpseActor>(main);

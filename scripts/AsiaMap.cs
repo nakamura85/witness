@@ -110,11 +110,22 @@ public partial class AsiaMap : Control
         // 地理名：位置全部由经纬度派生，不再手工摆
         Tag("苏联", 118.5f, 50.2f, -18, -6, 15, -2f);
         Tag("蒙古", 114.6f, 45.5f, 2, -4, 12, 1.5f);
-        Tag("中国（中华民国时代）", 117.6f, 34.5f, -18, -10, 20, -1f);
+        // v2.8: the country name used to sit on top of the red Korean colony
+        // hatching and on the coastline, so half the characters were hard to
+        // read. It now sits inland over empty ground, fully clear of both.
+        Tag("中国（中华民国时代）", 114.4f, 27.5f, -8, 0, 19, -1f);
         Tag("满洲", 131.6f, 48.0f, 2, -4, 15, 2f);
-        Tag("朝鲜半岛", 125.0f, 30.1f, 0, 0, 11, -1f);
+        // v2.7: Korea was already a colony of the Japanese Empire from 1910,
+        // so a 1931 war map should not call it "Korean Peninsula" - that is
+        // a modern geographic name and it does not fit the period.
+        // v2.8: was at lon 125.0 which put the text straight across the
+        // coastline and over the colony hatching. Now it sits out in the
+        // sea south-east of the peninsula, where nothing else is.
+        Tag("朝鮮（1910 起被吞并）", 126.5f, 29.5f, 4, 0, 10, -1f);
         Tag("大日本帝国", 140.6f, 36.5f, 4, -6, 16, 0f);
-        Tag("台湾地区", 120.3f, 23.2f, -26, 2, 12, -2f);
+        // v2.8: the Taiwan label was overlapping the red colony hatching.
+        // Moved south-west, over open water.
+        Tag("台湾地区", 120.3f, 23.2f, -40, 6, 12, -2f);
         Tag("华北", 115.4f, 38.5f, -10, -6, 13, -1f);
 
         // 进军路线上的落脚城镇（标签向路线外侧错开，避免压在粗线上）
@@ -122,12 +133,30 @@ public partial class AsiaMap : Control
         Tag("平壤", 125.7f, 39f, -38, -4, 10);
         Tag("沈阳", 123.4f, 41.8f, -48, -4, 11);
         Tag("长春", 125.3f, 43.9f, -46, -4, 11);
-        Tag("哈尔滨 · 731 部队 1932", 126.6f, 45.8f, 12, -3, 10);
+        // v2.7 timeline order fix:
+        // 9.18 (1931.9) -> Jiangqiao (1931.11) -> 731 predecessor (1932) ->
+        // 731 formed (1936) -> first combat (1940)
+        // Before this it said "Harbin / 731 Unit 1932", which reads as if the
+        // unit already existed in 1932, and the map put it south of Jiangqiao
+        // so people read it as "731 first, Jiangqiao later".
+        // Now it says the 1932 institute (the real predecessor), and the
+        // formation + combat dates live in the chapter list on the right.
+        Tag("哈尔滨 · 石井四郎细菌战研究所 1932", 126.6f, 45.8f, 12, -3, 9);
         Tag("齐齐哈尔", 123.9f, 47.3f, -62, -4, 10);
-        Tag("嫩江 · 江桥", 125.2f, 49.2f, 14, -3, 11, 0f, new Color(0.62f, 0.21f, 0.16f, 0.90f));
-        Tag("南京 1937", 118.8f, 32f, 8, 2, 10);
-        Tag("1931 · 关东军北上", 116.0f, 41.4f, 0, 0, 12, -3f,
+        Tag("嫩江 · 江桥 1931.11", 125.2f, 49.2f, 14, -3, 11, 0f, new Color(0.62f, 0.21f, 0.16f, 0.90f));
+        // v2.8: "南京 1937" used to sit right on the coastline and the sea
+        // cut the characters in half. It now sits inland, to the west.
+        Tag("南京 1937", 118.8f, 32f, -76, -8, 10);
+        // v2.8: this label used to sit at lon 116.0 / lat 41.4, which is right
+        // on top of the "沈阳" city tag - the red text ran straight through the
+        // grey characters and both became unreadable. It now sits in the empty
+        // land west of the railway, inside the map frame. The year sits on its
+        // own line underneath, so neither line reaches the railway line or
+        // the red colony hatching.
+        Tag("关东军北上", 114.6f, 42.6f, 0, 0, 12, -3f,
             new Color(0.62f, 0.21f, 0.16f, 0.62f));
+        Tag("1931", 114.6f, 41.5f, 0, 0, 10, -3f,
+            new Color(0.62f, 0.21f, 0.16f, 0.52f));
     }
 
     private void BuildNotes()
@@ -177,14 +206,23 @@ public partial class AsiaMap : Control
         var head = new Label { Text = "后续章节 · 尚未抵达" };
         head.AddThemeFontSizeOverride("font_size", 13);
         head.AddThemeColorOverride("font_color", new Color(0.30f, 0.26f, 0.21f, 0.60f));
-        head.Position = new Vector2(1006, 138);
+        head.Position = new Vector2(980, 138);
         head.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(head);
 
+        // v2.7: sort by the real years and split 731 into its three stages:
+        // 1932 Ishii sets up the bacteriology research institute (the ancestor)
+        // 1936 formally raised as "Kwantung Army Epidemic Prevention and Water Supply Department"
+        // 1940 first used in combat (Ningbo, Changde)
+        // Before this the list said only "1932 Harbin / 731 Unit", which called
+        // the 1932 ancestor the finished unit.
         string[] rows =
         {
-            "1932　哈尔滨 · 731 部队",
+            "1932　哈尔滨 · 细菌战研究所（731 前身）",
+            "1936　关东军防疫给水部（731 成军）",
             "1937　南京",
+            "1938　平房基地 · 人体实验",
+            "1940　细菌战投入实战",
             "1942　马来亚 · 知知港",
             "1942　新加坡",
             "1945　终战",
@@ -192,9 +230,9 @@ public partial class AsiaMap : Control
         for (int i = 0; i < rows.Length; i++)
         {
             var l = new Label { Text = rows[i] };
-            l.AddThemeFontSizeOverride("font_size", 12);
+            l.AddThemeFontSizeOverride("font_size", 11);
             l.AddThemeColorOverride("font_color", new Color(0.26f, 0.22f, 0.18f, 0.52f));
-            l.Position = new Vector2(1006, 166 + i * 30);
+            l.Position = new Vector2(980, 162 + i * 24);
             l.MouseFilter = MouseFilterEnum.Ignore;
             AddChild(l);
         }
@@ -207,7 +245,7 @@ public partial class AsiaMap : Control
         };
         note.AddThemeFontSizeOverride("font_size", 11);
         note.AddThemeColorOverride("font_color", new Color(0.32f, 0.27f, 0.22f, 0.40f));
-        note.Position = new Vector2(1006, 336);
+        note.Position = new Vector2(980, 366);
         note.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(note);
     }
@@ -325,7 +363,7 @@ public partial class AsiaMap : Control
             + (GameState.I.S.JiangqiaoDone ? "      ·      江桥已见证" : "");
 
         _hint.Text = !KoreaRead || !TaiwanRead
-            ? "先读右侧两张纸条：1895 台湾，1910 朝鲜半岛。"
+            ? "先读右侧两张纸条：1895 台湾，1910 大韩帝国。"
             : !BriefRead
                 ? "路线显影了：日军自汉城北上。读作战简报，进入江桥阵地。"
                 : "阵地已在等待。点下方按钮，进入 1931 年 11 月 4 日。";
@@ -377,14 +415,19 @@ public partial class AsiaMap : Control
             case "korea":
                 ui = new FieldNoteUi(
                     "纸条 01 · 1910 年 8 月 22 日",
-                    "《日韩合并条约》：半岛是怎样被吞下的",
+                    // v2.7: the proper name of the country in 1910 was the
+                    // "Korean Empire" (renamed by Emperor Gojong in 1897), and it
+                    // only stopped existing when the treaty took effect on
+                    // 29 Aug 1910. The old title used a modern geographic name
+                    // to talk about 1910, which is not accurate.
+                    "《日韩合并条约》：大韩帝国是怎样被吞下的",
                     new[]
                     {
-                        "1905 年，大日本帝国以《乙巳条约》夺走朝鲜的外交权，设“统监府”；1910 年 8 月 22 日，《日韩合并条约》签订，大韩帝国被并入大日本帝国，9 月 30 日朝鲜总督府成立。",
+                        "1905 年，大日本帝国以《乙巳条约》夺走大韩帝国外交权，设“统监府”；1910 年 8 月 22 日，大韩帝国内阁总理李完用与日本统监寺内正毅签订《日韩合并条约》，8 月 29 日生效，大韩帝国就此灭亡，朝鲜总督府成立。",
                         "大日本帝国要朝鲜，不只是为了土地：它是通往大陆的跳板，是粮食、矿产与劳动力的来源，也是面对俄国与中国的战略缓冲。1910—1918 年的土地调查，把大量公有地与农民耕地并入总督府和大日本帝国公司名下。",
                         "殖民统治并不安静：1919 年三一运动被镇压；1938 年起强制征用劳工；1940 年“创氏改名”；1944 年起在朝鲜征兵。1910 年的这张纸，是此后三十五年一切的起点。",
                     },
-                    "依据：《日韩合并条约》文本（1910）；《朝鲜总督府官报》；韩国国史编纂委员会公开史料。",
+                    "依据：《日韩合并条约》文本（1910）；《朝鲜总督府官报》；大韩帝国国史编纂委员会公开史料。",
                     () => MarkRead("korea"));
                 break;
 
@@ -433,7 +476,7 @@ public partial class AsiaMap : Control
         Refresh();
         bool both = GameState.I.S.MapNoteKorea && GameState.I.S.MapNoteTaiwan;
         Toast(both
-            ? "两张纸读完了：1895 台湾 → 1910 朝鲜。1931 年 11 月，关东军沿铁路北上。"
+            ? "两张纸读完了：1895 台湾 → 1910 大韩帝国。1931 年 11 月，关东军沿铁路北上。"
             : which == "korea" ? "已读：1910 日韩合并条约" : "已读：1895 马关条约·割台");
     }
 

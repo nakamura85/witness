@@ -133,14 +133,19 @@ public partial class CorpseActor : Node2D
     private void DrawSnowDrift(float len)
     {
         // legs end: the deeper drift (body slid feet-first into the snow)
+        // v2.8: radial falloff instead of a hard rimmed circle, so the drift
+        // melts into the snow with no edge to catch the light
         var drift = new Vector2(HeadSign() * len * 0.30f, 5f);
         DrawSetTransform(drift, 0, new Vector2(1.9f, 0.50f));
-        DrawCircle(Vector2.Zero, 12f, new Color(0.90f, 0.93f, 0.94f, 0.85f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.90f, 0.93f, 0.94f), 0.85f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
         DrawSetTransform(drift + new Vector2(HeadSign() * 6f, 2f), 0, new Vector2(1.2f, 0.38f));
-        DrawCircle(Vector2.Zero, 11f, new Color(0.94f, 0.96f, 0.96f, 0.75f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.94f, 0.96f, 0.96f), 0.75f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
         // head end: a lighter dusting
         DrawSetTransform(new Vector2(-HeadSign() * len * 0.34f, 6f), 0, new Vector2(1.3f, 0.36f));
-        DrawCircle(Vector2.Zero, 10f, new Color(0.91f, 0.94f, 0.94f, 0.68f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.91f, 0.94f, 0.94f), 0.68f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }

@@ -90,6 +90,9 @@ public partial class SpriteActor : Node2D
     private int _pivotX, _pivotY;
     private float _texH;
 
+    // v2.7 recoil: rotation around the hip line + compensation + upper body push back
+    private float _recoilRot, _recoilCorrX, _recoilCorrY, _recoilBack;
+
     public readonly float Height;
 
     public SpriteActor(Kind kind)
@@ -139,6 +142,15 @@ public partial class SpriteActor : Node2D
             _legBack = MakeMaskedLeg(parts.LegBack, s, texH);
             _legFront = MakeMaskedLeg(parts.LegFront, s, texH);
 
+            // v2.7: the torso rotation pivot moves from "top of head" to "hip line".
+            // The old way did _torso.Position = (0, -texH*s) with Centered=false,
+            // so the node origin landed on the top left of the texture (the head),
+            // and rotating it swung the whole upper body around the head - the
+            // hips swung off the lower body. That is the "upper and lower body
+            // separate when firing" the player keeps reporting.
+            // Use Offset to push the texture down so the node origin sits on the
+            // hip line, then the upper body rotates around the hip and the hips
+            // stay perfectly still.
             _torso = new Sprite2D
             {
                 Texture = tex,
@@ -418,11 +430,40 @@ public partial class SpriteActor : Node2D
         }
         if (Recoil > 0f)
         {
-            // recoil toned down: rotating 0.42 rad around the head pivot swings
-            // the whole upper body off the pelvis, look like body pecah dua
-            // when firing. 0.20 still got the kick feel, half the slide back
-            torsoRot -= 0.20f * Recoil * Facing;
-            torsoX -= Facing * 5f * Recoil;
+            // v2.7 root fix for the upper/lower body split when firing.
+            //
+            // Sprite2D.Rotation always spins around the node origin, and the
+            // torso node origin sits on the top left of the texture (the head).
+            // So the moment the torso rotates, the upper body swings out around
+            // the head and the hips get left behind - the "body splits open
+            // when I shoot" the player sees.
+            //
+            // So we do not rotate the torso directly. Instead we take a rotation
+            // around the hip line (_hipY) and then move the result back to the
+            // right place with a vector compensation:
+            //   rotating around the head by theta is the same as rotating around
+            //   the hip by theta + translating by (P-T)(1-cos theta)
+            // where P = hip point, T = head point. After the compensation the
+            // upper body swings around the hip and the hips do not move at all.
+            float hipRot = -0.20f * Recoil * Facing;
+            float pivotY = _hipY;                       // hip line (screen Y, foot origin)
+            float headY = -Height;                      // head (screen Y)
+            float dy = pivotY - headY;                  // distance from head to hip
+            // where the hip point ends up after rotating around the head
+            float c = Mathf.Cos(hipRot), s2 = Mathf.Sin(hipRot);
+            // hip point relative to the head is v = (0, dy); after the rotation v' = R*v
+            float vx = -dy * s2, vy = dy * c;
+            // we want the hip point still at (0, dy), but it is at (vx, vy)
+            float corrX = -vx, corrY = dy - vy;
+            _recoilRot = hipRot;
+            _recoilCorrX = corrX;
+            _recoilCorrY = corrY;
+            // the upper body also kicks backwards (the stock digs into the shoulder)
+            _recoilBack = Facing * 5f * Recoil;
+        }
+        else
+        {
+            _recoilRot = 0f; _recoilCorrX = 0f; _recoilCorrY = 0f; _recoilBack = 0f;
         }
         if (_landT > 0f && !Crouched)
             torsoScale = new Vector2(torsoScale.X * (1f + 0.04f * _landT),
@@ -433,9 +474,20 @@ public partial class SpriteActor : Node2D
         if (!low)
             torsoY += (1f - legK) * (-_hipY);
 
+        // v2.7: add the "rotate around the hip" compensation to the torso
+        torsoRot += _recoilRot;
+        torsoX += _recoilCorrX - _recoilBack;
+        torsoY += _recoilCorrY;
+
         _torso.Position = new Vector2(torsoX, torsoY);
         _torso.Rotation = torsoRot;
         _torso.Scale = new Vector2(_s * torsoScale.X, _s * torsoScale.Y);
+
+        // v2.7: when the torso kicks backwards the legs have to step back a
+        // little too, otherwise the upper body has already retreated while the
+        // hips stay put, and the seam pulls wider.
+        // (the compensation lives in SetLeg, because SetLeg resets the leg
+        // position every frame)
 
         // hip bridge glued to the torso: same pos/rot/scale so the strip pixels
         // always match the body ones. old version kept it nailed in place, so
@@ -468,15 +520,19 @@ public partial class SpriteActor : Node2D
     {
         leg.Rotation = rot;
         leg.Scale = new Vector2(_s, _s * k);
+        // v2.7: when the torso kicks back on recoil the legs step back a bit
+        // too, so the hips never get pulled out of the seam
+        float back = -_recoilBack * 0.35f;
         if (_maskedLegs)
         {
             // 分件腿：绕裆部铰链点转，压缩时把脚底拉回地面
-            leg.Position = new Vector2(_pivotX * _s,
+            leg.Position = new Vector2(_pivotX * _s + back,
                 float.IsNaN(pivotY) ? -(_texH - _pivotY) * _s * k : pivotY);
         }
         else
         {
-            leg.Position = new Vector2(leg.Position.X, float.IsNaN(pivotY) ? -_legR * k : pivotY);
+            leg.Position = new Vector2(leg.Position.X + back,
+                float.IsNaN(pivotY) ? -_legR * k : pivotY);
         }
     }
 

@@ -29,6 +29,17 @@ public static class FigureParts
     /// <summary>髋部桥接片高度（贴图像素），用来盖住腿摆动时髋部张开的缝。</summary>
     private const int BridgeBand = 22;
 
+    /// <summary>
+    /// How many extra pixels the leg strip carries upward (texture space).
+    ///
+    /// v2.7: cutRow is a hard horizontal edge and the body hem, the leg top
+    /// and the bridge all line up on it. Three layers stacked on one line
+    /// leave a thin bright seam at the waist - that white line.
+    /// Let the leg carry a band above the cut and let the bridge cover that
+    /// band, so the hard edge ends up buried under the cloth.
+    /// </summary>
+    private const int LegTopOverlap = 10;
+
     /// <summary>描边外扩几像素，让腿片保留原画的墨线轮廓。</summary>
     private const int DilatePx = 4;
 
@@ -100,6 +111,12 @@ public static class FigureParts
             if (!isLeg) continue;
             // 身体挖掉腿（含腿的墨线），这样同一块像素不会被画两遍
             bodyImg.SetPixel(x + pad, y + pad, new Color(c.R, c.G, c.B, 0f));
+            // leg strip carries LegTopOverlap pixels above the cut (v2.7 white line fix):
+            // the bridge covers the hard edge, and the leg itself wraps a bit
+            // higher, so neither layer shows a seam
+            bool inLeg = mask[i];
+            bool inOverlapBand = y >= cutRow - LegTopOverlap && y < cutRow && c.A > 0.12f;
+            if (!inLeg && !inOverlapBand) continue;
             if (x < split[y]) backImg.SetPixel(x + pad, y + pad, c);
             else frontImg.SetPixel(x + pad, y + pad, c);
         }
@@ -114,8 +131,12 @@ public static class FigureParts
             PivotY = cutRow + pad,
         };
 
-        // 髋部桥接片：腿最上面那一段，静止不动，贴在躯干上盖住胯缝
-        var bridge = BuildBridge(src, mask, W, H, cutRow, out int bx, out int by, out int bw, out int bh);
+        // hip bridge: the topmost slice of the legs, static, glued to the torso
+        // to cover the seam where the hips open up.
+        // v2.7: the bridge must use the same stroked image and the same grow
+        // mask as the body and the legs. Otherwise the edges do not line up
+        // and the background leaks through the seam = the white line at the waist.
+        var bridge = BuildBridge(stroked, grow, W, H, cutRow, out int bx, out int by, out int bw, out int bh);
         if (bridge != null)
         {
             p.Bridge = bridge;
@@ -201,18 +222,32 @@ public static class FigureParts
         return split;
     }
 
-    /// <summary>髋部桥接片：腿最上面一条静止的布，贴在躯干上盖住胯部张开的缝。</summary>
-    private static Texture2D BuildBridge(Image src, bool[] mask, int W, int H, int cutRow,
+    /// <summary>
+    /// Hip bridge: a static strip of cloth at the very top of the legs,
+    /// glued to the torso to cover the seam where the hips open up.
+    ///
+    /// v2.7 white line fix: the old version took the **unstroked** original
+    /// src here, while the body and the legs both used the stroked image.
+    /// The two differ by a 3~4 px outline band, so the bridge edge never
+    /// matched the body edge and the background (snow) leaked through the
+    /// seam - that is the white line at the waist.
+    /// Now the bridge uses the same stroked image, with the same grow range
+    /// as the legs, so all three layers have identical pixel boundaries and
+    /// nothing can leak through anymore.
+    /// </summary>
+    private static Texture2D BuildBridge(Image stroked, bool[] grow, int W, int H, int cutRow,
                                           out int bx, out int by, out int bw, out int bh)
     {
         bx = by = bw = bh = 0;
         int x0 = W, x1 = -1, y0 = H, y1 = -1;
-        int top = cutRow;
+        // v2.7: the bridge covers LegTopOverlap pixels above cutRow, so the
+        // hard edge of the cut ends up buried under the bridge (white line fix)
+        int top = Mathf.Max(0, cutRow - LegTopOverlap);
         int bot = Mathf.Min(H - 1, cutRow + BridgeBand);
         for (int y = top; y <= bot; y++)
         for (int x = 0; x < W; x++)
         {
-            if (!mask[y * W + x]) continue;
+            if (!grow[y * W + x]) continue;
             if (x < x0) x0 = x;
             if (x > x1) x1 = x;
             if (y < y0) y0 = y;
@@ -228,8 +263,12 @@ public static class FigureParts
         {
             int sx = bx + x, sy = by + y;
             if (sy < 0 || sy >= H || sx < 0 || sx >= W) continue;
-            if (!mask[sy * W + sx]) continue;
-            img.SetPixel(x, y, src.GetPixel(sx, sy));
+            if (!grow[sy * W + sx]) continue;
+            // the stroked image has StrokePad extra on all sides,
+            // so the coordinates shift by that amount
+            var c = stroked.GetPixel(sx + ChromaKey.StrokePad, sy + ChromaKey.StrokePad);
+            if (c.A <= 0.01f) continue;
+            img.SetPixel(x, y, c);
         }
         return ImageTexture.CreateFromImage(img);
     }

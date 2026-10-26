@@ -6,6 +6,52 @@ using Godot;
 namespace Witness;
 
 /// <summary>
+/// Soft radial falloff sprites, used wherever a hard-edged circle would leave a
+/// visible rim on the flat snow.
+///
+/// v2.8: plain DrawCircle blobs were the reason bright white arcs kept
+/// flashing across the snowfield. A radial gradient fading to zero alpha has
+/// no rim, so the shape melts into the ground.
+///
+/// v2.8 fix: this did NOT use GradientTexture2D with Fill=Radial. That fill
+/// interpolates along the axis from FillFrom to FillTo, and any pixel on the
+/// far side of FillFrom clamps to offset 0 - which is fully opaque. The left
+/// half of the sprite came out solid with a straight vertical cut down the
+/// middle, which is exactly the hard edged pale slab that showed up on the
+/// snow. Now the falloff is computed per pixel from the real distance to the
+/// centre, so it fades out in every direction and has no edge at all.
+/// </summary>
+public static class SoftSnow
+{
+    private static readonly Dictionary<int, ImageTexture> _cache = new();
+
+    public static ImageTexture Blob(Color tint, float alpha)
+    {
+        int key = tint.GetHashCode() ^ (int)(alpha * 1000f);
+        if (_cache.TryGetValue(key, out var cached)) return cached;
+
+        const int size = 64;
+        var img = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
+        var half = size * 0.5f;
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float dx = (x + 0.5f - half) / half;
+            float dy = (y + 0.5f - half) / half;
+            float r = Mathf.Sqrt(dx * dx + dy * dy);
+            // smoothstep falloff: fully opaque in the middle, zero at the rim
+            float a = 1f - Mathf.Clamp(r, 0f, 1f);
+            a = a * a * (3f - 2f * a);
+            img.SetPixel(x, y, new Color(tint.R, tint.G, tint.B, tint.A * alpha * a));
+        }
+
+        var tex = ImageTexture.CreateFromImage(img);
+        _cache[key] = tex;
+        return tex;
+    }
+}
+
+/// <summary>
 /// 关卡 00「嫩江江桥 · 1931.11.4」垂直切片。
 ///
 /// 设计要点（对应这次的明确要求）：
@@ -42,7 +88,7 @@ public partial class JiangqiaoLevel : Node2D
 
     internal FieldPlayer _player;
     private GroundShadow _playerShadow;
-    private Camera2D _cam;
+    internal Camera2D _cam;
     private Node2D _game;
     private Hud _hud;
     private Label _hpLabel;
@@ -64,6 +110,12 @@ public partial class JiangqiaoLevel : Node2D
     private SmokeFx _smokeWorld;    // smoke + fire over the near houses (world layer)
     private SmokeFx _smokeMid;      // chimney smoke over the distant village (parallax mid)
     private const float MidFactor = 0.24f;
+
+    // viewport 1280x720 -> half width 640 / half height 360.
+    // used when the camera clamps itself: the lens must not cross the left
+    // and right edges of the world, and must not drift off the snow vertically.
+    private const float ViewHalfW = 640f;
+    private const float ViewHalfH = 360f;
 
     private float _shake;
     private float _flashA;
@@ -89,6 +141,14 @@ public partial class JiangqiaoLevel : Node2D
     private const float ClockMax = 19.2f;
     /// <summary>实机截图用：强制指定钟点（&lt;0 = 正常走时）。</summary>
     public float DebugClock = -1f;
+
+    /// <summary>v2.8: verification switch, hides the falling snow so the shake
+    /// check can measure the backdrop on its own.</summary>
+    public bool DebugNoSnow;
+
+    /// <summary>v2.8: verification switch, hides the chimney smoke so the
+    /// shake check can measure the backdrop on its own.</summary>
+    public bool DebugNoSmoke;
     private float _lastDryToast = -99f;
 
     public JiangqiaoLevel(Main main) { _main = main; }
@@ -245,55 +305,165 @@ public partial class JiangqiaoLevel : Node2D
         AddHouseSmoke(h, tex, x, w, lift);
     }
 
-    /// <summary>远景村落的横向摆位（中景视差层用，炊烟也要跟着一起动）。</summary>
-    public static readonly float[] VillageX = { -760, 260, 690, 2520, 3000, 4180, 4590 };
-    public static float VillageH(int i) => 90f + (i % 3) * 11f;
-    public static bool VillageFlip(int i) => i % 2 == 1;
+    /// <summary>
+    /// Where the distant village stands.
+    ///
+    /// v2.8: this used to be 578, which is exactly where the snow plain starts,
+    /// so every house sat right on the horizon line and the ridge behind ran
+    /// straight through the roof line. The whole row then read as one stripe
+    /// painted onto the mountain. Dropping it further down the plain puts the
+    /// houses on open ground with the ridge clearly behind them.
+    /// </summary>
+    public const float VillageBaseY = 608f;
 
     /// <summary>
-    /// 远景村落的炊烟：烧塌的屋顶冒黑烟，完好民房的烟囱冒白烟。
-    /// 之前这些烟是画死在贴图里的静止烟云，现在改成程序化动态烟。
+    /// One house in the distant village.
+    ///
+    /// v2.8: this used to be a crop cut out of village_ruined.png, but that
+    /// sheet is painted from a top-down three-quarter angle while the level is
+    /// shot from the side. Mixing the two angles is what made the village look
+    /// like stickers glued onto the mountain. Now every house uses the same
+    /// side-on art as the near houses, so the perspective matches.
+    /// </summary>
+    public readonly struct VillageHouse
+    {
+        /// <summary>Texture file name (no extension), under art/props or art/backdrop.</summary>
+        public readonly string Tex;
+        /// <summary>World X (house bottom edge, centred).</summary>
+        public readonly float X;
+        /// <summary>World height (pixels).</summary>
+        public readonly float H;
+        /// <summary>Mirror left/right.</summary>
+        public readonly bool Flip;
+        /// <summary>What kind of smoke this one gives off (0 = none, 1 = domestic, 2 = black).</summary>
+        public readonly int Smoke;
+        /// <summary>Where the chimney sits inside the texture (0~1).</summary>
+        public readonly Vector2 SmokeAt;
+        /// <summary>True when the texture lives under art/backdrop instead of art/props.</summary>
+        public readonly bool Backdrop;
+
+        public VillageHouse(string tex, float x, float h, bool flip, int smoke, Vector2 smokeAt,
+                            bool backdrop = false)
+        {
+            Tex = tex;
+            X = x;
+            H = h;
+            Flip = flip;
+            Smoke = smoke;
+            SmokeAt = smokeAt;
+            Backdrop = backdrop;
+        }
+    }
+
+    /// <summary>
+    /// Where each distant house stands.
+    ///
+    /// Heights vary on purpose (38~118px). The parallax layer runs at 0.24 so
+    /// the horizontal spread gets squashed, and without a real size range every
+    /// house ends up the same size and the row looks printed rather than built.
+    /// </summary>
+    public static readonly VillageHouse[] VillageHouses =
+    {
+        // —— west of the start: the cluster the user pointed at ——
+        new("village", -640f, 104f, false, 1, new Vector2(0.482f, 0.152f), true),
+        new("house_skeleton_near", -395f, 66f, true, 2, new Vector2(0.45f, 0.42f)),
+        new("house_posts", -255f, 44f, false, 0, new Vector2(0.50f, 0.50f)),
+        new("house_ruined_near", -110f, 74f, true, 0, new Vector2(0.45f, 0.26f)),
+
+        // —— village gate: the one house still standing, chimney still smoking ——
+        new("house_intact_near", 285f, 96f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("village", 470f, 118f, true, 1, new Vector2(0.482f, 0.152f), true),
+        new("house_skeleton_near", 660f, 62f, false, 2, new Vector2(0.45f, 0.42f)),
+        new("house_posts", 760f, 40f, true, 0, new Vector2(0.50f, 0.50f)),
+
+        // —— middle and back: keep them sparse, never a continuous row ——
+        new("house_ruined_near", 2480f, 70f, true, 0, new Vector2(0.45f, 0.26f)),
+        new("house_intact_near", 2990f, 58f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("house_posts", 3040f, 38f, true, 0, new Vector2(0.50f, 0.50f)),
+        new("house_burned_near", 4180f, 78f, false, 2, new Vector2(0.545f, 0.615f)),
+        new("village", 4580f, 88f, true, 1, new Vector2(0.482f, 0.152f), true),
+    };
+
+    /// <summary>Cached house textures for the distant village (loaded once, then kept).</summary>
+    private static readonly Dictionary<string, Texture2D> _vhouseTex = new();
+
+    /// <summary>
+    /// Loads the art for one distant house.
+    ///
+    /// v2.8: this used to slice the big village_ruined panorama into single
+    /// houses at runtime. That panorama is painted from a top-down angle, so
+    /// the slices never matched the side-on level and the village read as
+    /// stickers pasted on the mountain. Now it is just a plain file load of the
+    /// same side-on art the near houses use.
+    /// </summary>
+    private static Texture2D VillageHouseTex(string name, bool backdrop)
+    {
+        if (_vhouseTex.TryGetValue(name, out var cached)) return cached;
+
+        var path = backdrop
+            ? $"res://assets/art/backdrop/{name}.png"
+            : $"res://assets/art/props/{name}.png";
+        var tex = GD.Load<Texture2D>(path);
+        _vhouseTex[name] = tex;
+        return tex;
+    }
+
+
+    /// <summary>
+    /// Chimney smoke over the distant village: black smoke from the collapsed
+    /// roofs, white smoke from the chimney of the intact house.
+    /// These used to be painted into the texture as a static cloud, now they
+    /// are procedural and animated.
+    /// v2.7: each house carries its own Smoke / SmokeAt in the layout table.
+    /// Before this the position was computed from the proportions of the whole
+    /// panorama, so once the houses were split apart the smoke drifted into
+    /// the neighbour's house.
     /// </summary>
     private void BuildMidSmoke()
     {
         if (_smokeMid == null) return;
-        var tex = GD.Load<Texture2D>("res://assets/art/backdrop/village_ruined.png");
-        if (tex == null) return;
-        var sz = tex.GetSize();
 
-        for (int i = 0; i < VillageX.Length; i++)
+        for (int i = 0; i < VillageHouses.Length; i++)
         {
-            float hgt = VillageH(i);
-            float wid = sz.X / sz.Y * hgt;
-            bool flip = VillageFlip(i);
+            var h = VillageHouses[i];
+            if (h.Smoke == 0) continue;
 
-            // burnt roof on the left of the village art
-            float ux = flip ? 0.78f : 0.22f;
-            _smokeMid.Add(new SmokeFx.Source
-            {
-                Pos = new Vector2(VillageX[i] - wid * 0.5f + ux * wid, 568f - hgt + 0.30f * hgt),
-                Size = 0.62f,
-                Strength = 0.75f,
-                Fire = 0f,
-                Rise = 46f,
-                Drift = 0.6f,
-                Phase = i * 0.37f,
-                Tint = new Color(0.42f, 0.42f, 0.46f),
-            });
+            var ht = VillageHouseTex(h.Tex, h.Backdrop);
+            if (ht == null) continue;
+            float wid = ht.GetSize().X / ht.GetSize().Y * h.H;
+            float ax = h.X - wid * 0.5f + h.SmokeAt.X * wid;
+            float ay = VillageBaseY - h.H + h.SmokeAt.Y * h.H;
 
-            // chimney of the house that is still standing
-            float cx = flip ? 0.104f : 0.896f;
-            _smokeMid.Add(new SmokeFx.Source
+            if (h.Smoke == 2)
             {
-                Pos = new Vector2(VillageX[i] - wid * 0.5f + cx * wid, 568f - hgt + 0.185f * hgt),
-                Size = 0.40f,
-                Strength = 0.52f,
-                Fire = 0f,
-                Rise = 32f,
-                Drift = 0.4f,
-                Phase = i * 0.71f + 0.4f,
-                Tint = new Color(0.84f, 0.86f, 0.90f),
-            });
+                // burnt roof: thick black column
+                _smokeMid.Add(new SmokeFx.Source
+                {
+                    Pos = new Vector2(ax, ay),
+                    Size = 0.58f,
+                    Strength = 0.72f,
+                    Fire = 0f,
+                    Rise = 44f,
+                    Drift = 0.6f,
+                    Phase = i * 0.37f,
+                    Tint = new Color(0.40f, 0.40f, 0.44f),
+                });
+            }
+            else
+            {
+                // chimney of the house that is still standing
+                _smokeMid.Add(new SmokeFx.Source
+                {
+                    Pos = new Vector2(ax, ay),
+                    Size = 0.36f,
+                    Strength = 0.48f,
+                    Fire = 0f,
+                    Rise = 30f,
+                    Drift = 0.4f,
+                    Phase = i * 0.71f + 0.4f,
+                    Tint = new Color(0.84f, 0.86f, 0.90f),
+                });
+            }
         }
     }
 
@@ -333,8 +503,7 @@ public partial class JiangqiaoLevel : Node2D
         _layers = new[]
         {
             new Backdrop(this, Backdrop.KindFar, 0.06f, -40),
-            new Backdrop(this, Backdrop.KindMid, MidFactor, -30),
-            new Backdrop(this, Backdrop.KindNear, 0.55f, -20),
+            new Backdrop(this, Backdrop.KindMid, MidFactor, -30),            new Backdrop(this, Backdrop.KindNear, 0.55f, -20),
             new Backdrop(this, Backdrop.KindFore, 1.32f, 20),
         };
         foreach (var l in _layers) AddChild(l);
@@ -342,6 +511,8 @@ public partial class JiangqiaoLevel : Node2D
         // distant village smoke rides the same parallax as the mid backdrop
         _smokeMid = new SmokeFx { ZIndex = -29 };
         AddChild(_smokeMid);
+        // v2.8: verification switch, lets the shake check cut the smoke
+        if (DebugNoSmoke) _smokeMid.Visible = false;
     }
 
     private void BuildTerrain()
@@ -352,6 +523,7 @@ public partial class JiangqiaoLevel : Node2D
         // smoke and fire over the near houses: above the houses, below the fighters
         _smokeWorld = new SmokeFx { ZIndex = -2 };
         _game.AddChild(_smokeWorld);
+        if (DebugNoSmoke) _smokeWorld.Visible = false;
 
         var floor = new StaticBody2D { Position = new Vector2(WorldW * 0.5f, GroundY + 120f) };
         var fs = new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(WorldW + 800f, 240f) } };
@@ -429,8 +601,17 @@ public partial class JiangqiaoLevel : Node2D
 
         _cam = new Camera2D
         {
-            LimitLeft = 0,
-            LimitRight = (int)WorldW,
+            // v2.7: the left and right limits are opened up, so the camera and
+            // the parallax layers share the same _camX.
+            // Before this LimitLeft=0 / LimitRight=WorldW, so Godot hard clamped
+            // the screen centre into [640, WorldW-640], while the parallax layers
+            // moved by _camX (the player X). Two different sources ->
+            // from x=230 up to x=640 the background kept sliding relative to
+            // the player, and at x=640 it snapped into place all at once.
+            // That is the mystery jolt at the start of the level.
+            // The vertical limit stays (the camera must not leave the snow).
+            LimitLeft = -100000,
+            LimitRight = 100000,
             LimitTop = 0,
             LimitBottom = 900,
             // 不用内置平滑：它与 _Process 里的视差层更新不在同一时序，
@@ -514,6 +695,9 @@ public partial class JiangqiaoLevel : Node2D
         AddChild(snowLayer);
         _snow = new SnowScreen();
         snowLayer.AddChild(_snow);
+        // v2.8: verification switch, lets the shake check kill the falling snow
+        // so only the backdrop is measured
+        if (DebugNoSnow) _snow.Visible = false;
 
         var flashLayer = new CanvasLayer { Layer = 7 };
         AddChild(flashLayer);
@@ -539,16 +723,30 @@ public partial class JiangqiaoLevel : Node2D
         float f = Mathf.Min(0.05f, (float)delta);
         _elapsed += f;
 
-        // 视差：相机 X 手动平滑，且必须在同一帧里同时喂给相机与视差层，
-        // 层与层之间才不会互相拉扯出抖动。
+        // parallax: camera X is smoothed by hand, and the same value has to go
+        // to the camera and to the parallax layers in the same frame,
+        // otherwise the layers pull against each other and shake.
         var target = new Vector2(_player.GlobalPosition.X, _player.GlobalPosition.Y - 118f);
         float k = 1f - Mathf.Exp(-6.5f * f);
         _camX += (target.X - _camX) * k;
-        _cam.Position = new Vector2(_camX, target.Y);
+        // v2.7: the camera clamps itself (no more Camera2D.Limit), and the very
+        // same clamped value is then fed to the parallax layers.
+        // Before this Camera2D.Limit clamped the camera while _camX drove the
+        // parallax layers - two different sources ->
+        // at the start the player was at x=230 so the camera was pinned at 640,
+        // but the parallax layers were still computing from 230. The background
+        // slid against the world the whole way, and the instant the camera was
+        // released at x=640 it snapped into place. That is the mystery jolt.
+        float camX = Mathf.Clamp(_camX, ViewHalfW, WorldW - ViewHalfW);
+        float camY = Mathf.Clamp(target.Y, ViewHalfH, 900f - ViewHalfH);
+        _cam.Position = new Vector2(camX, camY);
         foreach (var l in _layers)
-            l.Position = new Vector2(_camX * (1f - l.Factor), 0f);
+            l.Position = new Vector2(camX * (1f - l.Factor), 0f);
+        if (System.Environment.GetEnvironmentVariable("WBDUMP") == "1" && _elapsed > 2f && _elapsed < 2.05f)
+            foreach (var l in _layers)
+                GD.Print($"DIAGDBG layer kind={l.Kind} factor={l.Factor} pos={l.Position} camX={camX}");
         if (_smokeMid != null)
-            _smokeMid.Position = new Vector2(_camX * (1f - MidFactor), 0f);
+            _smokeMid.Position = new Vector2(camX * (1f - MidFactor), 0f);
         _snow.Wind = 0.55f + Mathf.Sin(_elapsed * 0.35f) * 0.35f;
 
         UpdateDayCycle(f);
@@ -1117,6 +1315,19 @@ public partial class JiangqiaoLevel : Node2D
 
             public float DayT = 5.6f;   // game clock, hours
 
+            /// <summary>
+            /// The sky has to be redrawn whenever the clock moves.
+            /// Before this SkyArt only drew once on the first _Draw and never
+            /// refreshed when DayT changed -
+            /// so the sky stayed the colour of the opening moment (before dawn)
+            /// for the whole match, the sun came up and the sky was still full
+            /// of stars, and the day/night cycle did nothing.
+            /// </summary>
+            public override void _Process(double delta)
+            {
+                QueueRedraw();
+            }
+
             private static readonly Vector4 NightTop = new(0.05f, 0.07f, 0.13f, 1f);
             private static readonly Vector4 PreDawnTop = new(0.07f, 0.10f, 0.18f, 1f);
             private static readonly Vector4 DawnTop = new(0.28f, 0.30f, 0.42f, 1f);
@@ -1335,8 +1546,13 @@ public partial class JiangqiaoLevel : Node2D
         public override void _Ready()
         {
             // preload so first _Draw never hitches
-            foreach (var n in new[] { "mountains", "village_ruined", "tree_elm", "tree_birch", "willow", "grass" })
+            // v2.7: "willow" no longer preloads, the procedural willow clump replaced it
+            foreach (var n in new[] { "mountains", "tree_elm", "tree_birch", "grass" })
                 Tex(n);
+            // v2.8: the distant village reuses the side-on house art
+            foreach (var n in new[] { "village", "house_intact_near", "house_ruined_near",
+                                      "house_skeleton_near", "house_burned_near", "house_posts" })
+                VillageHouseTex(n, n == "village");
         }
 
         private Texture2D Tex(string name)
@@ -1348,7 +1564,10 @@ public partial class JiangqiaoLevel : Node2D
         }
 
         // ground-anchored sprite: baseCenter = bottom-middle, h = world height
-        private void Sprite(string name, Vector2 baseCenter, float h, float alpha = 1f, bool flip = false)
+        // fade: 0 = no fade, 1 = fully transparent at the bottom (kills the
+        // hard cut line where a pasted texture meets the snow field)
+        private void Sprite(string name, Vector2 baseCenter, float h, float alpha = 1f, bool flip = false,
+                            float fade = 0f)
         {
             var t = Tex(name);
             if (t == null || h <= 0f) return;
@@ -1364,6 +1583,15 @@ public partial class JiangqiaoLevel : Node2D
             else
             {
                 DrawTextureRect(t, new Rect2(baseCenter.X - w * 0.5f, baseCenter.Y - h, w, h), false, col);
+            }
+
+            // vertical fade: paint the snow colour back over the lower part of
+            // the sprite so it melts into the snow field instead of showing
+            // the texture's own hard bottom edge
+            if (fade > 0f)
+            {
+                var g = VGradient(new Color(0f, 0f, 0f, 0f), new Color(0.775f, 0.795f, 0.795f, fade));
+                DrawTextureRect(g, new Rect2(baseCenter.X - w * 0.5f, baseCenter.Y - h * fade * 1.6f, w, h * fade * 1.6f), false);
             }
         }
 
@@ -1513,7 +1741,6 @@ public partial class JiangqiaoLevel : Node2D
 
             // 雪原上缘：先渐变到实色，避免一条生硬的地平线
             var fade = VGradient(new Color(snow, 0f), new Color(snow, 1f));
-            DrawTextureRect(fade, Full(-1400, 520, 58), false);
             DrawRect(Full(-1400, 578, 240), snow);
 
             // 雪原起伏的亮边与投影
@@ -1535,12 +1762,67 @@ public partial class JiangqiaoLevel : Node2D
                     new Color(0.62f, 0.69f, 0.73f, 0.10f), 3f + (i % 3), true);
             }
 
-            // village cluster: war-torn watercolor art, mirror alternate
-            // (炮火下的村子：破损的屋顶、烧黑的墙——1931 年嫩江沿岸村庄的真实样貌)
-            float[] villages = VillageX;
-            for (int i = 0; i < villages.Length; i++)
-                Sprite("village_ruined", new Vector2(villages[i], 568f),
-                    VillageH(i), 1f, flip: VillageFlip(i));
+            // Snow haze first, THEN the village.
+            //
+            // v2.8: the haze used to be painted after the houses, so that opaque
+            // white band (y 520~578) swallowed most of every roof and the row
+            // came out as a thin smear. Distance haze belongs behind the
+            // village anyway — the fog is out on the plain, the houses stand
+            // in front of it.
+            DrawTextureRect(fade, Full(-1400, 520, 58), false);
+
+            // The distant village: war-torn farmhouses on the open snow.
+            //
+            // v2.8 rewrite. The old art was sliced out of village_ruined.png,
+            // a sheet painted from a top-down three-quarter angle, so the pieces
+            // never matched this side-on level and the village looked like
+            // stickers glued onto the mountain. Now every house is the same
+            // side-on art as the near houses: correct perspective, one drawing
+            // style across the whole scene, and a real damage ladder (intact /
+            // ruined / burnt frame / charred stumps only).
+            foreach (var vh in VillageHouses)
+            {
+                var at = VillageHouseTex(vh.Tex, vh.Backdrop);
+                if (at == null) continue;
+                float wid = at.GetSize().X / at.GetSize().Y * vh.H;
+
+                // Aerial perspective: the further off to the side, the more the
+                // haze eats into the contrast. Deterministic, no random.
+                float depth = 1f - Mathf.Clamp(Mathf.Abs(vh.X - 200f) / 5200f, 0f, 1f) * 0.18f;
+
+                // Contact shadow first, so the house stands on the snow instead
+                // of floating above it.
+                DrawSetTransform(new Vector2(vh.X, VillageBaseY - 1f), 0, new Vector2(wid * 0.42f, 0.16f));
+                DrawTextureRect(SoftBlob(new Color(0.42f, 0.47f, 0.52f), 0.22f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                if (vh.Flip)
+                {
+                    DrawSetTransform(new Vector2(vh.X, VillageBaseY), 0, new Vector2(-1f, 1f));
+                    DrawTextureRect(at, new Rect2(-wid * 0.5f, -vh.H, wid, vh.H), false,
+                        new Color(1f, 1f, 1f, depth));
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                }
+                else
+                {
+                    DrawTextureRect(at, new Rect2(vh.X - wid * 0.5f, VillageBaseY - vh.H, wid, vh.H),
+                        false, new Color(1f, 1f, 1f, depth));
+                }
+
+                // Melt the foot of the house into the snow. A rectangular
+                // gradient would leave a hard white box where the texture is
+                // transparent, so the snow is laid on as a soft ellipse that
+                // only touches the bottom of the building.
+                var melt = VGradient(new Color(0.775f, 0.795f, 0.795f, 0f),
+                    new Color(0.775f, 0.795f, 0.795f, 0.95f));
+                DrawTextureRect(melt,
+                    new Rect2(vh.X - wid * 0.5f, VillageBaseY - vh.H * 0.22f, wid, vh.H * 0.22f), false);
+                DrawSetTransform(new Vector2(vh.X, VillageBaseY), 0, new Vector2(wid * 0.30f, 0.13f));
+                DrawTextureRect(SoftBlob(new Color(0.80f, 0.82f, 0.83f), 0.80f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
 
             // mid tree line: generated birch/elm sprites, fixed seed layout
             var midTreeRng = new RandomNumberGenerator();
@@ -1595,8 +1877,17 @@ public partial class JiangqiaoLevel : Node2D
                     Sprite("tree_elm", new Vector2(nx, 672f), 60f + nearRng.Randf() * 60f, 1f,
                         flip: nearRng.Randf() < 0.5f);
                 else if (kind < 0.85f)
-                    Sprite("willow", new Vector2(nx, 672f), 26f + nearRng.Randf() * 22f, 1f,
-                        flip: nearRng.Randf() < 0.5f);
+                {
+                    // the willow clump is now procedural: one clump of arching twigs.
+                    // before this it used the willow.png texture, but that image
+                    // carries a whole white snow base, and scaled down to 26~48px
+                    // it became a pile of black spikes radiating out of the
+                    // ground, very jarring on open snow - that is the odd object
+                    // the user pointed at in picture 7.
+                    // the procedural version is twigs hugging the ground plus
+                    // snow at the roots, no hard edges.
+                    WillowClump(nx, 668f, 24f + nearRng.Randf() * 20f);
+                }
                 nx += gap;
             }
             // three taller lone trees to break the rhythm
@@ -1641,18 +1932,29 @@ public partial class JiangqiaoLevel : Node2D
             DrawLine(new Vector2(cx + 68, 589), new Vector2(cx + 104, 567), new Color(0.90f, 0.92f, 0.92f, 0.7f), 2f, true);
         }
 
-        /// <summary>雪堆：外浅内白，边缘柔，避免硬边圆片。</summary>
+        /// <summary>
+        /// A snow drift: pale rim, brighter core, soft edge.
+        ///
+        /// v2.8: this used to be plain DrawCircle blobs. A circle has a hard
+        /// rim, and on flat snow those rims showed up as bright white arcs
+        /// lying on the ground — the "white lines flashing across the screen"
+        /// the player kept reporting. Now the shape is a soft radial falloff,
+        /// so the drift melts into the snow with no edge to catch the light.
+        /// </summary>
         private void Drift(Vector2 c, float w, float h, Color snow)
         {
             DrawSetTransform(c + new Vector2(0, 4), 0, new Vector2(w / 20f, h / 20f * 1.4f));
-            DrawCircle(Vector2.Zero, 20f, new Color(0.62f, 0.68f, 0.71f, 0.16f));
+            DrawTextureRect(SoftBlob(snow, 0.16f), new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(c, 0, new Vector2(w / 20f, h / 20f));
-            DrawCircle(Vector2.Zero, 20f, new Color(snow, 0.55f));
-            DrawCircle(Vector2.Zero, 15f, new Color(snow, 0.9f));
+            DrawTextureRect(SoftBlob(snow, 0.55f), new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(c + new Vector2(-w * 0.12f, -h * 0.16f), 0, new Vector2(1.2f, 0.42f));
-            DrawCircle(Vector2.Zero, 20f, new Color(0.98f, 0.99f, 0.99f, 0.5f));
+            DrawTextureRect(SoftBlob(new Color(0.98f, 0.99f, 0.99f), 0.5f), new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
+
+    /// <summary>Radial falloff sprite for soft snow shapes, cached per colour.</summary>
+    private static ImageTexture SoftBlob(Color tint, float alpha)
+        => SoftSnow.Blob(tint, alpha);
 
         /// <summary>
         /// 落叶枯树（史实：嫩江平原的蒙古黄榆/小叶杨，11 月阔叶树全部落叶只剩枝桠）：
@@ -1737,24 +2039,65 @@ public partial class JiangqiaoLevel : Node2D
             return pts[pts.Length - 1];
         }
 
-        /// <summary>灌木柳丛（史实：旱柳沿江洼地成丛）：贴地一蓬拱形细枝 + 根部积雪。</summary>
-        private void WillowClump(float x, float baseY, float h)
+    /// <summary>
+    /// Shrub willow (historically: sallow grows in clumps along the river
+    /// hollows): a low clump of arching thin twigs plus snow at the roots.
+    /// </summary>
+    /// <remarks>
+    /// v2.7 rewrite: before this all 7 branches shot out of the same point
+    /// (0,0), which drew a bunch of black spikes radiating from the centre.
+    /// On open snow that was very jarring - it is the odd object the user
+    /// pointed at in picture 7.
+    /// Now each branch grows from its own spot inside a small patch at the
+    /// base, arches up first and then droops down, each branch going from
+    /// thick to thin, with a layer of snow on top. It is a clump of willow,
+    /// not a pile of spikes.
+    /// </remarks>
+    private void WillowClump(float x, float baseY, float h)
+    {
+        var c = new Color(0.31f, 0.28f, 0.22f);
+        var rng = new RandomNumberGenerator();
+        rng.Seed = (ulong)(int)(x * 7919f) + 19311105UL;
+
+        // a small patch at the base, each branch grows from a different spot
+        // (no more squeezing them all into one point)
+        int stems = 6;
+        for (int b = 0; b < stems; b++)
         {
-            var c = new Color(0.31f, 0.28f, 0.22f);
-            DrawSetTransform(new Vector2(x, baseY), 0, Vector2.One);
-            for (int b = 0; b < 7; b++)
-            {
-                float t = b / 6f - 0.5f;
-                float tipX = t * h * 1.6f + Mathf.Sin(b * 2.3f + x) * 3f;
-                float tipY = -h * (0.55f + 0.45f * Mathf.Abs(Mathf.Cos(b * 1.1f + x * 0.01f)));
-                var stem = Curved(new Vector2(0, 0), new Vector2(tipX * 0.5f, tipY * 1.2f),
-                    new Vector2(tipX, tipY), 4);
-                DrawPolyline(stem, c, 1.5f, true);
-            }
-            DrawSetTransform(new Vector2(x, baseY + 1f), 0, new Vector2(1.7f, 0.28f));
-            DrawCircle(Vector2.Zero, 12f, new Color(0.95f, 0.96f, 0.97f, 0.75f));
+            float t = b / (stems - 1f) - 0.5f;          // -0.5 .. 0.5
+            float rootX = t * h * 0.62f;
+            float spread = t * h * 1.35f;               // spread to the sides
+            float rise = h * (0.62f + 0.38f * Mathf.Cos(t * 2.2f));  // tall in the middle, short at the edges
+            // arch up first, then droop outwards (sallow branches hang down like this)
+            var arch = Curved(new Vector2(rootX, 0f),
+                new Vector2(rootX + spread * 0.25f, -rise * 1.12f),
+                new Vector2(rootX + spread * 0.82f, -rise * 0.42f), 6);
+            DrawPolyline(arch, c, 1.6f, true);
+
+            // the tip droops one more stretch, thinnest at the end
+            var tail = Curved(arch[^1],
+                arch[^1] + new Vector2(spread * 0.10f, rise * 0.16f),
+                arch[^1] + new Vector2(spread * 0.16f, rise * 0.52f), 4);
+            DrawPolyline(tail, new Color(c.R, c.G, c.B, 0.85f), 1.1f, true);
+        }
+
+        // snow on the branches: a small pinch on the back of a few upward branches only
+        for (int s = 0; s < 3; s++)
+        {
+            float sx = (rng.Randf() - 0.5f) * h * 0.9f;
+            float sy = -h * (0.42f + rng.Randf() * 0.30f);
+            DrawSetTransform(new Vector2(x + sx, baseY + sy), 0, new Vector2(0.9f, 0.26f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.95f, 0.96f, 0.97f), 0.62f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
+
+        // snow at the base: a soft edged ellipse that buries the roots
+        DrawSetTransform(new Vector2(x, baseY + 1f), 0, new Vector2(1.5f, 0.26f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.95f, 0.96f, 0.97f), 0.78f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+    }
 
         // —— 前景：贴镜头掠过的芦苇与雪檐（加深景深）——
         private void DrawFore()
@@ -1914,10 +2257,13 @@ public partial class JiangqiaoLevel : Node2D
             // same kit tone + sun direction as everything else on the ground
             float dir = SnowShadow.DirX();
             float skew = (3f + Air * 0.045f) * (dir == 0f ? -0.6f : dir);
+            // v2.8: radial falloff, a hard rimmed circle leaves a visible arc
             DrawSetTransform(new Vector2(X - skew, GroundY - 1f), 0, new Vector2(1f, 0.24f));
-            DrawCircle(Vector2.Zero, 20f * k, new Color(0.12f, 0.13f, 0.16f, a));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.12f, 0.13f, 0.16f), a),
+                new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(new Vector2(X - skew * 2.1f, GroundY - 1f), 0, new Vector2(1f, 0.15f));
-            DrawCircle(Vector2.Zero, 13f * k, new Color(0.12f, 0.13f, 0.16f, a * 0.5f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.12f, 0.13f, 0.16f), a * 0.5f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
     }
@@ -2094,7 +2440,8 @@ public partial class JiangqiaoLevel : Node2D
                 var c = new Vector2(4485 + i * 52 + Mathf.Sin(i * 1.9f) * 14f,
                     GroundY + 24 + (i % 4) * 22);
                 DrawSetTransform(c, 0, new Vector2(1.6f, 0.28f));
-                DrawCircle(Vector2.Zero, 13f + (i % 3) * 3f, new Color(0.93f, 0.95f, 0.95f, 0.75f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.93f, 0.95f, 0.95f), 0.75f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
             // 远处冰面上的冻土堆（小冰丘）
@@ -2102,7 +2449,8 @@ public partial class JiangqiaoLevel : Node2D
             {
                 var c = new Vector2(4520 + i * 140, GroundY + 540);
                 DrawSetTransform(c, 0, new Vector2(1.8f, 0.5f));
-                DrawCircle(Vector2.Zero, 10f, new Color(0.78f, 0.83f, 0.86f, 0.6f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.78f, 0.83f, 0.86f), 0.6f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
@@ -2726,15 +3074,24 @@ public partial class JiangqiaoLevel : Node2D
             public override void _Draw()
             {
                 var s = GetViewportRect().Size;
+
+                // Soft drifting mist.
+                //
+                // v2.8: this used to be four big DrawCircle blobs. A circle has a
+                // hard rim, so on the flat snow those rims showed up as bright
+                // white arcs that crawled around — exactly the "white lines
+                // flashing across the screen" the player reported. Now each band
+                // is painted with a soft radial falloff texture, so there is no
+                // edge to catch the light and the mist just breathes.
+                var soft = SoftSnow.Blob(new Color(0.95f, 0.97f, 0.98f), 0.10f);
                 for (int i = 0; i < 4; i++)
                 {
                     float y = 430 + i * 52 + Mathf.Sin(_t * 0.22f + i * 1.7f) * 18f;
                     float x = -120 + Mathf.Sin(_t * 0.11f + i) * 180f;
                     DrawSetTransform(new Vector2(x + s.X * 0.5f, y), 0, new Vector2(3.4f, 0.22f));
-                    DrawCircle(Vector2.Zero, 220f, new Color(0.93f, 0.95f, 0.96f, 0.045f));
-                    DrawCircle(Vector2.Zero, 150f, new Color(0.95f, 0.97f, 0.98f, 0.05f));
+                    DrawTextureRect(soft, new Rect2(-220f, -220f, 440f, 440f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
     }

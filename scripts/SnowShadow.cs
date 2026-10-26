@@ -36,16 +36,26 @@ public static class SnowShadow
     }
 
     /// <summary>soft two-layer ground ellipse, hugs the object feet</summary>
+    ///
+    /// v2.8: this used to be plain DrawCircle. A circle has a hard rim, and a
+    /// big one - the contact shadow under a house is huge - leaves a visible
+    /// hard edge on the flat snow, which reads as a pale slab stuck to the
+    /// ground. Now both layers use the radial falloff sprite instead, so the
+    /// shadow fades out with no rim to catch the light.
+    /// </summary>
     public static void Draw(CanvasItem ci, Vector2 ground, float radius,
         float baseAlpha = 0.26f, float stretch = 1f)
     {
         float k = Strength();
         float dx = DirX() * radius * 0.34f * stretch;
+        var tint = new Color(Ink.R, Ink.G, Ink.B);
+
         ci.DrawSetTransform(ground + new Vector2(dx, 0f), 0, new Vector2(stretch, 0.24f));
-        ci.DrawCircle(Vector2.Zero, radius, new Color(Ink.R, Ink.G, Ink.B, baseAlpha * k));
+        ci.DrawTextureRect(SoftSnow.Blob(tint, baseAlpha * k),
+            new Rect2(-20f, -20f, 40f, 40f), false);
         ci.DrawSetTransform(ground + new Vector2(dx * 1.9f, 0f), 0, new Vector2(stretch * 0.6f, 0.15f));
-        ci.DrawCircle(Vector2.Zero, radius * 0.72f,
-            new Color(Ink.R, Ink.G, Ink.B, baseAlpha * k * 0.5f));
+        ci.DrawTextureRect(SoftSnow.Blob(tint, baseAlpha * k * 0.5f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
         ci.DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }
