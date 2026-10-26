@@ -25,10 +25,13 @@ public partial class JiangqiaoLevel : Node2D
     /// <summary>圆离散成多边形顶点（默认全圆，a0/a1 可画弧段）。</summary>
     internal static Vector2[] CircleVerts(float r, int n, float a0 = 0f, float a1 = Mathf.Tau)
     {
+        // 用 i/n 而非 i/(n-1)：满圆时最后一个顶点不再与第一个重合，
+        // 避免出现零长边导致 Godot 三角化偶发失败（白线闪烁）。
+        if (n < 3) n = 3;
         var v = new Vector2[n];
         for (int i = 0; i < n; i++)
         {
-            float t = n == 1 ? 0f : (float)i / (n - 1);
+            float t = (float)i / n;
             float a = Mathf.Lerp(a0, a1, t);
             v[i] = new Vector2(Mathf.Cos(a) * r, Mathf.Sin(a) * r);
         }
@@ -89,7 +92,7 @@ public partial class JiangqiaoLevel : Node2D
             () =>
             {
                 _started = true;
-                _hud.ShowTutorial("A / D 移动 · 空格 跳跃 · S 蹲下 · E 按住记录 · 鼠标左键射击");
+                _hud.ShowTutorial("A / D 移动 · 空格 跳跃 · S 蹲下 · Ctrl 匍匐 · E 按住记录 · 鼠标左键射击");
                 Artillery(0.55f);
             });
     }
@@ -300,11 +303,14 @@ public partial class JiangqiaoLevel : Node2D
             l.Position = new Vector2(_camX * (1f - l.Factor), 0f);
         _snow.Wind = 0.55f + Mathf.Sin(_elapsed * 0.35f) * 0.35f;
 
-        // 相机抖动（爆炸/开枪的屏幕震动）
-        _shake = Mathf.Max(0f, _shake - f * 2.2f);
+        // 相机抖动（爆炸/开枪冲击）：trauma² 模型，平滑衰减 + 低频抖动，
+        // 不再每帧纯随机 → 没有"嗡嗡"的鬼畜感；trauma 越高抖得越狠。
+        _shake = Mathf.Max(0f, _shake - f * 1.6f);
+        float trauma = _shake * _shake;
+        float sPhase = _elapsed * 30f;
         var off = new Vector2(
-            (float)GD.RandRange(-1f, 1f) * _shake * 9f,
-            (float)GD.RandRange(-1f, 1f) * _shake * 7f);
+            Mathf.Sin(sPhase) * trauma * 42f,
+            Mathf.Cos(sPhase * 1.3f) * trauma * 30f);
         _cam.Offset = off;
 
         // 玩家的影子钉在地面：跳得越高越小越淡，人不会显得脱离地面
@@ -519,7 +525,7 @@ public partial class JiangqiaoLevel : Node2D
 
     private void OnPlayerFired(Vector2 origin, bool faceRight)
     {
-        Shake(0.22f);
+        Shake(0.55f);
         EnemySoldier target = null;
         float best = 980f;
         foreach (var e in _enemies)
@@ -531,7 +537,12 @@ public partial class JiangqiaoLevel : Node2D
             if (Mathf.Abs(dx) < best) { best = Mathf.Abs(dx); target = e; }
         }
 
-        Vector2 end = origin + new Vector2(faceRight ? 900f : -900f, 0);
+        // 子弹方向：优先指向鼠标瞄准点（让你"瞄哪打哪"），否则按朝向水平射出
+        Vector2 dir = GetGlobalMousePosition() - origin;
+        if (dir.LengthSquared() < 4f) dir = new Vector2(faceRight ? 1f : -1f, 0f);
+        dir = dir.Normalized();
+
+        Vector2 end = origin + dir * 900f;
         if (target != null)
         {
             end = target.Position + new Vector2(0, -62);
@@ -545,7 +556,7 @@ public partial class JiangqiaoLevel : Node2D
             if (Mathf.Abs(e.Position.X - origin.X) < 900f)
                 e.Alert();
         }
-        _fx.Tracer(origin, end, new Color(1f, 0.92f, 0.70f));
+        _fx.Shoot(origin, end, new Color(1f, 0.92f, 0.70f), 120f);
     }
 
     /// <summary>敌兵阵亡：原地留下一具尸体（带掉落步枪与血迹），不是透明消失。</summary>
@@ -557,7 +568,7 @@ public partial class JiangqiaoLevel : Node2D
         // 中弹处的血雾与雪尘
         _fx.Puff(e.Position + new Vector2(0, -62f), 14f);
         _fx.Puff(new Vector2(e.Position.X, GroundY - 3f), 10f);
-        Shake(0.18f);
+        Shake(0.30f);
     }
 
     private void OnPlayerHit()
@@ -701,7 +712,6 @@ public partial class JiangqiaoLevel : Node2D
         public int Kind { get; }
         public float Factor { get; }
         private float _windTime;
-        private float _redrawAccum;
 
         public Backdrop(JiangqiaoLevel lvl, int kind, float factor, int z)
         {
@@ -715,18 +725,10 @@ public partial class JiangqiaoLevel : Node2D
         {
             float f = Mathf.Min(0.05f, (float)delta);
             _windTime += f * 0.6f;
-            // 风动画很慢（0.9 rad/s），不需要 60fps 重绘。
-            // 每 ~0.12s 重绘一次 = 约 8fps，足够平滑显示 wind sway。
-            // 降低频率可以消除 Mid 层每帧重绘导致的 crest 白线闪烁。
-            if (Kind == KindMid || Kind == KindFore)
-            {
-                _redrawAccum += f;
-                if (_redrawAccum >= 0.12f)
-                {
-                    QueueRedraw();
-                    _redrawAccum = 0f;
-                }
-            }
+            // 风摆与视差位置在 60fps 同步刷新：每帧重绘，
+            // 避免 Mid/Fore 层被节流到 8fps 而层位置 60fps 更新，
+            // 二者错位造成走动时树草"鬼畜"前后推进。现代 GPU 跑这条矢量场景无压力。
+            QueueRedraw();
         }
 
         public override void _Draw()
@@ -760,8 +762,11 @@ public partial class JiangqiaoLevel : Node2D
             var r2 = Ridge(524f, 48f, near, 6.1f, 0.0160f, 0.078f);
 
             // 雪只挂在最高的山尖（局部最高点才画，不是整条脊线）
-            RidgeSnow(r1, new Color(0.93f, 0.96f, 0.97f, 0.08f), lineW: 1.1f, lenMax: 1);
-            RidgeSnow(r2, new Color(0.88f, 0.92f, 0.94f, 0.03f), lineW: 1.0f, lenMax: 1);
+            RidgeSnow(r1, new Color(0.93f, 0.96f, 0.97f, 0.10f), lineW: 1.4f, lenMax: 1);
+            RidgeSnow(r2, new Color(0.88f, 0.92f, 0.94f, 0.05f), lineW: 1.2f, lenMax: 1);
+            // 山脊雪线：把两道前脊顶部的雪帽连成一片，避免"白点散落"的怪感
+            CrestLine(r1, new Color(0.95f, 0.97f, 0.98f, 0.55f), 1.6f);
+            CrestLine(r2, new Color(0.92f, 0.95f, 0.96f, 0.45f), 1.3f);
 
             // 山脚雾：一条窄带，只把山脚和雪原接起来
             var haze = VGradient(new Color(0.82f, 0.86f, 0.87f, 0f), new Color(0.82f, 0.86f, 0.87f, 0.72f));
@@ -773,7 +778,8 @@ public partial class JiangqiaoLevel : Node2D
             var pts = new List<Vector2>();
             // 画到画面之外很远：视差会把整层左右平移上千像素，
             // 只画「世界范围」就会在屏幕边缘露出一条竖直硬边。
-            for (float x = -1400; x <= WorldW + 2400; x += 26)
+            // 步长 16（原 26）让山脊轮廓更平滑，避免"锯齿/奇怪"的硬边。
+            for (float x = -1400; x <= WorldW + 2400; x += 16)
             {
                 float a = Ridged(x * f1 + seed, seed);
                 float b = Ridged(x * f2 + seed * 3.1f, seed + 9f);
@@ -800,20 +806,31 @@ public partial class JiangqiaoLevel : Node2D
                     if (r[i].Y >= r[i + k].Y) { isPeak = false; break; }
                 }
                 if (!isPeak) continue;
-                if (drawn++ >= lenMax * 12) break;  // 每脊最多画 lenMax*12 个山尖雪团
+                if (drawn++ >= lenMax * 14) break;  // 每脊最多画 lenMax*14 个山尖雪团
                 var peak = r[i];
-                // 画一个小巧的雪帽三角，不是长线
-                var hat = new[]
-                {
-                    peak + new Vector2(-10f, 3f),
-                    peak,
-                    peak + new Vector2(10f, 3f),
-                    peak + new Vector2(6f, 6f),
-                    peak + new Vector2(-6f, 6f),
-                };
-                DrawColoredPolygon(hat, new Color(snow.R, snow.G, snow.B, snow.A * 0.6f));
-                DrawPolyline(new[] { hat[0], hat[1], hat[2] }, snow, lineW, true);
+                // 圆簇雪冠：交叠圆 + 扁椭圆底座。多边形雪帽偶发三角化失败（自交）
+                // 会让雪帽忽隐忽现 = 画面闪白；圆永远不会失败。
+                float capA = Mathf.Clamp(snow.A * 4.5f, 0.12f, 0.55f);
+                var soft = new Color(snow.R, snow.G, snow.B, capA * 0.65f);
+                DrawSetTransform(peak + new Vector2(0f, 8f), 0, new Vector2(2.4f, 0.5f));
+                DrawCircle(Vector2.Zero, 8f, soft);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                DrawCircle(peak + new Vector2(0f, -1f), 6.5f, new Color(snow.R, snow.G, snow.B, capA));
+                DrawCircle(peak + new Vector2(-6f, 4f), 5f, soft);
+                DrawCircle(peak + new Vector2(6f, 4f), 5f, soft);
             }
+        }
+
+        /// <summary>沿山脊顶部 40% 描一条淡白雪线，把散落的雪帽连成一片雪盖。</summary>
+        private void CrestLine(List<Vector2> r, Color c, float w)
+        {
+            float minY = r[0].Y, maxY = r[0].Y;
+            foreach (var p in r) { if (p.Y < minY) minY = p.Y; if (p.Y > maxY) maxY = p.Y; }
+            float snowLine = minY + (maxY - minY) * 0.40f;
+            var pts = new List<Vector2>();
+            for (int i = 0; i < r.Count; i++)
+                if (r[i].Y <= snowLine) pts.Add(r[i] + new Vector2(0, -2f));
+            if (pts.Count > 1) DrawPolyline(pts.ToArray(), c, w, false);
         }
 
         private static float Hash1(int i, float seed)
@@ -2008,9 +2025,14 @@ public partial class JiangqiaoLevel : Node2D
     private partial class TracerFx : Node2D
     {
         private readonly List<(Vector2 a, Vector2 b, float life, Color c)> _tracers = new();
+        private readonly List<(Vector2 a, Vector2 b, float t, float dur, Color c, float tail)> _shots = new();
         private readonly List<(Vector2 p, float life, float r)> _puffs = new();
 
         public void Tracer(Vector2 a, Vector2 b, Color c) => _tracers.Add((a, b, 0.14f, c));
+
+        // 飞行弹道：子弹从 a 飞向 b（约 0.20s 抵达），带亮头 + 尾迹，开枪更有"射出去"的感觉
+        public void Shoot(Vector2 a, Vector2 b, Color c, float tail = 110f)
+            => _shots.Add((a, b, 0f, 0.20f, c, tail));
 
         public void Puff(Vector2 p, float r) => _puffs.Add((p, 0.55f, r));
 
@@ -2023,6 +2045,13 @@ public partial class JiangqiaoLevel : Node2D
                 t.life -= f;
                 if (t.life <= 0f) _tracers.RemoveAt(i);
                 else _tracers[i] = t;
+            }
+            for (int i = _shots.Count - 1; i >= 0; i--)
+            {
+                var s = _shots[i];
+                s.t += f;
+                if (s.t >= s.dur) _shots.RemoveAt(i);
+                else _shots[i] = s;
             }
             for (int i = _puffs.Count - 1; i >= 0; i--)
             {
@@ -2042,6 +2071,19 @@ public partial class JiangqiaoLevel : Node2D
                 float a = Mathf.Clamp(t.life / 0.14f, 0f, 1f);
                 DrawLine(t.a, t.b, new Color(t.c, 0.35f * a), 5f, true);
                 DrawLine(t.a, t.b, new Color(t.c, 0.95f * a), 1.7f, true);
+            }
+            foreach (var s in _shots)
+            {
+                // ease-out：子弹先快后慢地飞抵
+                float p = 1f - Mathf.Pow(1f - Mathf.Clamp(s.t / s.dur, 0f, 1f), 2f);
+                var head = s.a.Lerp(s.b, p);
+                var dir = s.b - s.a;
+                if (dir.LengthSquared() > 0.001f) dir = dir.Normalized();
+                var tailStart = head - dir * s.tail;
+                float fade = Mathf.Clamp((s.dur - s.t) / 0.05f, 0f, 1f);
+                DrawLine(tailStart, head, new Color(s.c, 0.30f * fade), 6f, true);
+                DrawLine(tailStart, head, new Color(s.c, 0.95f * fade), 2.2f, true);
+                DrawCircle(head, 2.8f * fade, new Color(1f, 0.95f, 0.70f, 0.95f * fade));
             }
             foreach (var p in _puffs)
             {

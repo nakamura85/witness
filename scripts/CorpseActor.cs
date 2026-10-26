@@ -1,29 +1,26 @@
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace Witness;
 
 /// <summary>
-/// 尸体：SpriteActor 立绘 + 史实化倒下姿势 + 多处不规则血迹。
-/// 
-/// 姿势依据 1931 江桥抗战史实照片：
-/// - 冲锋中弹 → 向前扑倒（俯卧 face-down），身体约 180° 翻转头着地，立绘 FlipV
-/// - 站立中弹 → 向后倒下（仰卧 face-up），正常 90° 躺着
-/// - 侧卧极少（约 5%），侧面中弹倒下
-/// 所有姿势的随机性只做轻微 ±15° 歪斜（不是乱倒 55-125°！），模拟中弹瞬间的自然反应。
-/// 血迹不规则多边形（不是椭圆），基于 RNG 种子确保同一尸体每次一致。
+/// 尸体：纯代码按人体结构绘制的雪地躺姿（弃用 AI 立绘横摆——立绘本身不是躺姿人体，
+/// 横过来放只会读成一坨色块，完全没有人体的肩/髋/四肢比例）。
+/// 三种史实化姿势（依据 1931 江桥抗战史实照片）：
+/// - 冲锋中弹 → 向前扑倒（俯卧 prone，一腿蹬直一腿半屈、一臂前伸）
+/// - 站立中弹 → 向后倒下（仰卧 supine，双腿自然分开、手臂摊开）
+/// - 侧卧极少（约 5%，双腿叠放微屈）
+/// 下半身半陷进雪里（雪脊覆盖脚部），血迹单侧渗透。
+/// 所有随机多边形先经 Star() 角度排序保证单边形——自交多边形三角化失败
+/// 会忽隐忽现，正是画面闪白的元凶之一。
 /// </summary>
 public partial class CorpseActor : Node2D
 {
     public enum Faction { IJA, NortheastArmy, Refugee }
-
-    /// <summary>
-    /// 三种倒下姿势（基于中弹方向）。
-    /// </summary>
     private enum Pose { Prone, Supine, SideLying }
 
-    private readonly Sprite2D _sp;
-    private readonly Node2D _body;      // 中间旋转节点：负责水平躺倒
+    private readonly Node2D _body;      // 只用它的 Rotation 承载躺倒角度
     private readonly Faction _faction;
     private readonly Pose _pose;
     private readonly float _seed;
@@ -35,102 +32,163 @@ public partial class CorpseActor : Node2D
         rng.Randomize();
         _seed = rng.Randf();
 
-        // 先决定头朝哪个方向（史实化）
         float r = rng.Randf();
-        float headAngle;  // 90° 或 -90°（水平躺）
-        if (r < 0.70f)
-        {
-            _pose = Pose.Prone;
-            // 冲锋中弹向前扑 → 头朝冲锋方向
-            headAngle = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f;
-        }
-        else if (r < 0.95f)
-        {
-            _pose = Pose.Supine;
-            // 站立中弹向后倒 → 头朝反方向
-            headAngle = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f;
-        }
-        else
-        {
-            _pose = Pose.SideLying;
-            headAngle = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f;
-        }
-        // ±15° 轻微歪斜
+        if (r < 0.70f) _pose = Pose.Prone;
+        else if (r < 0.95f) _pose = Pose.Supine;
+        else _pose = Pose.SideLying;
+
+        // 头朝倒下方向 + ±15° 轻微歪斜（中弹瞬间的自然反应，不乱转）
+        float headAngle = facingRight ? Mathf.Pi / 2f : -Mathf.Pi / 2f;
         headAngle += rng.RandfRange(-0.26f, 0.26f);
 
-        string texName = faction switch
-        {
-            // 尸体专用立绘（*_corpse）：武器已从手中移除——
-            // 人死亡时枪会掉落，不会还握在手里；掉落的步枪由 DrawDroppedRifle 画在尸体旁。
-            Faction.IJA => "soldier_ija_corpse",
-            Faction.NortheastArmy => "soldier_na_corpse",
-            _ => "refugee_man",
-        };
-
-        var tex = ChromaKey.Cutout($"res://assets/art/sprites/{texName}.jpg", 0.03f, 0.05f);
-        if (tex == null) return;
-
-        float height = faction == Faction.Refugee ? 96f : 108f;
-        float s = height / tex.GetSize().Y;
-
-        // —— 三层结构，每层只做一件事：——
-        // CorpseActor (Node2D): Position=尸体位置, Rotation=0（不旋转）
-        //   └─ _body (Node2D): Rotation=90°水平躺倒 + 轻微歪斜
-        //       └─ _sp (Sprite2D): 原始方向，只翻转头朝哪
-
-        _body = new Node2D
-        {
-            Rotation = headAngle,
-        };
-
-        bool headTowardRight = _pose switch
-        {
-            Pose.Prone => facingRight,       // 向前扑 → 头朝冲锋方向
-            Pose.Supine => !facingRight,     // 向后倒 → 头朝反方向
-            _ => rng.Randf() > 0.5f,
-        };
-
-        _sp = new Sprite2D
-        {
-            Texture = tex,
-            Scale = new Vector2(s, s),
-            // 注意：Sprite2D 原始方向是头朝上（Y负），旋转 90° 后头就朝 X正方向（右）
-            // 所以 headTowardRight=true 时 FlipH=false；头朝左时 FlipH=true
-            Position = new Vector2(0, -height * 0.5f),  // 立绘脚底在原点
-            FlipH = !headTowardRight,
-            FlipV = false,  // 永远不上下翻转！侧面横版里尸体就是水平躺的
-        };
-
-        _body.AddChild(_sp);
+        _body = new Node2D { Rotation = headAngle };
         AddChild(_body);
 
         Position = position;
-        Rotation = 0f;
         ZIndex = 0;
-        Modulate = new Color(1f, 0.92f, 0.90f, 1f);
-
+        Modulate = new Color(1f, 0.94f, 0.92f, 1f);
         QueueRedraw();
+    }
+
+    /// <summary>body-space（u=沿身体从脚到头，v=垂直方向）→ 节点局部坐标。</summary>
+    private Vector2 V(float ang, float u, float v)
+        => new(Mathf.Sin(ang) * u + Mathf.Cos(ang) * v,
+               Mathf.Cos(ang) * u - Mathf.Sin(ang) * v);
+
+    /// <summary>
+    /// 把任意点集按质心角度排序成"星形多边形"——结果一定是单边形，
+    /// DrawColoredPolygon 三角化永不失败（闪烁修复）。
+    /// </summary>
+    private static Vector2[] Star(List<Vector2> pts)
+    {
+        if (pts.Count < 3) return pts.ToArray();
+        var c = Vector2.Zero;
+        foreach (var p in pts) c += p;
+        c /= pts.Count;
+        return pts.OrderBy(p => (p - c).Angle()).ToArray();
     }
 
     public override void _Draw()
     {
-        DrawContactShadow();
+        float ang = _body.Rotation;
+        var rng = new RandomNumberGenerator();
+        rng.Seed = (ulong)Mathf.RoundToInt(_seed * 1000000f);
+
+        DrawContactShadow(ang);
+        DrawBody(ang, rng);
         DrawDroppedRifle();
-        DrawBlood();
-        DrawTears();
+        DrawBlood(ang, rng);
+        DrawTears(ang);
+    }
+
+    private (Color coat, Color pants, Color capC, Color skin) Palette()
+        => _faction switch
+        {
+            Faction.IJA => (new Color(0.72f, 0.60f, 0.30f), new Color(0.55f, 0.46f, 0.24f),
+                            new Color(0.42f, 0.35f, 0.18f), new Color(0.80f, 0.64f, 0.52f)),
+            Faction.NortheastArmy => (new Color(0.44f, 0.49f, 0.56f), new Color(0.34f, 0.38f, 0.45f),
+                            new Color(0.27f, 0.30f, 0.36f), new Color(0.80f, 0.64f, 0.52f)),
+            _ => (new Color(0.52f, 0.46f, 0.38f), new Color(0.40f, 0.35f, 0.28f),
+                  new Color(0.30f, 0.26f, 0.22f), new Color(0.80f, 0.64f, 0.52f)),
+        };
+
+    private void DrawBody(float ang, RandomNumberGenerator rng)
+    {
+        var (coat, pants, capC, skin) = Palette();
+        var boot = new Color(0.20f, 0.17f, 0.14f);
+        var coatDark = new Color(coat.R * 0.82f, coat.G * 0.82f, coat.B * 0.82f);
+
+        // —— 腿（髋 u≈46 → 脚 u≈0）：先画远侧腿（暗一档），再画近侧腿 ——
+        (float foot, float kneeU, float kneeV)[] legs = _pose switch
+        {
+            // 俯卧：一腿蹬直、一腿半屈（跑步扑倒的惯性）
+            Pose.Prone => new[] { (rng.RandfRange(-2f, 3f), 24f, 6f), (rng.RandfRange(10f, 16f), 28f, -6f) },
+            // 仰卧：双腿自然分开伸直
+            Pose.Supine => new[] { (rng.RandfRange(-3f, 2f), 24f, 8f), (rng.RandfRange(0f, 5f), 24f, -8f) },
+            // 侧卧：双腿叠放微屈
+            _ => new[] { (rng.RandfRange(2f, 8f), 22f, 3f), (rng.RandfRange(6f, 12f), 24f, -3f) },
+        };
+
+        for (int i = 0; i < legs.Length; i++)
+        {
+            var (foot, kneeU, kneeV) = legs[i];
+            var c = i == 0 ? coatDark : pants;   // 远侧腿吃阴影
+            var hip = V(ang, 46f, i == 0 ? 4f : -4f);
+            var knee = V(ang, kneeU, kneeV);
+            var ft = V(ang, foot, i == 0 ? 6f : -6f);
+            DrawLine(hip, knee, c, 7.5f, true);
+            DrawLine(knee, ft, c, 6.5f, true);
+            DrawCircle(ft, 4.2f, boot);          // 靴子
+        }
+
+        // —— 躯干（髋 u46 → 肩 u88）：大衣躯干，圆肩圆臀 ——
+        var hipC = V(ang, 46f, 0f);
+        var shoulder = V(ang, 88f, 0f);
+        DrawLine(hipC, shoulder, coat, 16f, true);
+        DrawCircle(hipC, 9.5f, coat);            // 臀/大衣下摆
+        DrawCircle(shoulder, 8.5f, coat);        // 肩
+
+        // 大衣下摆盖住大腿根（一片短裙形，人体着装的自然垂落）
+        var hem = new List<Vector2>();
+        for (int k = 0; k < 6; k++)
+        {
+            float t = k / 5f;
+            hem.Add(V(ang, 46f - t * 8f, Mathf.Lerp(-11f, 11f, t)));
+        }
+        hem.Add(V(ang, 52f, 8f));
+        hem.Add(V(ang, 52f, -8f));
+        DrawColoredPolygon(Star(hem), coatDark);
+
+        // —— 手臂：肩 u86 出发，按姿势摆 ——
+        (float elbowU, float elbowV, float handU, float handV) arm1, arm2;
+        switch (_pose)
+        {
+            case Pose.Prone:     // 一臂前伸抓地、一臂压在胸前
+                arm1 = (104f, 10f, 122f, 6f);
+                arm2 = (78f, -12f, 64f, -13f);
+                break;
+            case Pose.Supine:    // 双臂摊在身体两侧
+                arm1 = (92f, 16f, 84f, 24f);
+                arm2 = (92f, -16f, 100f, -22f);
+                break;
+            default:             // 侧卧：上臂搭在身侧、下臂垫在头下
+                arm1 = (94f, 12f, 102f, 16f);
+                arm2 = (96f, -8f, 104f, -4f);
+                break;
+        }
+        foreach (var a in new[] { arm1, arm2 })
+        {
+            var s0 = V(ang, 86f, (a.elbowV > 0f ? 1 : -1) * 5f);
+            var el = V(ang, a.elbowU, a.elbowV);
+            var hd = V(ang, a.handU, a.handV);
+            DrawLine(s0, el, coat, 5.5f, true);
+            DrawLine(el, hd, coat, 4.8f, true);
+            DrawCircle(hd, 3.2f, skin);          // 手
+        }
+
+        // —— 头（u≈98）+ 军帽/棉帽 ——
+        var headC = V(ang, 98f, 2f);
+        DrawCircle(headC, 7.8f, skin);                       // 脸
+        var capTop = V(ang, 100f, -4f);
+        DrawCircle(capTop, 7.2f, capC);                      // 帽顶
+        DrawLine(V(ang, 92f, -5f), V(ang, 100f, -8f), capC, 3.5f, true); // 帽檐
+
+        // —— 下半身雪脊：脚下半截埋进雪里（人在雪地躺了一段时间） ——
+        var drift = V(ang, 12f, 0f);
+        DrawSetTransform(drift, Mathf.Pi / 2f - ang, new Vector2(2.1f, 0.55f));
+        DrawCircle(Vector2.Zero, 15f, new Color(0.90f, 0.93f, 0.94f, 0.92f));
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 
     /// <summary>
     /// 接触阴影：沿身体方向的压扁椭圆压在雪面上——尸体是「躺」在雪地里，
     /// 不是浮在雪面上（与其他物件的 GroundShadow 同一套视觉语言）。
     /// </summary>
-    private void DrawContactShadow()
+    private void DrawContactShadow(float ang)
     {
-        float ang = _body.Rotation;
-        // 躯干中心下方、并向左偏移（冬日太阳在画面右上，投影朝左下）
-        var center = new Vector2(Mathf.Sin(ang) * 54f - 7f, 2f);
-        DrawSetTransform(center, ang - Mathf.Pi / 2f, new Vector2(1f, 0.15f));
-        DrawCircle(Vector2.Zero, 64f, new Color(0.10f, 0.09f, 0.08f, 0.20f));
+        var center = V(ang, 54f, 2f) + new Vector2(-7f, 3f);
+        DrawSetTransform(center, Mathf.Pi / 2f - ang, new Vector2(1.9f, 0.30f));
+        DrawCircle(Vector2.Zero, 52f, new Color(0.10f, 0.09f, 0.08f, 0.20f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 
@@ -168,17 +226,14 @@ public partial class CorpseActor : Node2D
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 
-    private void DrawBlood()
+    private void DrawBlood(float ang, RandomNumberGenerator rng)
     {
-        float ang = _body.Rotation;
-        // 锚点：躯干中心。立绘高 108、脚底在节点原点，躺倒后躯干中心在沿身方向 54px 处
+        // 锚点：躯干中心。身体全长约 106、脚底在原点，躯干中心在沿身 54px 处
         float bcX = Mathf.Sin(ang) * 54f;
         float bcY = Mathf.Cos(ang) * 54f + 4f;    // +4 沉进雪面
-        // 头部位置（沿身 ~90px），头部中弹的浓血集中在这里
-        float headX = Mathf.Sin(ang) * 90f;
-        float headY = Mathf.Cos(ang) * 90f + 3f;
-        var rng = new RandomNumberGenerator();
-        rng.Seed = (ulong)Mathf.RoundToInt(_seed * 1000000f);
+        // 头部位置（沿身 ~98px），头部中弹的浓血集中在这里
+        float headX = Mathf.Sin(ang) * 98f;
+        float headY = Mathf.Cos(ang) * 98f + 3f;
 
         // 血只会朝一个方向渗（地势低的一侧），绝不环绕尸体一圈——
         // 对称的红色光环是「贴纸感」的根源。
@@ -187,7 +242,6 @@ public partial class CorpseActor : Node2D
         var bloodMid = new Color(0.36f, 0.08f, 0.06f);
 
         // —— 主血塘：藏在身下、朝 flow 侧拖出一条「舌形」——
-        // 轮廓：沿流向不对称（朝 flow 拉长、背向短），横向上中间宽两端窄。
         int mainPts = 10 + Mathf.FloorToInt(rng.Randf() * 4f);
         float mainLen = 34f + rng.Randf() * 16f;      // 朝流向的延伸半径
         float mainWide = 15f + rng.Randf() * 6f;      // 横向最大半宽
@@ -203,7 +257,7 @@ public partial class CorpseActor : Node2D
             float ry = mainWide * (0.45f + 0.55f * (1f - Mathf.Abs(ca))) * jitter;
             main.Add(new Vector2(bcX + ca * rx, bcY + sa * ry));
         }
-        DrawColoredPolygon(main.ToArray(), new Color(blood, 0.88f));
+        DrawColoredPolygon(Star(main), new Color(blood, 0.88f));
 
         // —— 渗血层：顺流再拖远一截的淡红（血渗进雪里扩散），同样单侧 ——
         var bleed = new List<Vector2>();
@@ -218,7 +272,7 @@ public partial class CorpseActor : Node2D
             float ry = (mainWide + 7f) * (0.4f + 0.6f * (1f - Mathf.Abs(ca))) * jitter;
             bleed.Add(new Vector2(bcX + flow * mainLen * 0.30f + ca * rx, bcY + sa * ry));
         }
-        DrawColoredPolygon(bleed.ToArray(), new Color(0.48f, 0.12f, 0.08f, 0.16f));
+        DrawColoredPolygon(Star(bleed), new Color(0.48f, 0.12f, 0.08f, 0.16f));
 
         // —— 小血斑：绝大多数落在顺流侧的血塘外围，少量贴近身体另一侧 ——
         int splatterCount = 3 + Mathf.FloorToInt(rng.Randf() * 3f);
@@ -238,7 +292,7 @@ public partial class CorpseActor : Node2D
                 spot.Add(new Vector2(cx + Mathf.Cos(sAng) * r * sJit,
                     cy + Mathf.Sin(sAng) * r * sJit));
             }
-            DrawColoredPolygon(spot.ToArray(), new Color(bloodMid, 0.6f));
+            DrawColoredPolygon(Star(spot), new Color(bloodMid, 0.6f));
         }
 
         // —— 血丝：贴雪面顺流而行的锥形细流（根部粗、末端细，不带圆点收尾）——
@@ -248,7 +302,6 @@ public partial class CorpseActor : Node2D
             float len = 26f + rng.Randf() * 34f;
             float y0 = bcY + rng.RandfRange(-4f, 4f);
             float x0 = bcX + flow * rng.RandfRange(mainLen * 0.4f, mainLen * 0.7f);
-            // 波动前进的路径（4 个控制点）
             int steps = 4;
             var path = new Vector2[steps + 1];
             for (int s = 0; s <= steps; s++)
@@ -263,7 +316,7 @@ public partial class CorpseActor : Node2D
                     2.2f * (1f - s / (float)steps) + 0.5f, true);
         }
 
-        // 头部浓血：不规则小血塘压在头位下方、顺流偏一点（不再是圆形气球）
+        // 头部浓血：不规则小血塘压在头位下方、顺流偏一点
         DrawSetTransform(new Vector2(headX + flow * 4f, headY), 0, new Vector2(1.5f, 0.5f));
         int headPts = 8;
         var headPool = new List<Vector2>();
@@ -273,17 +326,15 @@ public partial class CorpseActor : Node2D
             float r = 8f * (0.6f + rng.Randf() * 0.7f);
             headPool.Add(new Vector2(Mathf.Cos(a) * r, Mathf.Sin(a) * r));
         }
-        DrawColoredPolygon(headPool.ToArray(), new Color(0.26f, 0.05f, 0.04f, 0.7f));
+        DrawColoredPolygon(Star(headPool), new Color(0.26f, 0.05f, 0.04f, 0.7f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 
-    private void DrawTears()
+    private void DrawTears(float ang)
     {
-        float ang = _body.Rotation;
         // 破损碎片沿躯干分布（锚躯干中心，不是脚底原点）
         float bcX = Mathf.Sin(ang) * 54f;
         float bcY = Mathf.Cos(ang) * 54f;
-        // 破损碎片：2-4 片不规则暗斑（3-6 个角，不是规整的锯齿）
         int tearCount = 2 + Mathf.FloorToInt(_seed * 3f);
         var rng = new RandomNumberGenerator();
         rng.Seed = (ulong)(Mathf.Abs((int)(_body.Rotation * 1000)) + 1);
@@ -307,7 +358,7 @@ public partial class CorpseActor : Node2D
                 tear.Add(tearCenter + new Vector2(Mathf.Cos(cornerAng) * r * jitter,
                     Mathf.Sin(cornerAng) * r * jitter));
             }
-            DrawColoredPolygon(tear.ToArray(), new Color(0.22f, 0.04f, 0.03f, 0.85f));
+            DrawColoredPolygon(Star(tear), new Color(0.22f, 0.04f, 0.03f, 0.85f));
             foreach (var p in tear)
             {
                 float dirAng = p.AngleTo(tearCenter);
@@ -319,8 +370,8 @@ public partial class CorpseActor : Node2D
         // 头部破损
         if (rng.Randf() < 0.5f)
         {
-            float headX = Mathf.Sin(ang) * 90f;
-            float headY = Mathf.Cos(ang) * 90f + 3f;
+            float headX = Mathf.Sin(ang) * 98f;
+            float headY = Mathf.Cos(ang) * 98f + 3f;
             DrawSetTransform(new Vector2(headX, headY), 0, new Vector2(1f, 0.7f));
             DrawCircle(Vector2.Zero, 10f, new Color(0.18f, 0.03f, 0.02f, 0.55f));
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);

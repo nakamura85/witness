@@ -24,6 +24,7 @@ public partial class SpriteActor : Node2D
     public bool Grounded = true;
     public bool Crouching { get => Crouched; set => Crouched = value; }
     public bool Crouched;
+    public bool Prone;
     public bool Vaulting;
     public bool Airborne;
     public bool Moving;
@@ -37,7 +38,7 @@ public partial class SpriteActor : Node2D
     // 翻转子容器：所有立绘 Sprite2D 作为其子节点
     // Facing<0 时 Scale.X=-1 整体水平镜像，比 FlipH 更安全
     private readonly Node2D _flip = new();
-    private Sprite2D _torso, _legBack, _legFront;
+    private Sprite2D _torso, _legBack, _legFront, _hip;
     private ShaderMaterial _mat;
     private bool _wasGrounded = true;
     private float _landT;             // 落地缓冲计时 1→0
@@ -99,11 +100,28 @@ public partial class SpriteActor : Node2D
         };
         _torso.Material = _mat;
 
+        // 髋部桥接片：取下半身中段顶部一小条（盖在腿之上、躯干之下），
+        // 不随腿剪刀摆——专门盖住两腿绕髋旋转时中缝张开 + 腰部分离，
+        // 让脚/身体/手脚在视觉上连成一体（修正"动起来手脚头分离"的观感）。
+        float hipHalf = texW * 0.24f;
+        float pelvisH = (_legR / s) * 0.40f;     // 只盖住髋部顶端，下方腿照常摆动
+        _hip = new Sprite2D
+        {
+            Texture = tex,
+            Centered = false,
+            RegionEnabled = true,
+            RegionRect = new Rect2(texW * 0.5f - hipHalf, _legTopScreen, hipHalf * 2f, pelvisH),
+            Scale = new Vector2(s, s),
+            Position = new Vector2((texW * 0.5f - hipHalf) * s, -_legR),
+        };
+        _hip.Material = _mat;
+
         // 立绘子容器：所有 Sprite2D 都 AddChild 到 _flip
         AddChild(_flip);
         _flip.AddChild(_legBack);
         _flip.AddChild(_torso);
         _flip.AddChild(_legFront);
+        _flip.AddChild(_hip);      // 髋片最后绘制，盖在最上层
     }
 
     private Sprite2D MakeLeg(Godot.Texture2D tex, float x0, float w, float s)
@@ -138,8 +156,10 @@ public partial class SpriteActor : Node2D
         if (_landT > 0f) _landT = Mathf.Max(0f, _landT - f * 5.5f);
 
         bool air = Airborne || !Grounded;
-        bool standingWalk = !air && !Vaulting && !Crouched && (Moving || Speed > 2f);
-        bool crouchWalk = !air && !Vaulting && Crouched && (Moving || Speed > 2f);
+        bool low = Crouched || Prone;
+        bool standingWalk = !air && !Vaulting && !low && (Moving || Speed > 2f);
+        bool crouchWalk = !air && !Vaulting && Crouched && !Prone && (Moving || Speed > 2f);
+        bool proneWalk = !air && !Vaulting && Prone && (Moving || Speed > 2f);
 
         // —— 翻转：子容器 Scale.X = FacingRight ? 1 : -1 ——
         // 比 Sprite2D.FlipH 更安全（FlipH 在 Centered=false 上会产生位置偏移）
@@ -154,12 +174,21 @@ public partial class SpriteActor : Node2D
             frontRot = -swing * 0.36f * Facing;   // 前腿向前摆（翻转容器会镜像方向，这里乘以 Facing 补偿）
             backRot = swing * 0.36f * Facing;
         }
+        else if (Prone)
+        {
+            // 匍匐：双腿向后伸平贴地拖行。镜像对称姿势，旋转不乘 Facing
+            //（镜像容器会自动把方向翻到角色背后）
+            legK = 1f;
+            float crawl = proneWalk ? Mathf.Sin(Phase) * 0.10f : 0f;
+            frontRot = 1.42f + crawl;
+            backRot = 1.56f - crawl;
+        }
         else if (crouchWalk)
         {
-            // 蹲走：腿小幅度摆动（不像站姿剪刀步那么大），同时保持弯曲
-            legK = 0.72f;
-            frontRot = (-0.32f - swing * 0.16f) * Facing;
-            backRot = (0.24f + swing * 0.14f) * Facing;
+            // 蹲走：低姿蹲行（双膝深弯、重心下坐、上身后倾 sightly），比站姿矮一头
+            legK = 0.55f;
+            frontRot = (-0.72f - swing * 0.14f) * Facing;
+            backRot = (0.50f + swing * 0.12f) * Facing;
         }
         else if (air)
         {
@@ -168,15 +197,16 @@ public partial class SpriteActor : Node2D
         }
         else if (Crouched)
         {
-            legK = 0.72f;
-            frontRot = -0.42f * Facing;
-            backRot = 0.30f * Facing;
+            // 静蹲：双膝深弯重心坐实，比站姿明显矮一头
+            legK = 0.55f;
+            frontRot = -0.72f * Facing;
+            backRot = 0.50f * Facing;
         }
         if (_landT > 0f && !Crouched)
             legK *= 1f - 0.10f * _landT;
 
-        SetLeg(_legFront, frontRot, legK);
-        SetLeg(_legBack, backRot, legK);
+        SetLeg(_legFront, frontRot, legK, Prone ? -Height * 0.26f : float.NaN);
+        SetLeg(_legBack, backRot, legK, Prone ? -Height * 0.24f : float.NaN);
 
         // —— 躯干：步伐起伏 + 前倾 + 后坐 + 蹲压 + 落地缓冲 ——
         float torsoY = -Height;
@@ -189,18 +219,27 @@ public partial class SpriteActor : Node2D
             torsoRot = -0.30f * Facing;
             torsoY += 3f;
         }
+        else if (Prone)
+        {
+            // 匍匐：躯干大幅压平贴地（不旋转——立绘里步枪与脊柱垂直，
+            // 一旦放倒步枪会竖着戳地；压平则枪线保持水平，读作"低姿持枪匍匐"）。
+            // 髋部桥片已隐藏，腿部由 Prone 分支向后伸平衔接。
+            torsoScale = new Vector2(1.02f, 0.48f);
+            torsoY = -Height * 0.37f + (proneWalk ? Mathf.Abs(Mathf.Cos(Phase)) * 1.5f : 0f);
+            torsoRot = 0.05f;
+        }
         else if (crouchWalk)
         {
-            // 蹲走：保持蹲姿压缩 + 小幅度重心起伏（不会像站姿那么大）
-            torsoScale = new Vector2(1.06f, 0.84f);
-            torsoY += Height * 0.16f - Mathf.Abs(Mathf.Cos(Phase)) * 1.2f + 0.6f;
-            torsoRot = (0.10f + Mathf.Sin(Phase * 2f) * 0.02f) * Facing;
+            // 蹲走：蹲姿压缩 + 小幅度重心起伏（下沉量与腿部压缩匹配，髋部不脱节）
+            torsoScale = new Vector2(1.06f, 0.76f);
+            torsoY += Height * 0.30f - Mathf.Abs(Mathf.Cos(Phase)) * 1.2f + 0.6f;
+            torsoRot = (0.18f + Mathf.Sin(Phase * 2f) * 0.02f) * Facing;
         }
         else if (Crouched)
         {
-            torsoScale = new Vector2(1.06f, 0.84f);
-            torsoY += Height * 0.16f;
-            torsoRot = 0.10f * Facing;
+            torsoScale = new Vector2(1.06f, 0.76f);
+            torsoY += Height * 0.30f;
+            torsoRot = 0.18f * Facing;
         }
         else if (air)
         {
@@ -217,18 +256,24 @@ public partial class SpriteActor : Node2D
             torsoY += Mathf.Sin(Godot.Time.GetTicksMsec() / 480f) * 0.7f; // 站立呼吸
         }
 
-        if (Aim > 0.5f && !air) torsoRot += 0.10f * Facing;
+        if (Aim > 0.5f && !air && !Prone)
+        {
+            torsoRot += 0.16f * Facing;   // 持枪瞄准：上身前倾把枪线压平
+            torsoY += 2.5f;               // 微沉：枪托抵肩更稳
+        }
         if (Recoil > 0f)
         {
-            torsoRot -= 0.26f * Recoil * Facing;   // 后仰
-            torsoX -= Facing * 5f * Recoil;        // 后移
+            torsoRot -= 0.42f * Recoil * Facing;   // 后仰（加大：开枪手感更实）
+            torsoX -= Facing * 11f * Recoil;        // 后移
         }
         if (_landT > 0f && !Crouched)
             torsoScale = new Vector2(torsoScale.X * (1f + 0.04f * _landT),
                                      torsoScale.Y * (1f - 0.07f * _landT));
 
         // 腿压缩后脚仍在地面：躯干跟着下沉，髋部不脱节
-        torsoY += (1f - legK) * (-_hipY);
+        // （蹲/匍匐已在各自分支里对齐髋线，再叠加会把躯干压进地里——正是"蹲下姿势奇怪"的根源）
+        if (!low)
+            torsoY += (1f - legK) * (-_hipY);
 
         _torso.Position = new Vector2(torsoX, torsoY);
         _torso.Rotation = torsoRot;
@@ -238,16 +283,22 @@ public partial class SpriteActor : Node2D
         _torso.Modulate = tint;
         _legFront.Modulate = tint;
         _legBack.Modulate = tint;
+        if (_hip != null)
+        {
+            _hip.Modulate = tint;
+            _hip.Visible = !Prone;   // 匍匐时躯干已放倒盖住髋部，桥片会悬空穿帮
+        }
 
         QueueRedraw();
     }
 
-    /// <summary>摆腿 + 纵向压缩。压缩时 Position 下移让脚底始终贴地。</summary>
-    private void SetLeg(Sprite2D leg, float rot, float k)
+    /// <summary>摆腿 + 纵向压缩。压缩时 Position 下移让脚底始终贴地。
+    /// pivotY 非默认时直接指定髋部 pivot 高度（匍匐用：髋点压到贴地）。</summary>
+    private void SetLeg(Sprite2D leg, float rot, float k, float pivotY = float.NaN)
     {
         leg.Rotation = rot;
         leg.Scale = new Vector2(_s, _s * k);
-        leg.Position = new Vector2(leg.Position.X, -_legR * k);
+        leg.Position = new Vector2(leg.Position.X, float.IsNaN(pivotY) ? -_legR * k : pivotY);
     }
 
     public override void _Draw()
@@ -257,7 +308,13 @@ public partial class SpriteActor : Node2D
         // —— 脚下接触阴影：随步伐轻微变形，始终钉在地面 ——
         // 蹲姿（无论静态还是蹲走）阴影都固定，只有站姿走路才跟随步伐伸缩
         float shadowScaleX, shadowScaleY;
-        if (Crouched)
+        if (Prone)
+        {
+            // 匍匐：影子沿身体拉长（腿在身后拖行）
+            DrawSetTransform(new Vector2(-Facing * Height * 0.20f, -2), 0,
+                new Vector2(2.4f, 0.28f));
+        }
+        else if (Crouched)
         {
             shadowScaleX = 1.8f;
             shadowScaleY = 0.35f;
@@ -284,7 +341,9 @@ public partial class SpriteActor : Node2D
         // —— 瞄准指示线 ——
         if (Aim > 0.5f)
         {
-            var muzzle = new Vector2(Facing * (Height * 0.45f), -Height * 0.55f);
+            var muzzle = Prone
+                ? new Vector2(Facing * Height * 0.60f, -Height * 0.22f)
+                : new Vector2(Facing * (Height * 0.45f), -Height * 0.55f);
             DrawLine(muzzle, muzzle + new Vector2(Facing * 14f, -2f),
                 InkStyle.InkColor, 1.5f, true);
         }
@@ -292,7 +351,9 @@ public partial class SpriteActor : Node2D
         // —— 枪口火光：亮核 + 外晕 + 前向火舌 ——
         if (MuzzleFlash > 0.05f)
         {
-            var muzzle = new Vector2(Facing * (Height * 0.45f), -Height * 0.55f);
+            var muzzle = Prone
+                ? new Vector2(Facing * Height * 0.60f, -Height * 0.22f)
+                : new Vector2(Facing * (Height * 0.45f), -Height * 0.55f);
             float r = 4f + MuzzleFlash * 6f;
             DrawCircle(muzzle, r, new Color(1f, 0.85f, 0.30f, MuzzleFlash * 0.85f));
             DrawCircle(muzzle, r * 0.55f, new Color(1f, 1f, 0.62f, MuzzleFlash));

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Godot;
 
 namespace Witness;
@@ -95,9 +96,24 @@ public static class InkStyle
     /// </summary>
     public static void PenStroke(CanvasItem canvas, Vector2[] poly, Color fill, Color outline, float bw = BoldStroke)
     {
-        if (poly.Length < 3) return;
-        canvas.DrawColoredPolygon(poly, fill);
-        canvas.DrawPolyline(poly, outline, bw, true);
+        if (poly == null || poly.Length < 3) return;
+        // 去掉几乎重合的相邻顶点（含首尾闭合重合），彻底杜绝
+        // Godot 三角化失败造成的闪帧 / 白线。
+        var clean = new List<Vector2>(poly.Length);
+        foreach (var p in poly)
+        {
+            if (clean.Count == 0 || clean[^1].DistanceTo(p) > 0.05f)
+                clean.Add(p);
+        }
+        if (clean.Count > 1 && clean[0].DistanceTo(clean[^1]) <= 0.05f)
+            clean.RemoveAt(clean.Count - 1);
+        if (clean.Count < 3)
+        {
+            if (clean.Count >= 2) canvas.DrawPolyline(clean.ToArray(), outline, bw, true);
+            return;
+        }
+        canvas.DrawColoredPolygon(clean.ToArray(), fill);
+        canvas.DrawPolyline(clean.ToArray(), outline, bw, true);
     }
 
     /// <summary>先描边再填色的矩形（木箱/沙袋/砖块都用这个）。</summary>

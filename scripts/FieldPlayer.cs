@@ -28,6 +28,7 @@ public partial class FieldPlayer : CharacterBody2D
 
     private const float RunSpeed = 232f;
     private const float CrouchSpeed = 96f;
+    private const float ProneSpeed = 55f;
     private const float Gravity = 1980f;
     private const float JumpVel = -610f;
 
@@ -62,7 +63,8 @@ public partial class FieldPlayer : CharacterBody2D
         else _coyote = Mathf.Max(0f, _coyote - f);
         if (_jumpBuffer > 0f) _jumpBuffer -= f;
 
-        bool crouch = !ControlLocked && Input.IsActionPressed("crouch") && onFloor;
+        bool wantProne = !ControlLocked && Input.IsActionPressed("prone") && onFloor;
+        bool crouch = !ControlLocked && Input.IsActionPressed("crouch") && onFloor && !wantProne;
         float input = ControlLocked ? 0f : Input.GetAxis("move_left", "move_right");
 
         if (Mathf.Abs(input) > 0.05f && !crouch)
@@ -77,14 +79,14 @@ public partial class FieldPlayer : CharacterBody2D
             if (Mathf.Abs(mx) > 24f) _facing = Mathf.Sign(mx);
         }
 
-        float target = input * (crouch ? CrouchSpeed : RunSpeed);
+        float target = input * (wantProne ? ProneSpeed : crouch ? CrouchSpeed : RunSpeed);
         float accel = onFloor ? 1900f : 1100f;
         if (Mathf.Abs(input) < 0.05f || crouch)
             accel = onFloor ? 2600f : 700f;
         Velocity = new Vector2(Mathf.MoveToward(Velocity.X, target, accel * f), Velocity.Y);
 
         // 跳跃（带 coyote 与输入缓冲，落地/起跳都实在）
-        if (!ControlLocked && Input.IsActionJustPressed("advance"))
+        if (!ControlLocked && !wantProne && Input.IsActionJustPressed("advance"))
             _jumpBuffer = 0.12f;
         if (_jumpBuffer > 0f && _coyote > 0f)
         {
@@ -106,6 +108,7 @@ public partial class FieldPlayer : CharacterBody2D
         Figure.Speed = onFloor ? hs : 0f;
         Figure.Grounded = onFloor;
         Figure.Crouching = crouch;
+        Figure.Prone = wantProne;
         Figure.FacingRight = _facing > 0f;
         Figure.Aim = aiming ? 1f : 0f;
         if (onFloor && hs > 6f)
@@ -118,7 +121,7 @@ public partial class FieldPlayer : CharacterBody2D
             Fire();
     }
 
-    private void Fire()
+    private void Fire(float forcedFacing = 0f)
     {
         _shootCd = 0.62f;
         _aimTimer = 0.55f;
@@ -126,15 +129,19 @@ public partial class FieldPlayer : CharacterBody2D
         Figure.Aim = 1f;
         Figure.Recoil = 1f;   // 躯干后仰 + 后移（SpriteActor 消费）
         float mx = GetGlobalMousePosition().X - GlobalPosition.X;
-        if (Mathf.Abs(mx) > 20f) _facing = Mathf.Sign(mx);
+        if (forcedFacing != 0f) _facing = forcedFacing > 0f ? 1f : -1f;
+        else if (Mathf.Abs(mx) > 20f) _facing = Mathf.Sign(mx);
         Figure.FacingRight = _facing > 0f;
 
-        var origin = GlobalPosition + new Vector2(_facing * 46f, -66f);
+        var origin = GlobalPosition + new Vector2(_facing * 46f, Figure.Prone ? -24f : -66f);
         Fired?.Invoke(origin, _facing > 0f);
 
         // 后坐力：站姿略退，蹲姿更稳
         Velocity = new Vector2(Velocity.X - _facing * (Figure.Crouching ? 26f : 52f), Velocity.Y);
     }
+
+    /// <summary>供自动化截图 / 测试触发一次开火（可指定朝向，避开无鼠标时的朝向抖动）。</summary>
+    public void ForceFire(float face = 1f) => Fire(face);
 
     public void TakeHit(float fromX)
     {

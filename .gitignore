@@ -13,3 +13,7 @@
 # 系统杂项
 *.tmp
 .DS_Store
+
+# 本地截图/日志（不入库）
+_shots/
+_capture.log
