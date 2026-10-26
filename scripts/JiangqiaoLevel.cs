@@ -711,7 +711,6 @@ public partial class JiangqiaoLevel : Node2D
         private readonly JiangqiaoLevel _lvl;
         public int Kind { get; }
         public float Factor { get; }
-        private float _windTime;
 
         public Backdrop(JiangqiaoLevel lvl, int kind, float factor, int z)
         {
@@ -723,12 +722,9 @@ public partial class JiangqiaoLevel : Node2D
 
         public override void _Process(double delta)
         {
-            float f = Mathf.Min(0.05f, (float)delta);
-            _windTime += f * 0.6f;
-            // 风摆与视差位置在 60fps 同步刷新：每帧重绘，
-            // 避免 Mid/Fore 层被节流到 8fps 而层位置 60fps 更新，
-            // 二者错位造成走动时树草"鬼畜"前后推进。现代 GPU 跑这条矢量场景无压力。
-            QueueRedraw();
+            // 背景全部由固定种子驱动：内容每帧完全一致，玩家不动时画面一像素都不变。
+            // 以前这里每帧 QueueRedraw + _windTime 风摆，树草会自己"进退"；
+            // 现在静止时连重绘都不需要（节点平移时引擎自动重渲染），走路只有视差位移。
         }
 
         public override void _Draw()
@@ -1031,8 +1027,9 @@ public partial class JiangqiaoLevel : Node2D
             // 枯树线（史实：嫩江江桥地处松嫩平原，当地是蒙古黄榆/小叶杨/旱柳等落叶阔叶树，
             // 11 月叶子全部落光只剩枝桠；白桦零星混排，平原没有成片针叶林）
             // 树间距随机化（90-150px），高度差异 ±50%，每棵形态随机
+            // 种子固定：_Draw 每帧都会执行，绝不能 Randomize()——否则整排树每帧换形态
             var midTreeRng = new RandomNumberGenerator();
-            midTreeRng.Randomize();
+            midTreeRng.Seed = 19311104;
             float tx = -1400f;
             while (tx < WorldW + 1200)
             {
@@ -1077,7 +1074,7 @@ public partial class JiangqiaoLevel : Node2D
             // 近景树带（史实：松嫩平原 11 月的落叶枯树与沿江灌木柳丛——
             // 高度 55-118px 互不相同，倾斜随机，且留有 15% 空缺：平原上树木本就稀疏）
             var nearRng = new RandomNumberGenerator();
-            nearRng.Randomize();
+            nearRng.Seed = 19311105;   // 固定种子：否则近景树带每帧重排
             float nx = -1400f;
             while (nx < WorldW + 1200)
             {
@@ -1160,7 +1157,9 @@ public partial class JiangqiaoLevel : Node2D
         /// </summary>
         private void BareTree(float x, float baseY, float h, Color c, float w, float leanDeg = 0f)
         {
-            float sway = Mathf.Sin(_windTime * 0.9f + x * 0.018f) * 0.03f + Mathf.DegToRad(leanDeg);
+            // 静止立姿：不再做时间风摆（风摆=玩家不动时树自己摇 = "鬼畜"），
+            // 只保留每棵固定的倾斜 leanDeg
+            float sway = Mathf.DegToRad(leanDeg);
             DrawSetTransform(new Vector2(x, baseY), sway, Vector2.One);
 
             // 弯主干：二次贝塞尔平滑单弯（每棵弯向/弯度不同），分段变细画出锥形
@@ -1269,11 +1268,11 @@ public partial class JiangqiaoLevel : Node2D
                 new Color(0.70f, 0.75f, 0.78f, 0.35f), 8f, true);
 
             // 芦苇：雪地场景只露尖端（被雪埋了大部分！），成簇三角叶片（枯草黄色，不是黑线）
-            float windPush = Mathf.Sin(_windTime * 1.4f) * 4f;  // 风力减弱（冬天倒伏）
+            // 芦苇不做时间风摆（同树：静止不动），只有每簇固定的姿态差
             Color reedBase = new Color(0.42f, 0.38f, 0.28f);    // 枯草黄褐
             Color reedTip = new Color(0.62f, 0.58f, 0.44f);     // 顶部稍浅
             var reedRng = new RandomNumberGenerator();
-            reedRng.Randomize();
+            reedRng.Seed = 19311106;   // 固定种子：否则芦苇每帧换形状（= 雪地里乱跳的"鬼畜草"）
             for (int i = 0; i < 30; i++)
             {
                 // 随机间距 320-480px（不是固定 380）
@@ -1286,7 +1285,7 @@ public partial class JiangqiaoLevel : Node2D
                 for (int b = 0; b < blades; b++)
                 {
                     float dx = (b - blades * 0.5f) * 4.5f + Mathf.Sin(b * 1.7f) * 1.5f;
-                    float lean = Mathf.Sin(i * 1.1f + b * 0.6f) * 6f + windPush * (0.4f + 0.6f * Mathf.Sin(i * 0.7f));
+                    float lean = Mathf.Sin(i * 1.1f + b * 0.6f) * 6f;
                     float tipX = x + dx + lean;
                     float tipY = baseY - h - (b % 3) * 4f;
                     float midX = x + dx * 1.2f + lean * 0.3f;
@@ -1315,8 +1314,7 @@ public partial class JiangqiaoLevel : Node2D
         /// </summary>
         private void Tree(float x, float baseY, float h, Color c, float w)
         {
-            float sway = Mathf.Sin(_windTime * 0.9f + x * 0.018f) * 0.03f;
-            DrawSetTransform(new Vector2(x, baseY), sway, Vector2.One);
+            DrawSetTransform(new Vector2(x, baseY), 0, Vector2.One);
 
             // 弯主干：贝塞尔曲线 + 分段变细
             float bend = Mathf.Sin(x * 0.61f + 0.8f) * h * 0.15f;
@@ -1367,7 +1365,7 @@ public partial class JiangqiaoLevel : Node2D
         /// <summary>白桦：白细干 + 黑斑纹 + 稀疏枯枝（冬天落叶后只剩细枝）。</summary>
         private void Birch(float x, float baseY, float h, float alpha)
         {
-            float sway = Mathf.Sin(_windTime * 0.8f + x * 0.022f) * 0.04f;
+            // 白桦不做风摆（静止树），保持固定姿态
             var trunk = new Color(0.82f, 0.84f, 0.84f, alpha);
             var dark = new Color(0.22f, 0.22f, 0.22f, alpha * 0.85f);
 
@@ -1390,7 +1388,7 @@ public partial class JiangqiaoLevel : Node2D
                 float y = baseY - h * t;
                 float dir = i % 2 == 0 ? 1f : -1f;
                 float len = h * (0.18f - i * 0.018f);
-                DrawSetTransform(new Vector2(x + 1, y), sway * (1f + i * 0.1f), Vector2.One);
+                DrawSetTransform(new Vector2(x + 1, y), 0, Vector2.One);
                 var twig = Curved(new Vector2(0, 0), new Vector2(dir * len * 0.5f, -len * 0.18f),
                     new Vector2(dir * len, -len * 0.7f), 4);
                 DrawPolyline(twig, dark, 1.6f, true);
@@ -1405,7 +1403,7 @@ public partial class JiangqiaoLevel : Node2D
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
             // 顶端一撮细枝（最尖处）
-            DrawSetTransform(new Vector2(x + 2, baseY - h), sway * 1.3f, Vector2.One);
+            DrawSetTransform(new Vector2(x + 2, baseY - h), 0, Vector2.One);
             DrawLine(new Vector2(0, 0), new Vector2(-4, -10), dark, 1.4f, true);
             DrawLine(new Vector2(0, 0), new Vector2(5, -8), dark, 1.4f, true);
             DrawLine(new Vector2(0, 0), new Vector2(-2, -14), dark, 1.4f, true);

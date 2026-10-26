@@ -133,7 +133,8 @@ public partial class FieldPlayer : CharacterBody2D
         else if (Mathf.Abs(mx) > 20f) _facing = Mathf.Sign(mx);
         Figure.FacingRight = _facing > 0f;
 
-        var origin = GlobalPosition + new Vector2(_facing * 46f, Figure.Prone ? -24f : -66f);
+        // 弹道起点直接取专姿立绘的枪口锚点（与画面上的枪管尖完全对齐）
+        var origin = Figure.MuzzleWorld();
         Fired?.Invoke(origin, _facing > 0f);
 
         // 后坐力：站姿略退，蹲姿更稳

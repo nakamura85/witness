@@ -37,10 +37,43 @@ public partial class SpriteActor : Node2D
     /// <summary>自动化截图用：true 时暂停火光/受击/后坐衰减（低帧率下截不到火光）。</summary>
     public bool FreezeFx;
 
+    /// <summary>专姿立绘激活时的枪口锚点（flip 空间；NaN=未激活，走纸娃娃估算）。</summary>
+    private Vector2 _poseMuzzle = new(float.NaN, float.NaN);
+
+    /// <summary>当前应使用的专姿立绘（趴下&gt;蹲下&gt;瞄准）+ 枪管高度比例（实测立绘：aim 0.165 / crouch 0.31 / prone 0.58）。</summary>
+    private (Texture2D tex, float s, float pox, float muzY) PoseInfo()
+    {
+        if (_pose == null) return (null, 0f, 0f, 0f);
+        if (Prone) return (_proneTex, _proneS, -_proneTex.GetSize().X * _proneS * 0.30f, 0.58f);
+        if (Crouched) return (_crouchTex, _crouchS, 0f, 0.31f);
+        if (Aim > 0.5f && !(Airborne || !Grounded) && !Vaulting)
+            return (_aimTex, _aimS, 0f, 0.165f);
+        return (null, 0f, 0f, 0f);
+    }
+
+    /// <summary>当前枪口位置（画面空间）：专姿立绘用立绘内锚点，纸娃娃按姿态估算。</summary>
+    private Vector2 MuzzlePoint()
+    {
+        var (tex, s, pox, muzY) = PoseInfo();
+        if (tex != null)
+        {
+            var sz = tex.GetSize();
+            return new Vector2((pox + sz.X * s * 0.97f) * Facing, -sz.Y * s * (1f - muzY));
+        }
+        return Prone
+            ? new Vector2(Facing * Height * 0.92f, -Height * 0.22f)
+            : new Vector2(Facing * Height * 0.92f, -Height * 0.55f);
+    }
+
+    /// <summary>世界坐标枪口（子弹起点/近战判定用）。</summary>
+    public Vector2 MuzzleWorld() => GlobalPosition + MuzzlePoint();
+
     // 翻转子容器：所有立绘 Sprite2D 作为其子节点
     // Facing<0 时 Scale.X=-1 整体水平镜像，比 FlipH 更安全
     private readonly Node2D _flip = new();
-    private Sprite2D _torso, _legBack, _legFront, _hip;
+    private Sprite2D _torso, _legBack, _legFront, _hip, _pose;
+    private Texture2D _aimTex, _crouchTex, _proneTex;
+    private float _aimS, _crouchS, _proneS;
     private ShaderMaterial _mat;
     private bool _wasGrounded = true;
     private float _landT;             // 落地缓冲计时 1→0
@@ -124,6 +157,20 @@ public partial class SpriteActor : Node2D
         _flip.AddChild(_torso);
         _flip.AddChild(_legFront);
         _flip.AddChild(_hip);      // 髋片最后绘制，盖在最上层
+
+        // —— 军人标准专姿立绘（仅玩家）：瞄准/蹲/趴不再用纸娃娃刚性变形，
+        // 而是整体换一张同画风、同军服的专项姿势立绘（军事动作标准）——
+        if (kind == Kind.NortheastArmy)
+        {
+            _aimTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_aim.jpg", 0.03f, 0.05f);
+            _crouchTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_crouch.jpg", 0.03f, 0.05f);
+            _proneTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_prone.jpg", 0.03f, 0.05f);
+            if (_aimTex != null) _aimS = Height / _aimTex.GetSize().Y;
+            if (_crouchTex != null) _crouchS = Height * 0.62f / _crouchTex.GetSize().Y;
+            if (_proneTex != null) _proneS = Height * 0.30f / _proneTex.GetSize().Y;
+            _pose = new Sprite2D { Centered = false, Visible = false, Material = _mat };
+            _flip.AddChild(_pose);
+        }
     }
 
     private Sprite2D MakeLeg(Godot.Texture2D tex, float x0, float w, float s)
@@ -169,6 +216,31 @@ public partial class SpriteActor : Node2D
         // —— 翻转：子容器 Scale.X = FacingRight ? 1 : -1 ——
         // 比 Sprite2D.FlipH 更安全（FlipH 在 Centered=false 上会产生位置偏移）
         _flip.Scale = new Vector2(FacingRight ? 1f : -1f, 1f);
+
+        // —— 专姿立绘切换（军人标准姿势）：趴下 > 蹲下 > 站姿瞄准 ——
+        // 优先级最高的状态用整张专项立绘替换纸娃娃，动作是按军事条令画的，
+        // 不再靠刚性贴图变形硬凑。腾空/翻越时不进入专姿。
+        var (ptex, ps, pox, muzY) = PoseInfo();
+        if (ptex != null)
+        {
+            var sz = ptex.GetSize();
+            _torso.Visible = false; _legBack.Visible = false; _legFront.Visible = false;
+            if (_hip != null) _hip.Visible = false;
+            _pose.Texture = ptex;
+            _pose.Scale = new Vector2(ps, ps);
+            _pose.Position = new Vector2(pox - Facing * 6f * Recoil, -sz.Y * ps);
+            _pose.Visible = true;
+            // 枪口锚点（flip 空间，x 朝前），_Draw 里乘 Facing 转回画面空间
+            _poseMuzzle = new Vector2(pox + sz.X * ps * 0.97f, -sz.Y * ps * (1f - muzY));
+            QueueRedraw();
+            return;
+        }
+        if (_pose != null && _pose.Visible)
+        {
+            _pose.Visible = false;
+            _torso.Visible = true; _legBack.Visible = true; _legFront.Visible = true;
+            _poseMuzzle = new Vector2(float.NaN, float.NaN);
+        }
 
         // —— 腿：剪刀步 / 跳跃收腿 / 蹲姿折叠 ——
         float legK = 1f; // 腿的纵向压缩（蹲/落地缓冲时 <1，脚底要贴回地面）
@@ -346,9 +418,7 @@ public partial class SpriteActor : Node2D
         // —— 瞄准指示线 ——
         if (Aim > 0.5f)
         {
-            var muzzle = Prone
-                ? new Vector2(Facing * Height * 0.92f, -Height * 0.22f)
-                : new Vector2(Facing * (Height * 0.92f), -Height * 0.55f);
+            var muzzle = MuzzlePoint();
             DrawLine(muzzle, muzzle + new Vector2(Facing * 14f, -2f),
                 InkStyle.InkColor, 1.5f, true);
         }
@@ -356,9 +426,7 @@ public partial class SpriteActor : Node2D
         // —— 枪口火光：亮核 + 外晕 + 前向火舌 ——
         if (MuzzleFlash > 0.05f)
         {
-            var muzzle = Prone
-                ? new Vector2(Facing * Height * 0.92f, -Height * 0.22f)
-                : new Vector2(Facing * (Height * 0.92f), -Height * 0.55f);
+            var muzzle = MuzzlePoint();
             float r = 4f + MuzzleFlash * 6f;
             DrawCircle(muzzle, r, new Color(1f, 0.85f, 0.30f, MuzzleFlash * 0.85f));
             DrawCircle(muzzle, r * 0.55f, new Color(1f, 1f, 0.62f, MuzzleFlash));
