@@ -32,6 +32,14 @@ public partial class Capture : Node
         if (!_started) return;
         _t += (float)delta;
 
+        // 开火截图窗口内把枪口火光钉在满值并冻结衰减
+        //（窗口模式帧率低时 9/s 衰减一帧就把火光清零，截不到）
+        if (_stage >= 4 && _stage <= 6 && _lvl?._player?.Figure != null)
+        {
+            _lvl._player.Figure.FreezeFx = _stage == 5;
+            if (_stage == 5) _lvl._player.Figure.MuzzleFlash = 1f;
+        }
+
         if (_stage == 0 && _t > 1.6f)
         {
             Input.ActionRelease("move_right");
@@ -57,13 +65,13 @@ public partial class Capture : Node
             SaveShot("capture_02_scene.png");
             _stage = 4;
         }
-        else if (_stage == 4 && _t > 3.0f)
+        else if (_stage == 4 && _t > 3.04f)
         {
             _lvl?._player?.ForceFire(1f);
             GD.Print("CAPTURE stage4 -> fired");
             _stage = 5;
         }
-        else if (_stage == 5 && _t > 3.18f)
+        else if (_stage == 5 && _t > 3.06f)
         {
             GD.Print("CAPTURE stage5 -> shot fire");
             SaveShot("capture_03_fire.png");

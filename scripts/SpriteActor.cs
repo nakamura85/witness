@@ -34,6 +34,8 @@ public partial class SpriteActor : Node2D
     public float HurtFlash;
     /// <summary>开枪后坐量 1→0，躯干短暂后仰 + 后移。</summary>
     public float Recoil;
+    /// <summary>自动化截图用：true 时暂停火光/受击/后坐衰减（低帧率下截不到火光）。</summary>
+    public bool FreezeFx;
 
     // 翻转子容器：所有立绘 Sprite2D 作为其子节点
     // Facing<0 时 Scale.X=-1 整体水平镜像，比 FlipH 更安全
@@ -145,9 +147,12 @@ public partial class SpriteActor : Node2D
         if (_torso == null) return;
         float f = (float)delta;
 
-        if (MuzzleFlash > 0f) MuzzleFlash = Mathf.Max(0f, MuzzleFlash - f * 9f);
-        if (HurtFlash > 0f) HurtFlash = Mathf.Max(0f, HurtFlash - f * 3.2f);
-        if (Recoil > 0f) Recoil = Mathf.Max(0f, Recoil - f * 5.5f);
+        if (!FreezeFx)
+        {
+            if (MuzzleFlash > 0f) MuzzleFlash = Mathf.Max(0f, MuzzleFlash - f * 9f);
+            if (HurtFlash > 0f) HurtFlash = Mathf.Max(0f, HurtFlash - f * 3.2f);
+            if (Recoil > 0f) Recoil = Mathf.Max(0f, Recoil - f * 5.5f);
+        }
 
         // 落地缓冲：由腾空转落地触发一次
         bool groundedNow = Grounded && !Airborne;
@@ -342,8 +347,8 @@ public partial class SpriteActor : Node2D
         if (Aim > 0.5f)
         {
             var muzzle = Prone
-                ? new Vector2(Facing * Height * 0.60f, -Height * 0.22f)
-                : new Vector2(Facing * (Height * 0.45f), -Height * 0.55f);
+                ? new Vector2(Facing * Height * 0.92f, -Height * 0.22f)
+                : new Vector2(Facing * (Height * 0.92f), -Height * 0.55f);
             DrawLine(muzzle, muzzle + new Vector2(Facing * 14f, -2f),
                 InkStyle.InkColor, 1.5f, true);
         }
@@ -352,8 +357,8 @@ public partial class SpriteActor : Node2D
         if (MuzzleFlash > 0.05f)
         {
             var muzzle = Prone
-                ? new Vector2(Facing * Height * 0.60f, -Height * 0.22f)
-                : new Vector2(Facing * (Height * 0.45f), -Height * 0.55f);
+                ? new Vector2(Facing * Height * 0.92f, -Height * 0.22f)
+                : new Vector2(Facing * (Height * 0.92f), -Height * 0.55f);
             float r = 4f + MuzzleFlash * 6f;
             DrawCircle(muzzle, r, new Color(1f, 0.85f, 0.30f, MuzzleFlash * 0.85f));
             DrawCircle(muzzle, r * 0.55f, new Color(1f, 1f, 0.62f, MuzzleFlash));
