@@ -149,13 +149,13 @@ public partial class Capture : Node
             SaveShot("capture_10b_chimney_moved.png");
             _stage = 17;
         }
-        else if (_stage == 17 && (PlayerX() > 2760f || _t > 24.5f))
+        else if (_stage == 17 && (PlayerX() > 2760f || _t > 30f))
         {
             GD.Print("CAPTURE stage17 -> shot burnt village x="+PlayerX());
             SaveShot("capture_11_burnt.png");
             _stage = 18;
         }
-        else if (_stage == 18 && _t > 25.5f)
+        else if (_stage == 18 && _t > 31f)
         {
             GD.Print("CAPTURE done");
             GetTree().Quit();
