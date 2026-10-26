@@ -12,6 +12,7 @@ namespace Witness;
 public static class ChromaKey
 {
     private static readonly Dictionary<string, Texture2D> _cache = new();
+    private static readonly Dictionary<string, Image> _imgCache = new();
 
     /// <summary>粗描边色：VH 手绘风格的深灰棕描线（不是纯黑）。</summary>
     private static readonly Color Stroke = new(0.19f, 0.16f, 0.12f, 1f);
@@ -19,7 +20,11 @@ public static class ChromaKey
     /// <summary>纸质色调：把干净 AI 生成图往旧纸黄色偏，模拟手绘纹理。</summary>
     private static readonly Color PaperTint = new(1.02f, 0.96f, 0.86f, 1f);
 
-    private const int StrokeRadius = 3;   // 描边宽度（像素）
+    /// <summary>描边宽度（像素）。</summary>
+    public const int StrokeRadius = 3;
+
+    /// <summary>描边后画布四周留的空白，外部换算坐标时要加上。</summary>
+    public const int StrokePad = StrokeRadius + 1;
 
     // ========== 公共入口 ==========
 
@@ -27,16 +32,37 @@ public static class ChromaKey
     {
         var key = $"cut|{resPath}|{cropR}|{cropB}|{maxSize}";
         if (_cache.TryGetValue(key, out var cached)) return cached;
+        var img = CutoutImage(resPath, cropR, cropB, maxSize);
+        if (img == null) return null;
+        img = AddStroke(img, StrokeRadius);
+        var tex = ImageTexture.CreateFromImage(img);
+        _cache[key] = tex;
+        return tex;
+    }
+
+    /// <summary>
+    /// 抠好的干净图（已裁内容包围盒 + 纸色调），还没描边。
+    /// 分件用的地方要自己决定哪些像素属于身体、哪些属于腿，所以描边留到外面做。
+    /// </summary>
+    public static Image CutoutImage(string resPath, float cropR = 0f, float cropB = 0f, int maxSize = 640)
+    {
+        var key = $"img|{resPath}|{cropR}|{cropB}|{maxSize}";
+        if (_imgCache.TryGetValue(key, out var cached)) return cached;
         var img = LoadCropped(resPath, cropR, cropB, maxSize);
         if (img == null) return null;
         FloodKey(img, 0.78f);
         KeyEnclosedWhite(img, 0.80f, 90);
         img = Trim(img);
-        ApplyPaperTint(img);   // v0.5d2：建筑 cutout 也走纸色调，不然风格跟场景不统一
-        img = AddStroke(img, StrokeRadius);
-        var tex = ImageTexture.CreateFromImage(img);
-        _cache[key] = tex;
-        return tex;
+        ApplyPaperTint(img);
+        _imgCache[key] = img;
+        return img;
+    }
+
+    /// <summary>给已经分好件的图加粗描边并转成纹理。</summary>
+    public static Texture2D StrokeToTexture(Image img, int radius = StrokeRadius)
+    {
+        if (img == null) return null;
+        return ImageTexture.CreateFromImage(AddStroke(img, radius));
     }
 
     public static Texture2D Tile(string resPath, float cropR = 0f, float cropB = 0f, int maxSize = 512)
@@ -76,8 +102,9 @@ public static class ChromaKey
     /// <summary>
     /// 给抠好的图加一圈描边：新建稍大的 canvas，先画描边（alpha mask 膨胀 radius），
     /// 再把原图画在中心。VH 风格粗描线让 AI 素材瞬间"手绘化"。
+    /// 输出画布比原图四周各多 StrokePad 像素。
     /// </summary>
-    private static Image AddStroke(Image src, int radius)
+    public static Image AddStroke(Image src, int radius)
     {
         int sw = src.GetWidth(), sh = src.GetHeight();
         if (sw < 4 || sh < 4 || radius <= 0) return src;

@@ -129,13 +129,33 @@ public partial class Capture : Node
             SaveShot("capture_08_enemy.png");
             _stage = 14;
         }
-        else if (_stage == 14 && (PlayerX() > 2100f || _t > 18.5f))
+        else if (_stage == 14 && (PlayerX() > 1780f || _t > 17.5f))
         {
             GD.Print("CAPTURE stage14 -> shot sandbags x="+PlayerX());
             SaveShot("capture_09_sandbags.png");
             _stage = 15;
         }
-        else if (_stage == 15 && _t > 19.5f)
+        else if (_stage == 15 && (PlayerX() > 1990f || _t > 20.5f))
+        {
+            GD.Print("CAPTURE stage15 -> shot intact chimney x="+PlayerX());
+            SaveShot("capture_10_chimney.png");
+            _stage = 16;
+        }
+        else if (_stage == 16 && _t > 21.1f)
+        {
+            // second frame of the same spot, one beat later, to prove the smoke
+            // actually moves instead of sitting there as a painted cloud
+            GD.Print("CAPTURE stage16 -> shot intact chimney again");
+            SaveShot("capture_10b_chimney_moved.png");
+            _stage = 17;
+        }
+        else if (_stage == 17 && (PlayerX() > 2760f || _t > 24.5f))
+        {
+            GD.Print("CAPTURE stage17 -> shot burnt village x="+PlayerX());
+            SaveShot("capture_11_burnt.png");
+            _stage = 18;
+        }
+        else if (_stage == 18 && _t > 25.5f)
         {
             GD.Print("CAPTURE done");
             GetTree().Quit();

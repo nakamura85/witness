@@ -61,6 +61,9 @@ public partial class JiangqiaoLevel : Node2D
     private readonly List<GrenadeProj> _grenades = new();
     private TracerFx _fx;
     private SnowScreen _snow;
+    private SmokeFx _smokeWorld;    // smoke + fire over the near houses (world layer)
+    private SmokeFx _smokeMid;      // chimney smoke over the distant village (parallax mid)
+    private const float MidFactor = 0.24f;
 
     private float _shake;
     private float _flashA;
@@ -99,6 +102,7 @@ public partial class JiangqiaoLevel : Node2D
     {
         BuildSky();
         BuildBackdrop();
+        BuildMidSmoke();
         BuildTerrain();
         BuildHouses();
         BuildPlayer();
@@ -157,11 +161,140 @@ public partial class JiangqiaoLevel : Node2D
         AddHouse("h2", 2760f, "house_burned_near", 360f, true, 0f);
     }
 
+    /// <summary>
+    /// Smoke + fire for every house. A house that still stands puffs thin
+    /// domestic smoke from the chimney, a burnt one chokes out a thick black
+    /// column and still has embers crawling in the ashes.
+    /// </summary>
+    private void AddHouseSmoke(EnterableHouse h, string tex, float x, float w, float lift)
+    {
+        if (_smokeWorld == null) return;
+        var tex2 = GD.Load<Texture2D>($"res://assets/art/props/{tex}.png");
+        if (tex2 == null) return;
+        var sz = tex2.GetSize();
+        float hgt = w * sz.Y / sz.X;
+
+        // source point in texture space (normalised), then mapped to world
+        float u = 0.5f, v = 0.4f, size = 0.9f, strength = 0.6f, fire = 0f, rise = 80f;
+        var tint = new Color(0.72f, 0.73f, 0.75f);
+        switch (tex)
+        {
+            case "house_intact_near":
+                // the painted smoke that used to sit over this chimney is gone
+                // now, so the anchor goes right onto the chimney mouth itself
+                u = 0.700f; v = 0.147f; size = 0.85f; strength = 0.70f; fire = 0f; rise = 74f;
+                tint = new Color(0.82f, 0.85f, 0.89f);
+                break;
+            case "house_burned_near":
+                u = 0.545f; v = 0.615f; size = 1.50f; strength = 1.0f; fire = 0.75f; rise = 145f;
+                tint = new Color(0.33f, 0.32f, 0.34f);
+                break;
+            case "house_skeleton_near":
+                u = 0.45f; v = 0.42f; size = 1.60f; strength = 0.88f; fire = 0.42f; rise = 160f;
+                tint = new Color(0.38f, 0.38f, 0.41f);
+                break;
+            case "house_ruined_near":
+                u = 0.45f; v = 0.26f; size = 1.05f; strength = 0.62f; fire = 0.22f; rise = 96f;
+                tint = new Color(0.58f, 0.59f, 0.62f);
+                break;
+            default:  // house_posts: nothing left but charred stumps
+                u = 0.50f; v = 0.50f; size = 0.90f; strength = 0.55f; fire = 0.30f; rise = 68f;
+                tint = new Color(0.46f, 0.46f, 0.49f);
+                break;
+        }
+
+        float px = x + u * w;
+        float py = GroundY - hgt + v * hgt;
+        // far row sits deeper in the haze: smaller, dimmer
+        float dim = lift > 0f ? 0.6f : 1f;
+
+        _smokeWorld.Add(new SmokeFx.Source
+        {
+            Pos = new Vector2(px, py),
+            Size = size * (lift > 0f ? 0.7f : 1f),
+            Strength = strength * dim,
+            Fire = fire * dim,
+            Rise = rise * (lift > 0f ? 0.7f : 1f),
+            Drift = 0.5f + Jit(0.25f),
+            Phase = GD.Randf(),
+            Tint = tint,
+        });
+
+        // the fire itself sits on the ground under the smoke column
+        if (fire > 0.01f)
+        {
+            _smokeWorld.Add(new SmokeFx.Source
+            {
+                Pos = new Vector2(px, GroundY - 3f),
+                Size = size * 0.55f,
+                Strength = 0f,
+                Fire = fire * dim,
+                Rise = 0f,
+                Drift = 0f,
+                Phase = GD.Randf(),
+                Tint = tint,
+            });
+        }
+    }
+
     private void AddHouse(string id, float x, string tex, float w, bool enterable, float lift)
     {
         var h = new EnterableHouse(id, new Vector2(x, GroundY), tex, w, enterable, lift);
         _game.AddChild(h);
         if (enterable) _houses.Add(h);
+        AddHouseSmoke(h, tex, x, w, lift);
+    }
+
+    /// <summary>远景村落的横向摆位（中景视差层用，炊烟也要跟着一起动）。</summary>
+    public static readonly float[] VillageX = { -760, 260, 690, 2520, 3000, 4180, 4590 };
+    public static float VillageH(int i) => 90f + (i % 3) * 11f;
+    public static bool VillageFlip(int i) => i % 2 == 1;
+
+    /// <summary>
+    /// 远景村落的炊烟：烧塌的屋顶冒黑烟，完好民房的烟囱冒白烟。
+    /// 之前这些烟是画死在贴图里的静止烟云，现在改成程序化动态烟。
+    /// </summary>
+    private void BuildMidSmoke()
+    {
+        if (_smokeMid == null) return;
+        var tex = GD.Load<Texture2D>("res://assets/art/backdrop/village_ruined.png");
+        if (tex == null) return;
+        var sz = tex.GetSize();
+
+        for (int i = 0; i < VillageX.Length; i++)
+        {
+            float hgt = VillageH(i);
+            float wid = sz.X / sz.Y * hgt;
+            bool flip = VillageFlip(i);
+
+            // burnt roof on the left of the village art
+            float ux = flip ? 0.78f : 0.22f;
+            _smokeMid.Add(new SmokeFx.Source
+            {
+                Pos = new Vector2(VillageX[i] - wid * 0.5f + ux * wid, 568f - hgt + 0.30f * hgt),
+                Size = 0.62f,
+                Strength = 0.75f,
+                Fire = 0f,
+                Rise = 46f,
+                Drift = 0.6f,
+                Phase = i * 0.37f,
+                Tint = new Color(0.42f, 0.42f, 0.46f),
+            });
+
+            // chimney of the house that is still standing
+            float cx = flip ? 0.104f : 0.896f;
+            _smokeMid.Add(new SmokeFx.Source
+            {
+                Pos = new Vector2(VillageX[i] - wid * 0.5f + cx * wid, 568f - hgt + 0.185f * hgt),
+                Size = 0.40f,
+                Strength = 0.52f,
+                Fire = 0f,
+                Rise = 32f,
+                Drift = 0.4f,
+                Phase = i * 0.71f + 0.4f,
+                Tint = new Color(0.84f, 0.86f, 0.90f),
+            });
+        }
     }
 
     /// <summary>雪地里捡得到的枪：有的是死者掉的还有子弹，有的已经冻坏打不响。</summary>
@@ -200,17 +333,25 @@ public partial class JiangqiaoLevel : Node2D
         _layers = new[]
         {
             new Backdrop(this, Backdrop.KindFar, 0.06f, -40),
-            new Backdrop(this, Backdrop.KindMid, 0.24f, -30),
+            new Backdrop(this, Backdrop.KindMid, MidFactor, -30),
             new Backdrop(this, Backdrop.KindNear, 0.55f, -20),
             new Backdrop(this, Backdrop.KindFore, 1.32f, 20),
         };
         foreach (var l in _layers) AddChild(l);
+
+        // distant village smoke rides the same parallax as the mid backdrop
+        _smokeMid = new SmokeFx { ZIndex = -29 };
+        AddChild(_smokeMid);
     }
 
     private void BuildTerrain()
     {
         _game = new Node2D { ZIndex = 0 };
         AddChild(_game);
+
+        // smoke and fire over the near houses: above the houses, below the fighters
+        _smokeWorld = new SmokeFx { ZIndex = -2 };
+        _game.AddChild(_smokeWorld);
 
         var floor = new StaticBody2D { Position = new Vector2(WorldW * 0.5f, GroundY + 120f) };
         var fs = new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(WorldW + 800f, 240f) } };
@@ -406,6 +547,8 @@ public partial class JiangqiaoLevel : Node2D
         _cam.Position = new Vector2(_camX, target.Y);
         foreach (var l in _layers)
             l.Position = new Vector2(_camX * (1f - l.Factor), 0f);
+        if (_smokeMid != null)
+            _smokeMid.Position = new Vector2(_camX * (1f - MidFactor), 0f);
         _snow.Wind = 0.55f + Mathf.Sin(_elapsed * 0.35f) * 0.35f;
 
         UpdateDayCycle(f);
@@ -1394,10 +1537,10 @@ public partial class JiangqiaoLevel : Node2D
 
             // village cluster: war-torn watercolor art, mirror alternate
             // (炮火下的村子：破损的屋顶、烧黑的墙——1931 年嫩江沿岸村庄的真实样貌)
-            float[] villages = { -760, 260, 690, 2520, 3000, 4180, 4590 };
+            float[] villages = VillageX;
             for (int i = 0; i < villages.Length; i++)
                 Sprite("village_ruined", new Vector2(villages[i], 568f),
-                    90f + (i % 3) * 11f, 1f, flip: i % 2 == 1);
+                    VillageH(i), 1f, flip: VillageFlip(i));
 
             // mid tree line: generated birch/elm sprites, fixed seed layout
             var midTreeRng = new RandomNumberGenerator();

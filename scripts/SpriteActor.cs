@@ -84,6 +84,11 @@ public partial class SpriteActor : Node2D
     private float _landT;             // 落地缓冲计时 1→0
     private float _s;                 // 立绘统一缩放（height/texH）
     private float _hipY, _legTopScreen, _legR, _overlapScreen;
+    /// <summary>用了分件腿贴图（掩膜 + 裆缝切开），不是老的中线竖切。</summary>
+    private bool _maskedLegs;
+    /// <summary>裆部铰链点，贴图坐标（两条腿共用，绕它转就不会扯开裤裆）。</summary>
+    private int _pivotX, _pivotY;
+    private float _texH;
 
     public readonly float Height;
 
@@ -101,7 +106,10 @@ public partial class SpriteActor : Node2D
         };
         Height = height;
 
-        var tex = ChromaKey.Cutout($"res://assets/art/sprites/{name}.jpg", 0.03f, 0.05f);
+        var srcPath = $"res://assets/art/sprites/{name}.jpg";
+        // v2.6：先试分件腿（掩膜 + 裆缝），分不出来才退回老的中线竖切
+        var parts = FigureParts.Build(srcPath, 0.03f, 0.05f);
+        var tex = parts != null ? parts.Body : ChromaKey.Cutout(srcPath, 0.03f, 0.05f);
         if (tex == null) return;
 
         // 仅在需要色相旋转时才创建 shader（默认 hue_offset=0 跳过 HSV round-trip）
@@ -115,58 +123,96 @@ public partial class SpriteActor : Node2D
 
         var size = tex.GetSize();
         float texW = size.X, texH = size.Y;
+        _texH = texH;
         _s = height / texH;
         float s = _s;
 
-        // —— 髋部分层：髋线取身高 58%，躯干下摆多画一点盖住腿旋转时露出的接缝 ——
-        float hipFromTop = texH * 0.58f;
-        float overlap = texH * 0.05f;
-        _overlapScreen = overlap * s;
-        _hipY = -(texH - hipFromTop) * s;                 // 髋线（脚底原点）
-        _legTopScreen = hipFromTop - overlap;             // 腿片区域顶部（纹理坐标）
-        _legR = (texH - hipFromTop) * s + _overlapScreen; // 腿片绘制高度（屏幕坐标）
-
-        _legBack = MakeLeg(tex, 0f, texW * 0.5f, s);
-        _legFront = MakeLeg(tex, texW * 0.5f, texW * 0.5f, s);
-
-        _torso = new Sprite2D
+        if (parts != null && parts.LegBack != null && parts.LegFront != null)
         {
-            Texture = tex,
-            Centered = false,
-            RegionEnabled = true,
-            RegionRect = new Rect2(0, 0, texW, hipFromTop + overlap),
-            Scale = new Vector2(s, s),
-            Position = new Vector2(0, -texH * s),
-        };
-        _torso.Material = _mat;
+            // —— 分件腿：身体已经把腿挖掉，腿片只含属于腿的像素 ——
+            // 挎在手上的步枪不会混进腿片，走路摆腿时手上不会多出一支枪。
+            _maskedLegs = true;
+            _pivotX = parts.PivotX;
+            _pivotY = parts.PivotY;
+            _hipY = -(texH - parts.PivotY) * s;
 
-        // 髋部桥接片：取下半身中段顶部一小条（盖在腿之上、躯干之下），
-        // 不随腿剪刀摆——专门盖住两腿绕髋旋转时中缝张开 + 腰部分离，
-        // 让脚/身体/手脚在视觉上连成一体（修正"动起来手脚头分离"的观感）。
-        float hipHalf = texW * 0.30f;
-        // thin seam band only: the old one stretched halfway down the thigh,
-        // copied the sling / rifle butt / thigh pixels into a static patch
-        // glued to the torso = second gun image + phantom third leg + knee
-        // looking pecah whenever the torso bobbed
-        float pelvisH = overlap * 2.4f;
-        _hipOrigin = new Vector2(texW * 0.5f - hipHalf, _legTopScreen);
-        _hip = new Sprite2D
+            _legBack = MakeMaskedLeg(parts.LegBack, s, texH);
+            _legFront = MakeMaskedLeg(parts.LegFront, s, texH);
+
+            _torso = new Sprite2D
+            {
+                Texture = tex,
+                Centered = false,
+                Scale = new Vector2(s, s),
+                Position = new Vector2(0, -texH * s),
+            };
+            _torso.Material = _mat;
+
+            // 髋部桥接片：胯上静止的一条布，贴在躯干上盖住腿摆动时张开的缝
+            _hipOrigin = new Vector2(parts.BridgeX, parts.BridgeY);
+            if (parts.Bridge != null)
+            {
+                _hip = new Sprite2D
+                {
+                    Texture = parts.Bridge,
+                    Centered = false,
+                    Scale = new Vector2(s, s),
+                };
+                _hip.Material = _mat;
+            }
+        }
+        else
         {
-            Texture = tex,
-            Centered = false,
-            RegionEnabled = true,
-            RegionRect = new Rect2(texW * 0.5f - hipHalf, _legTopScreen, hipHalf * 2f, pelvisH),
-            Scale = new Vector2(s, s),
-            Position = new Vector2((texW * 0.5f - hipHalf) * s, -_legR),
-        };
-        _hip.Material = _mat;
+            // —— 老路：沿贴图中线竖切（立绘分不出腿缝时用）——
+            float hipFromTop = texH * 0.58f;
+            float overlap = texH * 0.05f;
+            _overlapScreen = overlap * s;
+            _hipY = -(texH - hipFromTop) * s;                 // 髋线（脚底原点）
+            _legTopScreen = hipFromTop - overlap;             // 腿片区域顶部（纹理坐标）
+            _legR = (texH - hipFromTop) * s + _overlapScreen; // 腿片绘制高度（屏幕坐标）
+
+            _legBack = MakeLeg(tex, 0f, texW * 0.5f, s);
+            _legFront = MakeLeg(tex, texW * 0.5f, texW * 0.5f, s);
+
+            _torso = new Sprite2D
+            {
+                Texture = tex,
+                Centered = false,
+                RegionEnabled = true,
+                RegionRect = new Rect2(0, 0, texW, hipFromTop + overlap),
+                Scale = new Vector2(s, s),
+                Position = new Vector2(0, -texH * s),
+            };
+            _torso.Material = _mat;
+
+            // 髋部桥接片：取下半身中段顶部一小条（盖在腿之上、躯干之下），
+            // 不随腿剪刀摆——专门盖住两腿绕髋旋转时中缝张开 + 腰部分离，
+            // 让脚/身体/手脚在视觉上连成一体（修正"动起来手脚头分离"的观感）。
+            float hipHalf = texW * 0.30f;
+            // thin seam band only: the old one stretched halfway down the thigh,
+            // copied the sling / rifle butt / thigh pixels into a static patch
+            // glued to the torso = second gun image + phantom third leg + knee
+            // looking pecah whenever the torso bobbed
+            float pelvisH = overlap * 2.4f;
+            _hipOrigin = new Vector2(texW * 0.5f - hipHalf, _legTopScreen);
+            _hip = new Sprite2D
+            {
+                Texture = tex,
+                Centered = false,
+                RegionEnabled = true,
+                RegionRect = new Rect2(texW * 0.5f - hipHalf, _legTopScreen, hipHalf * 2f, pelvisH),
+                Scale = new Vector2(s, s),
+                Position = new Vector2((texW * 0.5f - hipHalf) * s, -_legR),
+            };
+            _hip.Material = _mat;
+        }
 
         // 立绘子容器：所有 Sprite2D 都 AddChild 到 _flip
         AddChild(_flip);
         _flip.AddChild(_legBack);
         _flip.AddChild(_torso);
         _flip.AddChild(_legFront);
-        _flip.AddChild(_hip);      // 髋片最后绘制，盖在最上层
+        if (_hip != null) _flip.AddChild(_hip);      // 髋片最后绘制，盖在最上层
 
         // —— 军人标准专姿立绘（仅玩家）：瞄准/蹲/趴不再用纸娃娃刚性变形，
         // 而是整体换一张同画风、同军服的专项姿势立绘（军事动作标准）——
@@ -196,6 +242,24 @@ public partial class SpriteActor : Node2D
             Scale = new Vector2(s, s),
             // 旋转轴=髋：Position 放在髋线上
             Position = new Vector2(x0 * s, -_legR),
+        };
+        leg.Material = _mat;
+        return leg;
+    }
+
+    /// <summary>
+    /// 分件腿的摆法：整块腿贴图绕裆部铰链点转。
+    /// Offset 把铰链挪到节点原点，Position 再把节点摆回脚底坐标。
+    /// </summary>
+    private Sprite2D MakeMaskedLeg(Texture2D legTex, float s, float texH)
+    {
+        var leg = new Sprite2D
+        {
+            Texture = legTex,
+            Centered = false,
+            Scale = new Vector2(s, s),
+            Offset = new Vector2(-_pivotX, -_pivotY),
+            Position = new Vector2(_pivotX * s, -(texH - _pivotY) * s),
         };
         leg.Material = _mat;
         return leg;
@@ -404,7 +468,16 @@ public partial class SpriteActor : Node2D
     {
         leg.Rotation = rot;
         leg.Scale = new Vector2(_s, _s * k);
-        leg.Position = new Vector2(leg.Position.X, float.IsNaN(pivotY) ? -_legR * k : pivotY);
+        if (_maskedLegs)
+        {
+            // 分件腿：绕裆部铰链点转，压缩时把脚底拉回地面
+            leg.Position = new Vector2(_pivotX * _s,
+                float.IsNaN(pivotY) ? -(_texH - _pivotY) * _s * k : pivotY);
+        }
+        else
+        {
+            leg.Position = new Vector2(leg.Position.X, float.IsNaN(pivotY) ? -_legR * k : pivotY);
+        }
     }
 
     public override void _Draw()
