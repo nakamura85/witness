@@ -176,14 +176,6 @@
 
 ![雪原全景](docs/screenshots/v46_jq_scene.png?v=2.6)
 
-**行走 · 史实军服立绘 + 纸娃娃分层动画**
-
-![行走](docs/screenshots/v14_walk_a.png?v=2.6)
-
-**敌兵推进 · 关东军迎面前压（景深错位）**
-
-![敌兵推进](docs/screenshots/v12_enemy_advance.png?v=2.6)
-
 **立姿据枪 · 枪托抵肩贴腮瞄准 + 枪口火光对齐枪管尖**
 
 ![立姿据枪](docs/screenshots/v47_jq_fire.png?v=2.6)
@@ -195,14 +187,6 @@
 **低姿匍匐 · 军事条令低姿匍匐前进（Ctrl/C 键）**
 
 ![低姿匍匐](docs/screenshots/v49_jq_prone.png?v=2.6)
-
-**敌兵阵亡 · 同款画风尸体贴图（俯卧 / 仰卧）+ 掉落步枪 + 脚下雪脊**
-
-![雪地尸体](docs/screenshots/v26_corpse.png?v=2.6)
-
-**掩体沙袋 · 同款画风沙袋堆贴图（前景层，人从掩体后经过）**
-
-![掩体沙袋](docs/screenshots/v22_bridge.png?v=2.6)
 
 **完好房屋 · 烟囱动态炊烟（贴图静态烟已抹除，只剩程序化动态烟）**
 
