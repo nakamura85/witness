@@ -75,6 +75,8 @@ public partial class SpriteActor : Node2D
     // Facing<0 时 Scale.X=-1 整体水平镜像，比 FlipH 更安全
     private readonly Node2D _flip = new();
     private Sprite2D _torso, _legBack, _legFront, _hip, _pose;
+    /// <summary>hip strip top-left in texture coords, used to glue it to the torso.</summary>
+    private Vector2 _hipOrigin;
     private Texture2D _aimTex, _crouchTex, _proneTex;
     private float _aimS, _crouchS, _proneS;
     private ShaderMaterial _mat;
@@ -142,7 +144,12 @@ public partial class SpriteActor : Node2D
         // 不随腿剪刀摆——专门盖住两腿绕髋旋转时中缝张开 + 腰部分离，
         // 让脚/身体/手脚在视觉上连成一体（修正"动起来手脚头分离"的观感）。
         float hipHalf = texW * 0.30f;
-        float pelvisH = (_legR / s) * 0.50f;     // cover the hip top, legs still swing below
+        // thin seam band only: the old one stretched halfway down the thigh,
+        // copied the sling / rifle butt / thigh pixels into a static patch
+        // glued to the torso = second gun image + phantom third leg + knee
+        // looking pecah whenever the torso bobbed
+        float pelvisH = overlap * 2.4f;
+        _hipOrigin = new Vector2(texW * 0.5f - hipHalf, _legTopScreen);
         _hip = new Sprite2D
         {
             Texture = tex,
@@ -347,8 +354,11 @@ public partial class SpriteActor : Node2D
         }
         if (Recoil > 0f)
         {
-            torsoRot -= 0.42f * Recoil * Facing;   // 后仰（加大：开枪手感更实）
-            torsoX -= Facing * 11f * Recoil;        // 后移
+            // recoil toned down: rotating 0.42 rad around the head pivot swings
+            // the whole upper body off the pelvis, look like body pecah dua
+            // when firing. 0.20 still got the kick feel, half the slide back
+            torsoRot -= 0.20f * Recoil * Facing;
+            torsoX -= Facing * 5f * Recoil;
         }
         if (_landT > 0f && !Crouched)
             torsoScale = new Vector2(torsoScale.X * (1f + 0.04f * _landT),
@@ -362,6 +372,18 @@ public partial class SpriteActor : Node2D
         _torso.Position = new Vector2(torsoX, torsoY);
         _torso.Rotation = torsoRot;
         _torso.Scale = new Vector2(_s * torsoScale.X, _s * torsoScale.Y);
+
+        // hip bridge glued to the torso: same pos/rot/scale so the strip pixels
+        // always match the body ones. old version kept it nailed in place, so
+        // whenever the torso lean or kick back the same patch near the rifle
+        // butt kena duplicated = that ghost sticker both sides of the fight
+        if (_hip != null)
+        {
+            var off = new Vector2(_hipOrigin.X * _torso.Scale.X, _hipOrigin.Y * _torso.Scale.Y);
+            _hip.Position = _torso.Position + off.Rotated(_torso.Rotation);
+            _hip.Rotation = _torso.Rotation;
+            _hip.Scale = _torso.Scale;
+        }
 
         var tint = new Color(1f, 1f, 1f, 1f).Lerp(new Color(1f, 0.88f, 0.88f, 1f), HurtFlash * 0.9f);
         _torso.Modulate = tint;

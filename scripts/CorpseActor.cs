@@ -82,14 +82,14 @@ public partial class CorpseActor : Node2D
         float h = len * sz.Y / sz.X;
         DrawContactShadow(len);
         // rotate around body center, not the edge: keeps both ends on the ground line,
-        // no more floating corpse ends
+        // no more floating corpse ends; sink 6px so the body sits IN the snowfield
         DrawSetTransform(new Vector2(HeadSign() * len * 0.5f, 0f), -_rotJitter,
             new Vector2(HeadSign(), 1f));
-        DrawTextureRect(t, new Rect2(-len * 0.5f, -h + 3f, len, h), false);
+        DrawTextureRect(t, new Rect2(-len * 0.5f, -h + 6f, len, h), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
         if (_withRifle) DrawDroppedRifle();
-        DrawSnowDrift();
+        DrawSnowDrift(len);
     }
 
     private void DrawContactShadow(float len)
@@ -128,13 +128,19 @@ public partial class CorpseActor : Node2D
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 
-    // snow drift covering the feet, small and tight to the body so the
-    // corpse reads as sunk into the snow, not floating on a white pad
-    private void DrawSnowDrift()
+    // two low drifts hugging the body (head end + legs end) so the corpse
+    // reads as sunk into the open snowfield, not laid on top of a white pad
+    private void DrawSnowDrift(float len)
     {
-        var drift = new Vector2(HeadSign() * 10f, 3f);
-        DrawSetTransform(drift, 0, new Vector2(1.6f, 0.42f));
-        DrawCircle(Vector2.Zero, 11f, new Color(0.90f, 0.93f, 0.94f, 0.82f));
+        // legs end: the deeper drift (body slid feet-first into the snow)
+        var drift = new Vector2(HeadSign() * len * 0.30f, 5f);
+        DrawSetTransform(drift, 0, new Vector2(1.9f, 0.50f));
+        DrawCircle(Vector2.Zero, 12f, new Color(0.90f, 0.93f, 0.94f, 0.85f));
+        DrawSetTransform(drift + new Vector2(HeadSign() * 6f, 2f), 0, new Vector2(1.2f, 0.38f));
+        DrawCircle(Vector2.Zero, 11f, new Color(0.94f, 0.96f, 0.96f, 0.75f));
+        // head end: a lighter dusting
+        DrawSetTransform(new Vector2(-HeadSign() * len * 0.34f, 6f), 0, new Vector2(1.3f, 0.36f));
+        DrawCircle(Vector2.Zero, 10f, new Color(0.91f, 0.94f, 0.94f, 0.68f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }

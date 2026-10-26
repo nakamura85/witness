@@ -32,7 +32,7 @@ public partial class FootprintLayer : Node2D
     private bool _enemyLeftFoot;
     private Vector2 _playerPrevPos;  // 上一帧位置，用来算朝向
 
-    private const float MaxAge = 120f;
+    private const float MaxAge = 90f;
     private const int MaxPrints = 300;
 
     public FootprintLayer(JiangqiaoLevel lvl) { _lvl = lvl; }
@@ -57,17 +57,21 @@ public partial class FootprintLayer : Node2D
         var fig = _lvl._player.Figure;
         if (fig.Grounded && fig.Speed > 12f)
         {
-            // 步频校准：走路 phase 直接用 Figure.Phase（0~2π 循环）
-            // 不直接比较，用差值过零检测
-            float newPhase = fig.Phase;
-            bool crossedDown = newPhase < Mathf.Pi && _playerStepPhase > Mathf.Pi;  // 后脚即将踩到地面
-            _playerStepPhase = newPhase;
-            if (crossedDown || newPhase < 0.02f && _playerStepPhase > 6f)
+            // Phase grows unbounded, so the old "crossed π" test never fired even
+            // once. Compare half-cycle buckets of PosMod(Phase, 2π) instead:
+            // every bucket change = one footfall = one print
+            float npM = Mathf.PosMod(fig.Phase, Mathf.Tau);
+            float ppM = Mathf.PosMod(_playerStepPhase, Mathf.Tau);
+            _playerStepPhase = fig.Phase;
+            if ((int)(npM / Mathf.Pi) != (int)(ppM / Mathf.Pi))
             {
                 float dir = Mathf.Atan2(pvel.Y, pvel.X);
                 AddPrint(new Print
                 {
-                    Pos = new Vector2(ppos.X + (_playerLeftFoot ? -5f : 5f), ppos.Y - 1f),
+                    // side offset also nudges Y a little: alternating feet read
+                    // as depth, not one straight row of dots
+                    Pos = new Vector2(ppos.X + (_playerLeftFoot ? -5f : 5f),
+                                      ppos.Y - 1f + (_playerLeftFoot ? 2.4f : -1.6f)),
                     Rot = dir,
                     Age = 0f,
                     Side = _playerLeftFoot ? -1f : 1f,
@@ -78,8 +82,8 @@ public partial class FootprintLayer : Node2D
         }
         else
         {
-            // 静止时 phase 重置，防止刚起步立即触发
-            _playerStepPhase = fig.Phase > Mathf.Pi ? 0f : fig.Phase;
+            // keep tracking while idle so walking again don't dump a burst of prints
+            _playerStepPhase = fig.Phase;
         }
 
         // 敌人
@@ -88,16 +92,17 @@ public partial class FootprintLayer : Node2D
             if (e.Gone) continue;
             if (e._fig.Grounded && e._fig.Speed > 12f)
             {
-                float newPhase = e._fig.Phase;
-                bool crossedDown = newPhase < Mathf.Pi && e._prevPhase > Mathf.Pi;
-                e._prevPhase = newPhase;
-                if (crossedDown)
+                float npM = Mathf.PosMod(e._fig.Phase, Mathf.Tau);
+                float ppM = Mathf.PosMod(e._prevPhase, Mathf.Tau);
+                e._prevPhase = e._fig.Phase;
+                if ((int)(npM / Mathf.Pi) != (int)(ppM / Mathf.Pi))
                 {
                     float dir = e._fig.FacingRight ? 0f : Mathf.Pi;  // 敌人只左右移动
                     var epos = e.GlobalPosition;
                     AddPrint(new Print
                     {
-                        Pos = new Vector2(epos.X + (_enemyLeftFoot ? -4.5f : 4.5f), epos.Y - 1f),
+                        Pos = new Vector2(epos.X + (_enemyLeftFoot ? -4.5f : 4.5f),
+                                          epos.Y - 1f + (_enemyLeftFoot ? 2.2f : -1.5f)),
                         Rot = dir,
                         Age = 0f,
                         Side = _enemyLeftFoot ? -1f : 1f,
@@ -108,7 +113,7 @@ public partial class FootprintLayer : Node2D
             }
             else
             {
-                e._prevPhase = 0f;
+                e._prevPhase = e._fig.Phase;
             }
         }
 
@@ -138,23 +143,24 @@ public partial class FootprintLayer : Node2D
             float a = (1f - k);
             // 越旧越被新雪填平：凹痕变浅，亮边消失
             float depthMul = 1f - k * 0.75f;
-
-            DrawSetTransform(p.Pos, p.Rot, Vector2.One);
+            // every layer re-anchors at the print itself: the old code reset
+            // the transform to Vector2.Zero after the first line, so every
+            // footprint actually piled up at the world origin, never under boots
+            var at = p.Pos;
 
             // 第 1 层：最暗的洞底（雪被踩到底部 → 露出下面的冻土颜色）
-            DrawSetTransform(Vector2.Zero, 0, new Vector2(9f, 4f) * depthMul);
+            DrawSetTransform(at, p.Rot, new Vector2(9f, 4f) * depthMul);
             DrawCircle(Vector2.Zero, 1f, new Color(0.22f, 0.24f, 0.26f, 0.55f * a));
-            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
             // 第 2 层：压实雪层（鞋跟部分更深——heel stamp）
-            DrawSetTransform(Vector2.Zero, 0, new Vector2(7.5f, 4.2f) * depthMul);
+            DrawSetTransform(at, p.Rot, new Vector2(7.5f, 4.2f) * depthMul);
             DrawCircle(new Vector2(0.2f * p.Side, -0.5f), 1.1f, new Color(0.36f, 0.39f, 0.42f, 0.50f * a));
-            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
             // 第 3 层：鞋整体轮廓（椭圆 = 靴底压实雪）
-            DrawSetTransform(Vector2.Zero, 0, new Vector2(8f + p.SpeedMag * 0.02f, 4.6f) * depthMul);
+            DrawSetTransform(at, p.Rot, new Vector2(8f + p.SpeedMag * 0.02f, 4.6f) * depthMul);
             DrawCircle(Vector2.Zero, 1f, new Color(0.50f, 0.53f, 0.56f, 0.40f * a));
-            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+            DrawSetTransform(at, p.Rot, Vector2.One);
 
             // 第 4 层：靴底纹路弧（3 条横线 → 军靴纹路），只在年轻脚印可见
             if (k < 0.5f)
@@ -196,8 +202,8 @@ public partial class FootprintLayer : Node2D
                 DrawCircle(new Vector2(1.0f * p.Side, 3.0f * depthMul), 1.2f,
                     new Color(0.92f, 0.94f, 0.96f, rimAlpha * 0.5f));
             }
-
-            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
+
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }

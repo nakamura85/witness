@@ -30,6 +30,7 @@ public static class ChromaKey
         var img = LoadCropped(resPath, cropR, cropB, maxSize);
         if (img == null) return null;
         FloodKey(img, 0.78f);
+        KeyEnclosedWhite(img, 0.80f, 90);
         img = Trim(img);
         ApplyPaperTint(img);   // v0.5d2：建筑 cutout 也走纸色调，不然风格跟场景不统一
         img = AddStroke(img, StrokeRadius);
@@ -181,10 +182,64 @@ public static class ChromaKey
         return img.GetRegion(new Rect2I(x0, y0, x1 - x0 + 1, y1 - y0 + 1));
     }
 
-    /// <summary>从四边出发的 flood fill：把与边缘连通的近白像素置为透明。</summary>
-    private static void FloodKey(Image img, float thresh)
+    /// <summary>
+    /// After the edge flood fill, any leftover blob of near-white pixels is an
+    /// enclosed background pocket the fill cannot reach (the gap between the
+    /// rifle sling, arm and coat = that cream sticker under the gun). Clear
+    /// whole components, but only when they are big enough not to be eyes or
+    /// small highlights.
+    /// </summary>
+    private static void KeyEnclosedWhite(Image img, float thresh, int minPx)
     {
         int w = img.GetWidth(), h = img.GetHeight();
+        var comp = new int[w * h];
+        var stack = new Stack<int>();
+        var members = new List<int>();
+        bool touchBorder = false;
+        int nextId = 1;
+
+        for (int start = 0; start < w * h; start++)
+        {
+            if (comp[start] != 0) continue;
+            var c0 = img.GetPixel(start % w, start / w);
+            if (c0.A <= 0.05f || c0.R < thresh || c0.G < thresh || c0.B < thresh) continue;
+
+            // collect one connected component of near-white opaque pixels
+            comp[start] = nextId;
+            stack.Push(start);
+            members.Clear();
+            touchBorder = false;
+            while (stack.Count > 0)
+            {
+                int i = stack.Pop();
+                members.Add(i);
+                int x = i % w, y = i / w;
+                if (x == 0 || y == 0 || x == w - 1 || y == h - 1) touchBorder = true;
+                for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (dx == 0 && dy == 0) continue;
+                    int nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                    int ni = ny * w + nx;
+                    if (comp[ni] != 0) continue;
+                    var c = img.GetPixel(nx, ny);
+                    if (c.A <= 0.05f || c.R < thresh || c.G < thresh || c.B < thresh) continue;
+                    comp[ni] = nextId;
+                    stack.Push(ni);
+                }
+            }
+            nextId++;
+
+            if (!touchBorder && members.Count >= minPx)
+                foreach (int i in members)
+                    img.SetPixel(i % w, i / w, new Color(1f, 1f, 1f, 0f));
+        }
+    }
+
+    /// <summary>从四边出发的 flood fill：把与边缘连通的近白像素置为透明。</summary>
+    private static void FloodKey(Image img, float thresh)
+    {        int w = img.GetWidth(), h = img.GetHeight();
         var seen = new bool[w * h];
         var stack = new Stack<int>();
 

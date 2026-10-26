@@ -20,7 +20,9 @@ public partial class JiangqiaoLevel : Node2D
     private readonly Main _main;
 
     public const float WorldW = 5200f;
-    public const float GroundY = 620f;
+    // walk line sits INSIDE the open snowfield, not on its top edge:
+    // boots, corpses and sandbag walls all sink into the white expanse (v2.5)
+    public const float GroundY = 655f;
 
     /// <summary>圆离散成多边形顶点（默认全圆，a0/a1 可画弧段）。</summary>
     internal static Vector2[] CircleVerts(float r, int n, float a0 = 0f, float a1 = Mathf.Tau)
@@ -132,20 +134,26 @@ public partial class JiangqiaoLevel : Node2D
     }
 
     /// <summary>
-    /// 村庄两排房：远排只是战争的布景（烧塌的骨架 / 远处残屋，进不去），
-    /// 近排三栋各种损毁程度——残破的、还算完整的、烧毁的——其中有的能进屋搜索。
-    /// 层次感：远排整体抬高一点（lift），画得小一点、淡一点。
+    /// Village in two rows: far row is pure war backdrop (collapsed bones /
+    /// distant ruins, cannot enter), near row got houses in all kinds of
+    /// damage state, some enterable for looting. Far row lifted up a bit
+    /// (lift > 0), drawn smaller and fainter. Layout purposely not tidy:
+    /// widths, gaps and damage levels all over the place, a few spots burnt
+    /// down to bare charred posts only, like the real Jiangqiao winter.
     /// </summary>
     private void BuildHouses()
     {
-        // —— 远排：布景残屋，不可进入（lift > 0 = 视觉上更远） ——
-        AddHouse("f1", 520f, "house_burned_near", 200f, false, 14f);
-        AddHouse("f2", 1180f, "house_skeleton_near", 215f, false, 16f);
-        AddHouse("f3", 3830f, "house_ruined_near", 220f, false, 12f);
+        // far row: scenery ruins, cannot enter (lift > 0 = reads further away)
+        AddHouse("f1", 460f + Jit(28), "house_posts", 190f, false, 14f);
+        AddHouse("f2", 1230f + Jit(42), "house_skeleton_near", 235f, false, 16f);
+        AddHouse("f4", 1680f + Jit(45), "house_posts", 145f, false, 19f);
+        AddHouse("f3", 3910f + Jit(35), "house_burned_near", 210f, false, 12f);
 
-        // —— 近排：可进入的搜索点（完整民居教玩家"完整的屋里反而有货"） ——
-        AddHouse("h1", 830f, "house_ruined_near", 320f, true, 0f);
-        AddHouse("h3", 1830f, "house_intact_near", 330f, true, 0f);
+        // near row: enterable loot spots, the intact one teaches players
+        // "the house that still looks whole got the goods" lah
+        AddHouse("h1", 845f + Jit(24), "house_ruined_near", 330f, true, 0f);
+        AddHouse("h3", 1885f + Jit(30), "house_intact_near", 312f, true, 0f);
+        AddHouse("h4", 3180f + Jit(45), "house_posts", 235f, false, 0f);
         AddHouse("h2", 2760f, "house_burned_near", 360f, true, 0f);
     }
 
@@ -226,8 +234,9 @@ public partial class JiangqiaoLevel : Node2D
         // 尸体（GroundArt 之上、玩家之下）：每场战役都有阵亡者
         AddCorpses();
 
-        // 脚印层（ZIndex 0，在 GroundArt(-1) 之上、玩家之前 AddChild → 画在玩家下面）
-        _game.AddChild(new FootprintLayer(this) { ZIndex = 0 });
+        // footprint layer at z -1: above the ground art but below corpse/player,
+        // prints kena stepped on by the body, not covering it
+        _game.AddChild(new FootprintLayer(this) { ZIndex = -1 });
 
         // 掩体沙袋在人之前（ZIndex 5，高于玩家 0 与敌兵 2），
         // 经过时人从垛子后面过，而不是站在垛子顶上。
@@ -820,10 +829,15 @@ public partial class JiangqiaoLevel : Node2D
             if (Mathf.Abs(dx) < best) { best = Mathf.Abs(dx); target = e; }
         }
 
-        // 子弹方向：优先指向鼠标瞄准点（让你"瞄哪打哪"），否则按朝向水平射出
+        // aim with the mouse but a bolt rifle fires flat: clamp the cone so
+        // the tracer never climbs into the sky when the cursor sits up high
         Vector2 dir = GetGlobalMousePosition() - origin;
-        if (dir.LengthSquared() < 4f) dir = new Vector2(faceRight ? 1f : -1f, 0f);
-        dir = dir.Normalized();
+        if (dir.LengthSquared() < 4f || Mathf.Abs(dir.X) < 8f)
+            dir = new Vector2(faceRight ? 1f : -1f, 0f);
+        float elev = Mathf.Atan2(dir.Y, Mathf.Abs(dir.X));
+        elev = Mathf.Clamp(elev, -0.26f, 0.16f);
+        float sx = Mathf.Sign(dir.X);
+        dir = new Vector2(sx * Mathf.Cos(elev), Mathf.Sin(elev));
 
         Vector2 end = origin + dir * 900f;
         if (target != null)
@@ -1872,7 +1886,7 @@ public partial class JiangqiaoLevel : Node2D
             for (int i = 0; i < 26; i++)
             {
                 float x = 60 + i * 190;
-                float y = 646 + (i % 3) * 12;
+                float y = GroundY + 26 + (i % 3) * 12;
                 DrawLine(new Vector2(x, y), new Vector2(x + 70, y + 8), new Color(0.72f, 0.78f, 0.82f, 0.35f), 1.4f, true);
             }
 
@@ -1953,22 +1967,55 @@ public partial class JiangqiaoLevel : Node2D
         private void DrawRailway()
         {
             var skip = new HashSet<int>(_railSkipIdx);
+            float railY = GroundY - 1f;
+
+            // ballast bed: packed darker snow with soft top edge, rails cannot
+            // just float on white paper
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(2380, railY + 2), new Vector2(WorldW + 60, railY + 2),
+                new Vector2(WorldW + 60, railY + 22), new Vector2(2380, railY + 22),
+            }, new Color(0.73f, 0.755f, 0.765f, 0.5f));
+            DrawLine(new Vector2(2380, railY + 2), new Vector2(WorldW + 60, railY + 2),
+                new Color(0.90f, 0.925f, 0.93f, 0.75f), 2.6f, true);
+
             int k = 0;
             for (float x = 2400; x < WorldW; x += 34, k++)
             {
                 if (skip.Contains(k)) continue;
-                // 枕木：先墨边描框再填木色 → 手绘漫画风
-                InkStyle.InkRect(this, new Rect2(x, 619, 22, 14),
-                    new Color(0.42f, 0.34f, 0.26f), InkStyle.InkColor, InkStyle.Stroke);
-                // 枕木阴影边（左下背光）
-                InkStyle.InkRect(this, new Rect2(x - 2, 627, 22, 6),
-                    new Color(0.26f, 0.20f, 0.14f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                // each sleeper got own height/brightness jitter (deterministic,
+                // picture stays stable between frames)
+                float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
+                float shade = 0.40f + 0.06f * Mathf.Sin(k * 3.7f);
+                var wood = new Color(shade, shade * 0.80f, shade * 0.60f);
+                var r = new Rect2(x, railY + 3 + jy, 22, 13);
+                // sleeper: ink frame then wood fill, the hand-drawn manga way
+                InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
+                // shadow edge, lower-left away from the light
+                InkStyle.InkRect(this, new Rect2(x - 2, r.Position.Y + 7, 22, 5),
+                    new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                // thin snow on the sleeper top for ~60% of them, phase-shifted
+                // so it don't read as a copied row
+                if (Mathf.Sin(k * 7.31f) > -0.2f)
+                    DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
+                        new Vector2(x + 20, r.Position.Y + 1.2f),
+                        new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
             }
-            // 钢轨：粗墨色线（先描深再填浅）
-            DrawLine(new Vector2(2400, 620), new Vector2(WorldW, 620), InkStyle.InkColor, InkStyle.BoldStroke, true);
-            DrawLine(new Vector2(2400, 632), new Vector2(WorldW, 632), InkStyle.InkColor, InkStyle.BoldStroke, true);
-            DrawLine(new Vector2(2400, 620), new Vector2(WorldW, 620), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
-            DrawLine(new Vector2(2400, 632), new Vector2(WorldW, 632), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
+
+            // two parallel rails: dark ink base + steel sheen + snow caps.
+            // snow sits in short patches, wind never piles it one straight line
+            foreach (float ry in new[] { railY, railY + 12 })
+            {
+                DrawLine(new Vector2(2400, ry), new Vector2(WorldW, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
+                DrawLine(new Vector2(2400, ry), new Vector2(WorldW, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
+                // 轨顶积雪：短促的亮段（不是通条白线，雪是被风一段段吹积的）
+                for (float sx = 2420; sx < WorldW; sx += 88)
+                {
+                    float seg = 14f + Mathf.Sin(sx * 0.07f) * 8f;
+                    DrawLine(new Vector2(sx, ry - 1.2f), new Vector2(sx + seg, ry - 1.2f),
+                        new Color(0.96f, 0.97f, 0.97f, 0.85f), 2.4f, true);
+                }
+            }
         }
 
         private void DrawCraters()
