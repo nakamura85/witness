@@ -165,9 +165,11 @@ public partial class SpriteActor : Node2D
             _aimTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_aim.jpg", 0.03f, 0.05f);
             _crouchTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_crouch.jpg", 0.03f, 0.05f);
             _proneTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_prone.jpg", 0.03f, 0.05f);
+            // 蹲：跪姿真实高度比 0.74（同一个人只是姿势变矮，头/装备不缩小）
+            // 趴：按身体长度=站立身高定缩放（趴下身长不变，横向贴地）
             if (_aimTex != null) _aimS = Height / _aimTex.GetSize().Y;
-            if (_crouchTex != null) _crouchS = Height * 0.62f / _crouchTex.GetSize().Y;
-            if (_proneTex != null) _proneS = Height * 0.30f / _proneTex.GetSize().Y;
+            if (_crouchTex != null) _crouchS = Height * 0.74f / _crouchTex.GetSize().Y;
+            if (_proneTex != null) _proneS = Height / _proneTex.GetSize().X;
             _pose = new Sprite2D { Centered = false, Visible = false, Material = _mat };
             _flip.AddChild(_pose);
         }
@@ -387,9 +389,9 @@ public partial class SpriteActor : Node2D
         float shadowScaleX, shadowScaleY;
         if (Prone)
         {
-            // 匍匐：影子沿身体拉长（腿在身后拖行）
-            DrawSetTransform(new Vector2(-Facing * Height * 0.20f, -2), 0,
-                new Vector2(2.4f, 0.28f));
+            // 匍匐：影子沿身体拉长（身长=站立身高，中心随 pox 偏移前移）
+            DrawSetTransform(new Vector2(Facing * Height * 0.17f, -2), 0,
+                new Vector2(3.1f, 0.30f));
         }
         else if (Crouched)
         {

@@ -738,31 +738,84 @@ public partial class JiangqiaoLevel : Node2D
             }
         }
 
+        // generated backdrop art, same watercolor manga style, one texture per layer
+        private readonly System.Collections.Generic.Dictionary<string, Texture2D> _texCache = new();
+
+        public override void _Ready()
+        {
+            // preload so first _Draw never hitches
+            foreach (var n in new[] { "mountains", "village", "tree_elm", "tree_birch", "willow", "grass" })
+                Tex(n);
+        }
+
+        private Texture2D Tex(string name)
+        {
+            if (_texCache.TryGetValue(name, out var t)) return t;
+            t = GD.Load<Texture2D>($"res://assets/art/backdrop/{name}.png");
+            _texCache[name] = t;
+            return t;
+        }
+
+        // ground-anchored sprite: baseCenter = bottom-middle, h = world height
+        private void Sprite(string name, Vector2 baseCenter, float h, float alpha = 1f, bool flip = false)
+        {
+            var t = Tex(name);
+            if (t == null || h <= 0f) return;
+            var sz = t.GetSize();
+            float w = sz.X / sz.Y * h;
+            var col = new Color(1f, 1f, 1f, alpha);
+            if (flip)
+            {
+                DrawSetTransform(new Vector2(baseCenter.X, baseCenter.Y), 0, new Vector2(-1f, 1f));
+                DrawTextureRect(t, new Rect2(-w * 0.5f, -h, w, h), false, col);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+            else
+            {
+                DrawTextureRect(t, new Rect2(baseCenter.X - w * 0.5f, baseCenter.Y - h, w, h), false, col);
+            }
+        }
+
         // —— 远山：三层山脊，越远越淡（空气透视），山脊线用值噪声做出真锯齿 ——
         private static Rect2 Full(float x, float y, float h) => new(x, y, WorldW + 3800f, h);
 
         private void DrawFar()
         {
-            // 三层山脊用不透明色填充、靠明度拉开距离。
-            // （半透明填充会让亮天空从山体里透出来，山就会变成一团“雾”）
-            var far = new Color(0.60f, 0.66f, 0.70f);
-            var mid = new Color(0.47f, 0.54f, 0.60f);
-            var near = new Color(0.35f, 0.42f, 0.48f);
-
-            Ridge(448f, 104f, far, 1.3f, 0.0085f, 0.042f);
-            // 远脊上压一层天空色，做空气透视（必须紧接着远脊画，
-            // 否则它会把后面画的中脊、近脊也一起罩上一层白）
-            Ridge(448f, 104f, new Color(0.80f, 0.84f, 0.84f, 0.20f), 1.3f, 0.0085f, 0.042f);
-
-            var r1 = Ridge(492f, 76f, mid, 3.7f, 0.0110f, 0.058f);
-            var r2 = Ridge(524f, 48f, near, 6.1f, 0.0160f, 0.078f);
-
-            // 雪只挂在最高的山尖（局部最高点才画，不是整条脊线）
-            RidgeSnow(r1, new Color(0.93f, 0.96f, 0.97f, 0.10f), lineW: 1.4f, lenMax: 1);
-            RidgeSnow(r2, new Color(0.88f, 0.92f, 0.94f, 0.05f), lineW: 1.2f, lenMax: 1);
-            // 山脊雪线：把两道前脊顶部的雪帽连成一片，避免"白点散落"的怪感
-            CrestLine(r1, new Color(0.95f, 0.97f, 0.98f, 0.55f), 1.6f);
-            CrestLine(r2, new Color(0.92f, 0.95f, 0.96f, 0.45f), 1.3f);
+            // far range: generated watercolor panorama, mirror-tiled so seams match
+            var mtn = Tex("mountains");
+            if (mtn != null)
+            {
+                float h = 296f;
+                float tileW = mtn.GetSize().X / mtn.GetSize().Y * h;
+                float baseY = 570f;
+                int idx = 0;
+                for (float x = -1400f; x < WorldW + 2400f; x += tileW, idx++)
+                {
+                    if (idx % 2 == 1)
+                    {
+                        DrawSetTransform(new Vector2(x + tileW * 0.5f, baseY), 0, new Vector2(-1f, 1f));
+                        DrawTextureRect(mtn, new Rect2(-tileW * 0.5f, -h, tileW, h), false);
+                        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    }
+                    else
+                    {
+                        DrawTextureRect(mtn, new Rect2(x, baseY - h, tileW, h), false);
+                    }
+                }
+            }
+            else
+            {
+                // fallback: procedural ridges if the texture ever goes missing
+                var far = new Color(0.60f, 0.66f, 0.70f);
+                Ridge(448f, 104f, far, 1.3f, 0.0085f, 0.042f);
+                Ridge(448f, 104f, new Color(0.80f, 0.84f, 0.84f, 0.20f), 1.3f, 0.0085f, 0.042f);
+                var r1 = Ridge(492f, 76f, new Color(0.47f, 0.54f, 0.60f), 3.7f, 0.0110f, 0.058f);
+                var r2 = Ridge(524f, 48f, new Color(0.35f, 0.42f, 0.48f), 6.1f, 0.0160f, 0.078f);
+                RidgeSnow(r1, new Color(0.93f, 0.96f, 0.97f, 0.10f), lineW: 1.4f, lenMax: 1);
+                RidgeSnow(r2, new Color(0.88f, 0.92f, 0.94f, 0.05f), lineW: 1.2f, lenMax: 1);
+                CrestLine(r1, new Color(0.95f, 0.97f, 0.98f, 0.55f), 1.6f);
+                CrestLine(r2, new Color(0.92f, 0.95f, 0.96f, 0.45f), 1.3f);
+            }
 
             // 山脚雾：一条窄带，只把山脚和雪原接起来
             var haze = VGradient(new Color(0.82f, 0.86f, 0.87f, 0f), new Color(0.82f, 0.86f, 0.87f, 0.72f));
@@ -891,159 +944,26 @@ public partial class JiangqiaoLevel : Node2D
                     new Color(0.62f, 0.69f, 0.73f, 0.10f), 3f + (i % 3), true);
             }
 
-            // 村落：东北土坯房（夯土墙+木板瓦双坡顶+烟囱），压低、被雪埋住墙脚
+            // village cluster: generated watercolor art, mirror alternate
             float[] villages = { -760, 260, 690, 2520, 3000, 4180, 4590 };
             for (int i = 0; i < villages.Length; i++)
-            {
-                float x = villages[i];
-                float w = 74 + (i % 3) * 22;        // 屋宽
-                float wallH = 34 + (i % 2) * 10;    // 墙高
-                float roofH = 30 + (i % 3) * 8;     // 屋顶三角高度
-                float baseY = 566f;
-                float wallTop = baseY - wallH;
-                float ridgeX = x;
-                float ridgeY = wallTop - roofH;
-                float eavesL = x - w * 0.58f;       // 屋檐左端
-                float eavesR = x + w * 0.58f;       // 屋檐右端
+                Sprite("village", new Vector2(villages[i], 568f),
+                    90f + (i % 3) * 11f, 1f, flip: i % 2 == 1);
 
-                // === 1. 土坯墙（黄褐色夯土，厚墙有横纹）===
-                // 墙面主体（先填色再墨边）
-                InkStyle.InkRect(this, new Rect2(x - w * 0.42f, wallTop, w * 0.84f, wallH),
-                    InkStyle.AdobeWall, InkStyle.InkColor, InkStyle.BoldStroke);
-                // 夯土横向纹理（3层浅横线，模拟层层夯土）
-                for (int h = 1; h <= 3; h++)
-                {
-                    float ly = wallTop + wallH * h * 0.25f;
-                    DrawLine(new Vector2(x - w * 0.41f, ly), new Vector2(x + w * 0.41f, ly),
-                        InkStyle.AdobeWallShadow, InkStyle.ThinStroke, true);
-                }
-                // 墙面背光带（左侧一条暗面——冬日太阳在画面右上，光从右来）
-                DrawRect(new Rect2(x - w * 0.42f, wallTop, 5f, wallH),
-                    new Color(InkStyle.AdobeWallShadow, 0.6f));
-                // 墙脚埋雪（土坯墙下半截被雪埋，只剩上半截露着）
-                DrawColoredPolygon(new[]
-                {
-                    new Vector2(x - w * 0.42f, baseY - wallH * 0.35f),
-                    new Vector2(x + w * 0.42f, baseY - wallH * 0.35f),
-                    new Vector2(x + w * 0.45f, baseY + 2f),
-                    new Vector2(x - w * 0.45f, baseY + 2f),
-                }, new Color(0.90f, 0.92f, 0.92f));
-
-                // === 2. 窗户（小窗，糊纸或玻璃，有的亮暖光）===
-                // 左右两个小窗（对称）
-                float winY = wallTop + wallH * 0.32f;
-                float winW = 10f, winH = 12f;
-                float winLeft = x - w * 0.22f - winW * 0.5f;
-                float winRight = x + w * 0.22f - winW * 0.5f;
-                foreach (float wx in new[] { winLeft, winRight })
-                {
-                    // 窗框（墨边）
-                    InkStyle.InkRect(this, new Rect2(wx, winY, winW, winH),
-                        new Color(0.55f, 0.44f, 0.32f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                    // 糊纸/玻璃
-                    bool hasLight = (i == 2 || i == 4 || (i + 2) % 5 == 0);
-                    if (hasLight)
-                        DrawRect(new Rect2(wx + 1, winY + 1, winW - 2, winH - 2),
-                            InkStyle.WindowGlow);
-                    else
-                        DrawRect(new Rect2(wx + 1, winY + 1, winW - 2, winH - 2),
-                            new Color(0.82f, 0.80f, 0.72f));
-                }
-
-                // === 3. 门（矮门，深色，在中间偏右）===
-                float doorW = 12f, doorH = wallH * 0.55f;
-                float doorX = x + w * 0.05f;
-                float doorY = wallTop + wallH - doorH;
-                InkStyle.InkRect(this, new Rect2(doorX, doorY, doorW, doorH),
-                    new Color(0.28f, 0.20f, 0.12f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                DrawLine(new Vector2(doorX, doorY), new Vector2(doorX + doorW, doorY),
-                    InkStyle.InkColor, InkStyle.ThinStroke, true);
-
-                // === 4. 木板瓦双坡屋顶（深棕，有竖向瓦片线）===
-                var roofTri = new[]
-                {
-                    new Vector2(eavesL, wallTop),
-                    new Vector2(ridgeX, ridgeY),
-                    new Vector2(eavesR, wallTop),
-                };
-                // 屋顶主体（先填色再墨边）
-                InkStyle.PenStroke(this, roofTri, InkStyle.PlankRoof, InkStyle.InkColor, InkStyle.BoldStroke);
-                // 屋顶暗面（左半侧背阴——太阳在画面右上，右坡受光、左坡背光）
-                var roofShadow = new[]
-                {
-                    new Vector2(ridgeX, ridgeY),
-                    new Vector2(eavesL, wallTop),
-                    new Vector2(ridgeX - 6f, wallTop),
-                };
-                DrawColoredPolygon(roofShadow, InkStyle.PlankRoofShadow);
-                // 木板瓦竖向纹理（屋顶上每隔 10px 一条细线，模拟瓦缝）
-                // 左坡
-                for (float px = eavesL + 8f; px < ridgeX; px += 10f)
-                {
-                    float t = (px - eavesL) / (ridgeX - eavesL);
-                    float py = Mathf.Lerp(wallTop, ridgeY, t);
-                    DrawLine(new Vector2(px, wallTop), new Vector2(ridgeX + (px - ridgeX), ridgeY),
-                        InkStyle.InkSoft, 0.7f, true);
-                }
-                // 右坡
-                for (float px = ridgeX + 8f; px < eavesR; px += 10f)
-                {
-                    float t = (px - ridgeX) / (eavesR - ridgeX);
-                    float py = Mathf.Lerp(ridgeY, wallTop, t);
-                    DrawLine(new Vector2(px, wallTop), new Vector2(ridgeX + (px - ridgeX) * 0.5f, ridgeY),
-                        InkStyle.InkSoft, 0.7f, true);
-                }
-
-                // === 5. 屋顶积雪帽（覆盖三角屋顶上半）===
-                var snowCap = new[]
-                {
-                    new Vector2(eavesL - 4f, wallTop + 2f),
-                    new Vector2(ridgeX, ridgeY - 3f),
-                    new Vector2(eavesR + 4f, wallTop + 2f),
-                    new Vector2(eavesR, wallTop + 5f),
-                    new Vector2(ridgeX, ridgeY + 2f),
-                    new Vector2(eavesL, wallTop + 5f),
-                };
-                DrawColoredPolygon(snowCap, new Color(0.92f, 0.94f, 0.94f, 0.95f));
-                // 雪帽的墨色边缘
-                DrawPolyline(new[] { snowCap[0], snowCap[1], snowCap[2] },
-                    new Color(0.28f, 0.30f, 0.30f, 0.35f), InkStyle.ThinStroke, true);
-
-                // === 6. 砖烟囱（在屋顶右坡上）===
-                float chimX = ridgeX + (eavesR - ridgeX) * 0.35f;
-                float chimTop = ridgeY - 18f;
-                float chimBot = wallTop + 2f;
-                InkStyle.InkRect(this, new Rect2(chimX - 4f, chimTop, 8f, chimBot - chimTop),
-                    InkStyle.Chimney, InkStyle.InkSoft, InkStyle.ThinStroke);
-                // 烟囱砖纹（2条横向细线）
-                DrawLine(new Vector2(chimX - 4f, chimTop + 10f), new Vector2(chimX + 4f, chimTop + 10f),
-                    InkStyle.InkSoft, 0.6f, true);
-                DrawLine(new Vector2(chimX - 4f, chimTop + 20f), new Vector2(chimX + 4f, chimTop + 20f),
-                    InkStyle.InkSoft, 0.6f, true);
-                // 烟囱口积雪
-                DrawRect(new Rect2(chimX - 5f, chimTop - 3f, 10f, 4f), new Color(0.94f, 0.96f, 0.96f));
-            }
-
-            // 枯树线（史实：嫩江江桥地处松嫩平原，当地是蒙古黄榆/小叶杨/旱柳等落叶阔叶树，
-            // 11 月叶子全部落光只剩枝桠；白桦零星混排，平原没有成片针叶林）
-            // 树间距随机化（90-150px），高度差异 ±50%，每棵形态随机
-            // 种子固定：_Draw 每帧都会执行，绝不能 Randomize()——否则整排树每帧换形态
+            // mid tree line: generated birch/elm sprites, fixed seed layout
             var midTreeRng = new RandomNumberGenerator();
             midTreeRng.Seed = 19311104;
             float tx = -1400f;
             while (tx < WorldW + 1200)
             {
-                float gap = 90f + midTreeRng.Randf() * 60f;   // 随机间距 90-150px
-                float rot = midTreeRng.RandfRange(-8f, 8f);   // 随机倾斜 ±8°
-                float hBase = 32f + midTreeRng.Randf() * 40f; // 随机高度 32-72px
-                float kind = midTreeRng.Randf();
-                if (kind < 0.22f)
-                    Birch(tx, 578, hBase * 1.15f, 0.62f);
-                else if (kind < 0.48f)
-                    Tree(tx, 578, hBase * 0.9f, new Color(0.34f, 0.36f, 0.36f, 0.55f), 2.2f);
+                float gap = 90f + midTreeRng.Randf() * 60f;
+                float hBase = 30f + midTreeRng.Randf() * 42f;
+                if (midTreeRng.Randf() < 0.30f)
+                    Sprite("tree_birch", new Vector2(tx, 578f), hBase * 1.5f, 0.72f,
+                        flip: midTreeRng.Randf() < 0.5f);
                 else
-                    BareTree(tx, 578, hBase * (1.1f + midTreeRng.Randf() * 0.9f),
-                        new Color(0.33f, 0.34f, 0.33f, 0.62f), 2.6f, rot);
+                    Sprite("tree_elm", new Vector2(tx, 578f), hBase, 0.75f,
+                        flip: midTreeRng.Randf() < 0.5f);
                 tx += gap;
             }
 
@@ -1071,33 +991,25 @@ public partial class JiangqiaoLevel : Node2D
         // —— 近景：枯树带、灌木柳丛、雪坎、铁丝网、废车（一律低于人物腰部，绝不遮脸）——
         private void DrawNear()
         {
-            // 近景树带（史实：松嫩平原 11 月的落叶枯树与沿江灌木柳丛——
-            // 高度 55-118px 互不相同，倾斜随机，且留有 15% 空缺：平原上树木本就稀疏）
+            // near band: generated elm / willow sprites, fixed seed, sparse gaps
             var nearRng = new RandomNumberGenerator();
-            nearRng.Seed = 19311105;   // 固定种子：否则近景树带每帧重排
+            nearRng.Seed = 19311105;
             float nx = -1400f;
             while (nx < WorldW + 1200)
             {
-                float gap = 280f + nearRng.Randf() * 140f;   // 随机间距 280-420px
+                float gap = 280f + nearRng.Randf() * 140f;
                 float kind = nearRng.Randf();
                 if (kind < 0.5f)
-                {
-                    float nh = 55f + nearRng.Randf() * 63f;      // 高度差异大
-                    float nRot = nearRng.RandfRange(-7f, 7f);    // 随机倾斜 ±7°
-                    BareTree(nx, 672, nh, new Color(0.23f, 0.22f, 0.20f), 4.4f, nRot);
-                    DrawSetTransform(new Vector2(nx, 670), 0, new Vector2(2f, 0.30f));
-                    DrawCircle(Vector2.Zero, 20f, new Color(0.95f, 0.96f, 0.96f, 0.8f));
-                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-                }
+                    Sprite("tree_elm", new Vector2(nx, 672f), 60f + nearRng.Randf() * 60f, 1f,
+                        flip: nearRng.Randf() < 0.5f);
                 else if (kind < 0.85f)
-                {
-                    WillowClump(nx, 672, 24f + nearRng.Randf() * 24f);
-                }
-                nx += gap;  // 随机间距推进（缺失会导致死循环画树直到渲染服务器爆掉）
+                    Sprite("willow", new Vector2(nx, 672f), 26f + nearRng.Randf() * 22f, 1f,
+                        flip: nearRng.Randf() < 0.5f);
+                nx += gap;
             }
-            // 三棵更高的孤树（110-160px，打破节奏，互不相同）
+            // three taller lone trees to break the rhythm
             foreach (var (tx2, th) in new[] { (-820f, 138f), (2460f, 112f), (4900f, 158f) })
-                BareTree(tx2, 676, th, new Color(0.24f, 0.23f, 0.21f), 5.4f, tx2 > 0 ? 4f : -5f);
+                Sprite("tree_elm", new Vector2(tx2, 676f), th, 1f, flip: tx2 < 0f);
 
             // 雪坎：软边（三层同心椭圆），不是一个个白泡泡
             for (int i = 0; i < 22; i++)
@@ -1267,43 +1179,18 @@ public partial class JiangqiaoLevel : Node2D
             DrawPolyline(crest.Select(p => p + new Vector2(0, 10)).ToArray(),
                 new Color(0.70f, 0.75f, 0.78f, 0.35f), 8f, true);
 
-            // 芦苇：雪地场景只露尖端（被雪埋了大部分！），成簇三角叶片（枯草黄色，不是黑线）
-            // 芦苇不做时间风摆（同树：静止不动），只有每簇固定的姿态差
-            Color reedBase = new Color(0.42f, 0.38f, 0.28f);    // 枯草黄褐
-            Color reedTip = new Color(0.62f, 0.58f, 0.44f);     // 顶部稍浅
+            // snow grass: generated tuft clusters, tips only above the snow line
             var reedRng = new RandomNumberGenerator();
-            reedRng.Seed = 19311106;   // 固定种子：否则芦苇每帧换形状（= 雪地里乱跳的"鬼畜草"）
+            reedRng.Seed = 19311106;
             for (int i = 0; i < 30; i++)
             {
-                // 随机间距 320-480px（不是固定 380）
                 float x = -1350 + i * 340 + Mathf.Sin(i * 2.3f) * 82f + reedRng.RandfRange(-30f, 30f);
                 float baseY = 722 + Mathf.Sin(x * 0.006f) * 9f;
-                // 雪地场景！芦苇只露尖端：高度 18-34px（不是 48-86px！）
-                float h = 18f + reedRng.Randf() * 16f;
-                // 每簇 3-5 片（冬天芦苇更稀疏）
-                int blades = 3 + Mathf.FloorToInt(reedRng.Randf() * 3f);
-                for (int b = 0; b < blades; b++)
-                {
-                    float dx = (b - blades * 0.5f) * 4.5f + Mathf.Sin(b * 1.7f) * 1.5f;
-                    float lean = Mathf.Sin(i * 1.1f + b * 0.6f) * 6f;
-                    float tipX = x + dx + lean;
-                    float tipY = baseY - h - (b % 3) * 4f;
-                    float midX = x + dx * 1.2f + lean * 0.3f;
-                    float midY = baseY - h * 0.55f;
-                    var blade = Curved(new Vector2(x + dx - 1.5f, baseY), new Vector2(midX - 0.8f, midY), new Vector2(tipX, tipY), 5);
-                    var blade2 = Curved(new Vector2(x + dx + 1.5f, baseY), new Vector2(midX + 0.8f, midY), new Vector2(tipX, tipY), 5);
-                    var fill = new List<Vector2>(blade);
-                    fill.AddRange(blade2.AsEnumerable().Reverse());
-                    float t = (float)b / blades;
-                    Color bladeColor = reedBase.Lerp(reedTip, t);
-                    DrawColoredPolygon(fill.ToArray(), bladeColor);
-                    DrawPolyline(blade, InkStyle.InkSoft, InkStyle.ThinStroke, true);
-                    DrawPolyline(blade2, InkStyle.InkSoft, InkStyle.ThinStroke, true);
-                }
-                // 根部的雪团（压在雪里的根部——雪地场景必须有！）
-                DrawSetTransform(new Vector2(x, baseY + 1f), 0, new Vector2(2f, 0.3f));
-                DrawCircle(Vector2.Zero, 12f, new Color(0.96f, 0.97f, 0.97f, 0.7f));
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                Sprite("grass", new Vector2(x, baseY + 3f), 24f + reedRng.Randf() * 14f, 0.95f,
+                    flip: reedRng.Randf() < 0.5f);
+                if (i % 2 == 0)
+                    Sprite("grass", new Vector2(x + 70f, baseY + 4f), 16f + reedRng.Randf() * 10f, 0.85f,
+                        flip: reedRng.Randf() >= 0.5f);
             }
         }
 
