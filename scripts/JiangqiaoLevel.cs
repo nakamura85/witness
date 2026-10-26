@@ -1346,6 +1346,14 @@ public partial class JiangqiaoLevel : Node2D
 
         public GroundArt(JiangqiaoLevel l) { _l = l; }
 
+        private Texture2D _crateTex;
+        private Texture2D CrateTex()
+        {
+            if (_crateTex == null)
+                _crateTex = GD.Load<Texture2D>("res://assets/art/props/crate.png");
+            return _crateTex;
+        }
+
         public override void _Ready()
         {
             var rng = new RandomNumberGenerator();
@@ -1654,25 +1662,20 @@ public partial class JiangqiaoLevel : Node2D
                 new Vector2(1120, GroundY + 9), new Vector2(1700, GroundY + 10),
             }, new Color(0.97f, 0.98f, 0.98f, 0.55f), 3f, true);
 
-            // 战壕边的木箱、弹药箱
-            foreach (float x in new[] { 620f, 1030f, 2470f, 3690f })
+            // trench-side ammo crates, generated watercolor sprite now
+            var crate = CrateTex();
+            if (crate != null)
             {
-                // 接触阴影：箱子是“压进雪里”的，不是一个色块贴在雪面上。
-                // 投影偏向左下（太阳在画面右上）
-                DrawSetTransform(new Vector2(x + 12f, GroundY - 1f), 0, new Vector2(1f, 0.24f));
-                DrawCircle(Vector2.Zero, 20.5f, new Color(0.13f, 0.14f, 0.15f, 0.32f));
-                DrawCircle(new Vector2(-4f, 0f), 12.5f, new Color(0.11f, 0.12f, 0.13f, 0.24f));
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-
-                DrawRect(new Rect2(x, GroundY - 26, 30, 26), new Color(0.44f, 0.36f, 0.24f));
-                // 顶面受光一档，箱体才有上下的厚度
-                DrawRect(new Rect2(x, GroundY - 26, 30, 4), new Color(0.55f, 0.46f, 0.31f));
-                DrawLine(new Vector2(x, GroundY - 18), new Vector2(x + 30, GroundY - 18), new Color(0.28f, 0.23f, 0.16f), 1.4f, true);
-                // 箱盖积雪
-                DrawLine(new Vector2(x + 2, GroundY - 26.6f), new Vector2(x + 28, GroundY - 26.6f), new Color(0.90f, 0.93f, 0.94f, 0.82f), 2.2f, true);
-                // 箱底把雪压出一圈高光接缝
-                DrawLine(new Vector2(x + 1, GroundY - 0.8f), new Vector2(x + 29, GroundY - 0.8f), new Color(0.87f, 0.90f, 0.92f, 0.40f), 1.6f, true);
-                DrawRect(new Rect2(x, GroundY - 26, 30, 26), new Color(0.22f, 0.19f, 0.15f), false, 1.4f);
+                var csz = crate.GetSize();
+                foreach (float x in new[] { 620f, 1030f, 2470f, 3690f })
+                {
+                    float ch = 30f;
+                    float cw = ch * csz.X / csz.Y;
+                    DrawSetTransform(new Vector2(x + 10f, GroundY - 1f), 0, new Vector2(1f, 0.24f));
+                    DrawCircle(Vector2.Zero, cw * 0.55f, new Color(0.13f, 0.14f, 0.15f, 0.32f));
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    DrawTextureRect(crate, new Rect2(x + 8f - cw * 0.5f, GroundY - ch, cw, ch), false);
+                }
             }
 
             // 散落的钢盔与断枪（不指向尸体，只留物）
@@ -1772,9 +1775,7 @@ public partial class JiangqiaoLevel : Node2D
         }
 
         private StackSpec[] _stacks = System.Array.Empty<StackSpec>();
-        private SackSeed[][] _sackSeeds = new SackSeed[0][];
-
-        private struct SackSeed { public float Tilt; public float SnowExtra; public float ArcK; public float ColorVar; }
+        private Texture2D _sackTex;
 
         public override void _Ready()
         {
@@ -1782,7 +1783,6 @@ public partial class JiangqiaoLevel : Node2D
             rng.Randomize();
             float[] bases = { 980f, 2320f, 3580f, 4160f, 4388f };
             var list = new List<StackSpec>();
-            var seedsList = new List<SackSeed[]>();
             for (int i = 0; i < bases.Length; i++)
             {
                 bool isBridge = i == bases.Length - 1;
@@ -1796,112 +1796,40 @@ public partial class JiangqiaoLevel : Node2D
                     RowH = 13f + rng.RandfRange(-2f, 2f),
                     K = isBridge ? 1f + rng.RandfRange(-0.05f, 0.05f) : 1.05f + rng.RandfRange(-0.06f, 0.06f),
                 });
-                // 预先生成这一垛每个沙袋的随机微扰（每 row×i 一个）
-                var seeds = new List<SackSeed>();
-                int maxCells = 3 * 6;  // 足够大
-                for (int c = 0; c < maxCells; c++)
-                    seeds.Add(new SackSeed
-                    {
-                        Tilt = rng.RandfRange(-0.04f, 0.04f),
-                        SnowExtra = rng.RandfRange(-1.2f, 1.6f),
-                        ArcK = rng.RandfRange(0.88f, 1.12f),
-                        ColorVar = rng.Randf(),  // 逐袋色差，避免所有沙包一个色
-                    });
-                seedsList.Add(seeds.ToArray());
             }
             _stacks = list.ToArray();
-            _sackSeeds = seedsList.ToArray();
+            _sackTex = GD.Load<Texture2D>("res://assets/art/props/sandbags.png");
         }
 
         public override void _Draw()
         {
-            for (int s = 0; s < _stacks.Length; s++)
-                Stack(_stacks[s], _sackSeeds[s]);
-        }
+            if (_sackTex == null) return;
+            var sz = _sackTex.GetSize();
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                var s = _stacks[i];
+                float w = (s.Cols - 1) * s.Dx + 26f;
+                float h = Mathf.Min(w * sz.Y / sz.X, 44f * s.K);
+                float ww = h * sz.X / sz.Y;
+                float cx = s.X + w * 0.5f;
 
-        private void Stack(StackSpec s, SackSeed[] seeds)
-        {
-            float w = (s.Cols - 1) * s.Dx + 20f;
-            DrawSetTransform(new Vector2(s.X + w * 0.5f, GroundY - 1f), 0, new Vector2(1f, 0.22f));
-            DrawCircle(Vector2.Zero, w * 0.56f, new Color(0.13f, 0.14f, 0.15f, 0.30f));
-            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                DrawSetTransform(new Vector2(cx, GroundY - 1f), 0, new Vector2(1f, 0.22f));
+                DrawCircle(Vector2.Zero, ww * 0.60f, new Color(0.13f, 0.14f, 0.15f, 0.30f));
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
-            int si = 0;
-            for (int row = 0; row < 3; row++)
-                for (int i = 0; i < s.Cols - row; i++)
+                bool flip = i % 2 == 1;
+                var col = new Color(1f, 1f, 1f, 1f);
+                if (flip)
                 {
-                    var c = new Vector2(s.X + i * s.Dx + row * s.RowShift, s.BaseY - row * s.RowH);
-                    float baseTilt = (row + i) % 2 == 0 ? 0.055f : -0.065f;
-                    Sack(c, baseTilt + seeds[si].Tilt, s.K, seeds[si]);
-                    si++;
+                    DrawSetTransform(new Vector2(cx, GroundY + 1f), 0, new Vector2(-1f, 1f));
+                    DrawTextureRect(_sackTex, new Rect2(-ww * 0.5f, -h, ww, h), false, col);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
-        }
-
-        private void Sack(Vector2 c, float tilt, float k, SackSeed sd)
-        {
-            DrawSetTransform(c, tilt, new Vector2(1.55f * k, 0.70f * k));
-
-            // 1. 接触阴影（底下的暗圈）
-            DrawSetTransform(new Vector2(0, 0.8f / k / 0.7f), 0, new Vector2(1.3f, 0.3f));
-            DrawCircle(Vector2.Zero, 14f, InkStyle.GroundShadow);
-            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-
-            // 2. 沙包主体（横向扁平胶囊形，模拟真实缝制的沙包，不是圆盘！）
-            var body = new Vector2[]
-            {
-                new Vector2(-14f, -6f),
-                new Vector2(-13f, -7f),
-                new Vector2(-11f, -7.5f),
-                new Vector2(-9f, -7.8f),
-                new Vector2(0f, -8f),        // 顶部中间（鼓起来）
-                new Vector2(9f, -7.8f),
-                new Vector2(11f, -7.5f),
-                new Vector2(13f, -7f),
-                new Vector2(14f, -6f),
-                new Vector2(14f, 0f),        // 右端点
-                new Vector2(13.5f, 4f),
-                new Vector2(12f, 6f),
-                new Vector2(10f, 7f),
-                new Vector2(0f, 8f),         // 底部中间（鼓起来）
-                new Vector2(-10f, 7f),
-                new Vector2(-12f, 6f),
-                new Vector2(-13.5f, 4f),
-                new Vector2(-14f, 0f),       // 左端点
-            };
-            // 逐袋色差：用sd里的随机值微调颜色，避免所有沙包一个色
-            Color sackColor = InkStyle.SackBase.Lerp(InkStyle.SackVariation, sd.ColorVar);
-            InkStyle.PenStroke(this, body, sackColor, InkStyle.InkColor, InkStyle.BoldStroke);
-
-            // 3. 中缝竖线（沙包从中间缝起来的线，真实细节！）
-            DrawLine(new Vector2(0f, -7f), new Vector2(0f, 7f), InkStyle.InkSoft, InkStyle.ThinStroke, true);
-            // 4. 横向褶皱线（沙子鼓起来的褶）
-            DrawArc(new Vector2(0f, 0f), 10f * k * sd.ArcK, Mathf.Pi * 0.1f, Mathf.Pi * 0.9f, 10, InkStyle.InkSoft, InkStyle.ThinStroke, true);
-            DrawArc(new Vector2(0f, 0.5f), 7f * k * sd.ArcK, Mathf.Pi * 0.2f, Mathf.Pi * 0.8f, 8, InkStyle.InkSoft, 0.8f, true);
-            // 5. 右端的打结口（沙包两端是打结封闭的）
-            DrawLine(new Vector2(13.5f, -3f), new Vector2(15f, 0f), InkStyle.InkSoft, 1.2f, true);
-            DrawLine(new Vector2(13.5f, 3f), new Vector2(15f, 0f), InkStyle.InkSoft, 1.2f, true);
-            DrawLine(new Vector2(13.5f, 0f), new Vector2(15.5f, 0f), InkStyle.InkSoft, 1.4f, true);
-
-            // 6. 左下硬边阴影（漫画式投影——太阳在画面右上，影子落在左下）
-            var shadowMask = new[]
-            {
-                new Vector2(-14f, 0f), new Vector2(-2f, 0f), new Vector2(-2f, 7f), new Vector2(-14f, 7f)
-            };
-            DrawColoredPolygon(shadowMask, InkStyle.SackShadow);
-
-            // 7. 卡通高光（右上受光角一个小圆点）
-            InkStyle.KawaiiHighlight(this, new Vector2(4f, -4f), 1.6f, new Color(0.92f, 0.84f, 0.68f, 0.85f));
-
-            // 8. 顶上积雪（沙包叠起来，顶上会有雪）
-            float snowR = Mathf.Clamp(6.4f * k + sd.SnowExtra, 4f, 9f);
-            DrawCircle(new Vector2(0, -7.4f * k), snowR, new Color(0.94f, 0.95f, 0.96f, 0.92f));
-            DrawCircle(new Vector2(0, -7.4f * k), snowR * 0.7f, new Color(0.97f, 0.98f, 0.99f, 0.6f));
-            // 雪的墨色边缘（让雪不"贴"在沙袋上）
-            DrawLine(new Vector2(-snowR * 0.6f, -7.4f * k - snowR * 0.4f),
-                new Vector2(snowR * 0.6f, -7.4f * k - snowR * 0.4f),
-                new Color(0.30f, 0.32f, 0.32f, 0.25f), 1f, true);
-
-            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                else
+                {
+                    DrawTextureRect(_sackTex, new Rect2(cx - ww * 0.5f, GroundY + 1f - h, ww, h), false, col);
+                }
+            }
         }
     }
 

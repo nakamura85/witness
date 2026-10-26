@@ -103,10 +103,43 @@ public partial class Capture : Node
         }
         else if (_stage == 10 && _t > 5.0f)
         {
+            Input.ActionRelease("prone");
+            Input.ActionPress("move_right");
+            GD.Print("CAPTURE stage10 -> running");
+            _stage = 11;
+        }
+        else if (_stage == 11 && _t > 5.8f)
+        {
+            GD.Print("CAPTURE stage11 -> shot walk");
+            SaveShot("capture_06_walk.png");
+            _stage = 12;
+        }
+        else if (_stage == 12 && (PlayerX() > 1020f || _t > 11.5f))
+        {
+            GD.Print("CAPTURE stage12 -> shot corpse x="+PlayerX());
+            SaveShot("capture_07_corpse.png");
+            _stage = 13;
+        }
+        else if (_stage == 13 && (PlayerX() > 1400f || _t > 14.5f))
+        {
+            GD.Print("CAPTURE stage13 -> shot enemy x="+PlayerX());
+            SaveShot("capture_08_enemy.png");
+            _stage = 14;
+        }
+        else if (_stage == 14 && (PlayerX() > 2100f || _t > 18.5f))
+        {
+            GD.Print("CAPTURE stage14 -> shot sandbags x="+PlayerX());
+            SaveShot("capture_09_sandbags.png");
+            _stage = 15;
+        }
+        else if (_stage == 15 && _t > 19.5f)
+        {
             GD.Print("CAPTURE done");
             GetTree().Quit();
         }
     }
+
+    private float PlayerX() => _lvl?._player?.Position.X ?? 0f;
 
     private async void SaveShot(string name)
     {

@@ -1,4 +1,4 @@
-# 见证者（Witness）· v2.0 手绘漫画风二战亚洲战场叙事游戏
+# 见证者（Witness）· v2.1 手绘漫画风二战亚洲战场叙事游戏
 
 > 二战的历史不是从 1937 年才开始的。要还原事实，就得从源头讲起——1895 年的马关条约、1910 年的日韩合并条约，殖民如何一步步吞下朝鲜半岛与台湾地区，直到 1931 年九一八、1937 年的南京。
 
@@ -10,8 +10,9 @@
 
 - **程序化手绘层（纯 `Node2D._Draw()`）**：UI / 菜单 / 暴风雪·飘雪·灯笼光晕·暗角等特效、尸体与血迹、地形细节（沙袋、桥墩、桁架、弹坑、铁轨、碉堡），风格统一入口为 `scripts/InkStyle.cs`（墨色描边 `InkColor` + 平涂色板 + `PenStroke` 工具方法）。
 - **AI 生成贴图层（图生图，保持同款水彩漫画画风）**：
-  - **史实军服角色立绘**（`assets/art/sprites/`）：东北军 1931 灰蓝棉服护耳棉帽青天白日帽徽、日军昭五式大檐帽黄星三八式步枪；含立姿 / 据枪 / 蹲 / 匍匐专姿（`soldier_na_aim` / `_crouch` / `_prone`）、尸体（`*_corpse`）、NPC / 难民 / 建筑 / 道具。
+  - **史实军服角色立绘**（`assets/art/sprites/`）：东北军 1931 灰蓝棉服护耳棉帽青天白日帽徽、日军昭五式大檐帽黄星三八式步枪；含立姿 / 据枪 / 蹲 / 匍匐专姿（`soldier_na_aim` / `_crouch` / `_prone`）、**阵亡尸体**（`corpse_na/ija_prone/supine` 俯卧 / 仰卧）、NPC / 难民 / 建筑 / 道具。
   - **视差背景贴图**（`assets/art/backdrop/`，layer by layer 厚度 / 纵深感）：雪山 `mountains`、东北民居村落 `village`、榆树 `tree_elm`、白桦 `tree_birch`、柳丛 `willow`、雪地枯草 `grass`，以 `DrawTextureRect` + `DrawSetTransform` 合成进 Far / Mid / Near / Fore 四层视差。
+  - **战场物件贴图**（`assets/art/props/`）：沙袋掩体堆 `sandbags`、弹药木箱 `crate`，与角色 / 背景同一管线出图。
 - **图层**：4 层视差（Far 0.06 / Mid 0.24 / Near 0.55 / Fore 1.32；ZIndex Far -40 / Mid -30 / Near -20 / Player 0 / Enemy 2 / Fore 5）。贴图层与程序化层叠加产生厚度与纵深。
 
 ## 游戏流程
@@ -31,12 +32,16 @@
 - **史实军服重绘**（图生图）：东北军灰蓝棉服护耳棉帽帽徽、日军昭五式大檐帽黄星三八式步枪；后续章节军服规范（国军中央军 / 八路军）沿用同一管线。
 - **军事标准专姿立绘**：立姿据枪 / 跪蹲持枪 / 低姿匍匐整张专项姿势立绘切换；枪口锚点按立绘实测（PIL 逐像素测枪管高度比例），子弹起点直接取立绘枪口锚点，火光 / 弹道与枪管尖完全对齐。
 - **据枪 / 蹲 / 匍匐人物比例修正**：旧实现把蹲、匍匐整张立绘整体 Y 轴压扁到 62% / 30%，导致"人物缩小很多"的错觉；改为按真实人体比例（蹲姿 ≈ 身高 74%、匍匐按躯干长度 = 站立身高）渲染，并重新对齐匍匐影子。
-- **视差背景贴图重制**（layer by layer 厚度感）：雪山、东北民居村落、榆树 / 白桦 / 柳丛、雪地枯草，全部按史实军服立绘同款水彩漫画画风图生图生成，合成进 Far / Mid / Near / Fore 四层视差，保留程序化桥 / 沙袋 / 弹坑 / 铁轨 / 碉堡 / 电报杆 / 弃车与雪山程序化兜底。
+- **视差背景贴图重制**（layer by layer 厚度感）：雪山、东北民居村落、榆树 / 白桦 / 柳丛、雪地枯草，全部按史实军服立绘同款水彩漫画画风图生图生成，合成进 Far / Mid / Near / Fore 四层视差，保留程序化桥 / 弹坑 / 铁轨 / 碉堡 / 电报杆 / 弃车与雪山程序化兜底。
+- **尸体美术重制**（v2.1）：弃用纯代码色块尸体（画面上读成一坨红棕色），改为同款画风图生图尸体贴图（东北军 / 日军 × 俯卧 / 仰卧），保留接触阴影、掉落步枪、脚下雪脊；预置尸体固定歪斜、阵亡随机姿势。
+- **沙袋掩体 / 弹药木箱重制**（v2.1）：程序化胶囊沙包与纯色方块木箱全部替换为同款画风贴图（`assets/art/props/`），与背景 / 角色风格统一。
+- **截图库收敛**（v2.1）：旧实机截图全部删除，图库只保留 13 张最新实机画面（同文件名覆盖更新，不再累加）。
 
 ### 版本历史（一句话）
 
 | 版本 | 要点 |
 |------|------|
+| v2.1 | 尸体 / 沙袋掩体 / 弹药木箱同款画风贴图重制、截图库收敛为 13 张最新实机画面（同文件名覆盖） |
 | v2.0 | 背景鬼畜 + 白线闪烁根除、史实军服重绘、军事专姿立绘 + 枪口锚点对齐、蹲/匍匐比例修正、视差背景贴图重制 |
 | v1.9 | 雪山圆簇雪帽、低姿蹲行重构、新增匍匐前进、白线闪烁三角化根修、纯代码解剖学尸体、Capture 实机截图自动化 |
 | v1.8.1 | 翻转方案从 Sprite2D.FlipH 改为子 Node2D 容器 Scale.X=-1 |
@@ -74,91 +79,59 @@
 
 ## 游戏截图（实机运行）
 
-以下截图由自动化巡游 / 截图脚本实机运行生成（`scripts/Capture.cs` / `scripts/VerifyTour.cs`），完整走完「内容警告 → 标题 → 东亚大地图 → 纸条档案 → 嫩江江桥关卡」流程。
+以下截图由自动化巡游脚本实机运行生成（`scripts/Capture.cs`），**同文件名覆盖更新，只保留最新画面**。
 
 **标题 · 见证者（title.jpg 古城墙雪景照片 + 程序化飘雪 / 灯笼晕 / 暗角）**
 
-![标题](docs/screenshots/v00_title.png?v=2.0)
+![标题](docs/screenshots/v00_title.png?v=2.1)
 
 **东亚大地图 · 时间线 Hub（layer by layer 视差：纸张底 / 地理 / 航线箭头 / 纸条）**
 
-![大地图](docs/screenshots/v01_map.png?v=2.0)
+![大地图](docs/screenshots/v01_map.png?v=2.1)
 
 **纸条档案 01 · 汉城《日韩合并条约》1910**
 
-![纸条 01](docs/screenshots/v02_note_korea.png?v=2.0)
+![纸条 01](docs/screenshots/v02_note_korea.png?v=2.1)
 
 **纸条档案 02 · 台北《马关条约》割台 1895**
 
-![纸条 02](docs/screenshots/v03_note_taiwan.png?v=2.0)
+![纸条 02](docs/screenshots/v03_note_taiwan.png?v=2.1)
 
 **进军箭头生长完成 · 汉城 → 鸭绿江 → 沈阳 → 嫩江江桥**
 
-![进军箭头](docs/screenshots/v04_map_arrows.png?v=2.0)
+![进军箭头](docs/screenshots/v04_map_arrows.png?v=2.1)
 
-**关卡开场 · 四层视差雪原**
+**雪原全景 · 同款画风背景贴图合成四层视差（雪山 / 村落 / 树 / 草，layer by layer 厚度感）**
 
-![关卡开场](docs/screenshots/v08_level_start.png?v=2.0)
+![雪原全景](docs/screenshots/v46_jq_scene.png?v=2.1)
 
-**行走动画 · 粗墨描边 + 平涂棉军装 + 卡通高光**
+**行走 · 史实军服立绘 + 纸娃娃分层动画**
 
-![行走](docs/screenshots/v14_walk_a.png?v=2.0)
+![行走](docs/screenshots/v14_walk_a.png?v=2.1)
 
-**敌兵推进 · 双关东军（前后错位 + 景深缩放）**
+**敌兵推进 · 关东军迎面前压（景深错位）**
 
-![敌兵](docs/screenshots/v12_enemy_advance.png?v=2.0)
+![敌兵推进](docs/screenshots/v12_enemy_advance.png?v=2.1)
 
-**主角开枪 · 躯干后坐 + 枪口火舌（纸娃娃分层动画）**
+**立姿据枪 · 枪托抵肩贴腮瞄准 + 枪口火光对齐枪管尖**
 
-![开枪后坐](docs/screenshots/v13b_player_fire_recoil.png?v=2.0)
+![立姿据枪](docs/screenshots/v47_jq_fire.png?v=2.1)
 
-**敌兵阵亡 · 雪地留下尸体（掉落步枪 + 单侧渗流血迹），不再透明消失**
+**跪蹲持枪 · 军事标准跪姿（S 键）**
 
-![雪地尸体](docs/screenshots/v26_corpse.png?v=2.0)
+![跪蹲持枪](docs/screenshots/v48_jq_crouch.png?v=2.1)
 
-**桥头堡 · 掩体沙袋前景层（ZIndex 5），人从掩体后经过**
+**低姿匍匐 · 军事条令低姿匍匐前进（Ctrl/C 键）**
 
-![桥头堡](docs/screenshots/v22_bridge.png?v=2.0)
+![低姿匍匐](docs/screenshots/v49_jq_prone.png?v=2.1)
 
-**关卡开场叙事 · 幕间导语（1931·嫩江江桥，v2.0 实机）**
+**敌兵阵亡 · 同款画风尸体贴图（俯卧 / 仰卧）+ 掉落步枪 + 脚下雪脊**
 
-![幕间导语](docs/screenshots/v40_jq_intro.png?v=2.0)
+![雪地尸体](docs/screenshots/v26_corpse.png?v=2.1)
 
-**雪原全景 · 史实军服（东北军灰蓝棉服 + 护耳棉帽 + 帽徽）+ 完全静止的背景（v2.0 实机）**
+**掩体沙袋 · 同款画风沙袋堆贴图（前景层，人从掩体后经过）**
 
-![雪原全景](docs/screenshots/v41_jq_scene.png?v=2.0)
-
-**立姿据枪 · 枪托抵肩贴腮瞄准 + 枪口火光对齐枪管尖（v2.0 实机）**
-
-![立姿据枪](docs/screenshots/v42_jq_fire.png?v=2.0)
-
-**跪蹲持枪 · 军事标准跪姿（v2.0 实机，S 键）**
-
-![跪蹲持枪](docs/screenshots/v43_jq_crouch.png?v=2.0)
-
-**低姿匍匐 · 军事条令低姿匍匐前进（v2.0 实机，Ctrl/C 键）**
-
-![低姿匍匐](docs/screenshots/v44_jq_prone.png?v=2.0)
-
-**关卡开场叙事 · 重制视差背景贴图（雪山 / 村落 / 树 / 草，layer by layer 厚度感，v2.0 实机）**
-
-![重制背景·导语](docs/screenshots/v45_jq_intro.png?v=2.0)
-
-**雪原全景 · 同款画风背景贴图合成四层视差（v2.0 实机）**
-
-![重制背景·全景](docs/screenshots/v46_jq_scene.png?v=2.0)
-
-**立姿据枪 · 背景 + 专姿立绘同框（v2.0 实机）**
-
-![重制背景·开枪](docs/screenshots/v47_jq_fire.png?v=2.0)
-
-**蹲姿 · 比例修正后（≈身高 74%，不再缩小，v2.0 实机）**
-
-![比例修正·蹲](docs/screenshots/v48_jq_crouch.png?v=2.0)
-
-**匍匐 · 比例修正后（躯干长度 = 站立身高，影子重新对齐，v2.0 实机）**
-
-![比例修正·匍匐](docs/screenshots/v49_jq_prone.png?v=2.0)
+![掩体沙袋](docs/screenshots/v22_bridge.png?v=2.1)
 
 ## 如何运行（小白版，3 步）
 
@@ -216,11 +189,12 @@ witness/
 ├── assets/
 │   ├── art/
 │   │   ├── title.jpg        # 标题背景照片（古城墙雪景）
-│   │   ├── sprites/         # AI 生成的史实军服角色立绘（soldier_na/ija + 专姿 aim/crouch/prone + corpse + NPC/难民/建筑/道具）
-│   │   ├── backdrop/        # 生成的视差背景贴图（mountains/village/tree_elm/tree_birch/willow/grass）
+│   │   ├── sprites/         # AI 生成的史实军服角色立绘（soldier_na/ija + 专姿 aim/crouch/prone + corpse_na/ija prone·supine + NPC/难民/建筑/道具）
+│   ├── props/           # AI 生成的战场物件贴图（sandbags 沙袋掩体堆 / crate 弹药木箱）
+│   ├── backdrop/        # 生成的视差背景贴图（mountains/village/tree_elm/tree_birch/willow/grass）
 │   │   └── ...              # 其他场景/道具贴图
 │   └── fonts/           # 字体（未内嵌时回退系统字体）
-└── docs/screenshots/    # 实机运行的截图（v00–v49 系列 + 01–17 系列）
+└── docs/screenshots/    # 实机运行的截图（13 张最新画面，同文件名覆盖更新）
 ```
 
 ## 给开发者的提示
