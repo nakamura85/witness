@@ -47,8 +47,15 @@ public partial class JiangqiaoLevel : Node2D
     private ColorRect _flash;
     private ColorRect _blackout;
     private Backdrop[] _layers;
+    private SkyScreen _sky;
+    private CanvasModulate _tint;
+    private CoverArt _coverArt;
     internal readonly List<EnemySoldier> _enemies = new();
     private readonly List<Testimony> _testimonies = new();
+    internal readonly List<WeaponPickup> _pickups = new();
+    internal readonly List<EnterableHouse> _houses = new();
+    private HouseInteriorUi _houseUi;
+    private readonly List<GrenadeProj> _grenades = new();
     private TracerFx _fx;
     private SnowScreen _snow;
 
@@ -66,6 +73,18 @@ public partial class JiangqiaoLevel : Node2D
     private int _wave;
     private Vector2 _checkpoint = new(220, GroundY - 2);
 
+    // —— 昼夜：1931-11-04 江桥（泰来县江桥镇，46.9N 123.4E，UTC+8）实算天文数据 ——
+    // 日出 06:32 / 日落 16:29（程序验算），开战日凌晨天上挂 39% 照亮的残月，13:42 月落
+    public const float SunriseH = 6.533f;
+    public const float SunsetH = 16.483f;
+    public const float MoonLit = 0.392f;      // 残月照亮比
+    private float _clock = 5.6f;              // 游戏钟（小时），开场 05:36 天还没亮
+    public const float ClockRate = 82f;       // 1 真秒 = 82 游戏秒，一局正好从凌晨打到黄昏
+    private const float ClockMax = 19.2f;
+    /// <summary>实机截图用：强制指定钟点（&lt;0 = 正常走时）。</summary>
+    public float DebugClock = -1f;
+    private float _lastDryToast = -99f;
+
     public JiangqiaoLevel(Main main) { _main = main; }
 
     public float PlayerX => _player?.GlobalPosition.X ?? 0f;
@@ -78,28 +97,79 @@ public partial class JiangqiaoLevel : Node2D
         BuildSky();
         BuildBackdrop();
         BuildTerrain();
+        BuildHouses();
         BuildPlayer();
+        BuildPickups();
         BuildTestimonies();
         BuildHud();
         BuildScreenFx();
+
+        // world tint: night bluish-dark, dawn warm, noon white, dusk amber
+        _tint = new CanvasModulate { Color = Colors.White };
+        AddChild(_tint);
 
         var intro = new IntroOverlay();
         AddChild(intro);
         intro.Show(
             "1931 年 11 月 4 日 · 中国（中华民国时代）中国大陆地区嫩江江桥北岸",
-            "天还没亮，江面冻得能走车。\n炮弹落在冰上，声音像撕开一匹布。\n你是东北军的一名通信兵——上级要你把阵地上还活着的人说过的话，带出去。",
+            "天还没亮，江面冻得能走车。\n天边挂着一弯残月，炮弹落在冰上，声音像撕开一匹布。\n你是东北军的一名通信兵——上级要你把阵地上还活着的人说过的话，带出去。",
             "",
             () =>
             {
                 _started = true;
-                _hud.ShowTutorial("A / D 移动 · 空格 跳跃 · S 蹲下 · Ctrl 匍匐 · E 按住记录 · 鼠标左键射击");
+                _hud.ShowTutorial("A / D 移动 · 空格 跳跃 · S 蹲下 · Ctrl 匍匐 · E 记录/捡枪/进屋 · G 手榴弹 · 鼠标左键射击");
                 Artillery(0.55f);
             });
     }
 
     // ================= 构图 =================
 
-    private void BuildSky() => AddChild(new SkyScreen());
+    private void BuildSky()
+    {
+        _sky = new SkyScreen();
+        AddChild(_sky);
+    }
+
+    /// <summary>可进屋搜索的民房：远近各放，破损/烧毁是战争的痕迹。</summary>
+    private void BuildHouses()
+    {
+        // h1 江边村舍（半毁）：离家门口不远，最先教会玩家"屋里有东西"
+        var h1 = new EnterableHouse("h1", new Vector2(830, GroundY), "house_ruined_near", 320f);
+        // h2 烧塌的院落（重毁）：中线之后的补给点
+        var h2 = new EnterableHouse("h2", new Vector2(2760, GroundY), "house_burned_near", 360f);
+        _game.AddChild(h1);
+        _game.AddChild(h2);
+        _houses.Add(h1);
+        _houses.Add(h2);
+    }
+
+    /// <summary>雪地里捡得到的枪：有的是死者掉的还有子弹，有的已经冻坏打不响。</summary>
+    private void BuildPickups()
+    {
+        // 预置尸体旁的枪：一部分变成可拾取实体，一部分仍画在尸体上（不是每支都捡得到）
+        AddPickup(1270 + 78, GroundY - 3, RollCondition());
+        AddPickup(2090 - 64, GroundY - 3, RollCondition());
+        AddPickup(620, GroundY - 3, WeaponPickup.Kind.Broken, 0);
+        AddPickup(3690 + 40, GroundY - 3, RollCondition());
+        AddPickup(2470 + 90, GroundY - 3, RollCondition());
+    }
+
+    private (WeaponPickup.Kind, int) RollCondition()
+    {
+        // 四成冻坏/打不响，六成还有几发——真实战场上捡枪就是这样赌运气
+        if (GD.Randf() < 0.4f) return (WeaponPickup.Kind.Broken, 0);
+        return (WeaponPickup.Kind.Usable, (int)GD.RandRange(2, 8));
+    }
+
+    private void AddPickup(float x, float y, WeaponPickup.Kind kind, int ammo)
+    {
+        var p = new WeaponPickup(kind, ammo) { Position = new Vector2(x, y) };
+        _game.AddChild(p);
+        _pickups.Add(p);
+    }
+
+    private void AddPickup(float x, float y, (WeaponPickup.Kind, int) roll)
+        => AddPickup(x, y, roll.Item1, roll.Item2);
 
     private void BuildBackdrop()
     {
@@ -145,7 +215,8 @@ public partial class JiangqiaoLevel : Node2D
 
         // 掩体沙袋在人之前（ZIndex 5，高于玩家 0 与敌兵 2），
         // 经过时人从垛子后面过，而不是站在垛子顶上。
-        _game.AddChild(new CoverArt { ZIndex = 5 });
+        _coverArt = new CoverArt { ZIndex = 5 };
+        _game.AddChild(_coverArt);
     }
 
     private void AddCorpses()
@@ -184,6 +255,7 @@ public partial class JiangqiaoLevel : Node2D
         _player.Fired += OnPlayerFired;
         _player.Hit += OnPlayerHit;
         _player.Down += OnPlayerDown;
+        _player.DryFired += OnDryFired;
         _game.AddChild(_player);
 
         _cam = new Camera2D
@@ -303,6 +375,8 @@ public partial class JiangqiaoLevel : Node2D
             l.Position = new Vector2(_camX * (1f - l.Factor), 0f);
         _snow.Wind = 0.55f + Mathf.Sin(_elapsed * 0.35f) * 0.35f;
 
+        UpdateDayCycle(f);
+
         // 相机抖动（爆炸/开枪冲击）：trauma² 模型，平滑衰减 + 低频抖动，
         // 不再每帧纯随机 → 没有"嗡嗡"的鬼畜感；trauma 越高抖得越狠。
         _shake = Mathf.Max(0f, _shake - f * 1.6f);
@@ -323,16 +397,170 @@ public partial class JiangqiaoLevel : Node2D
         _blackA = Mathf.MoveToward(_blackA, _blackTarget, f * 2.2f);
         _blackout.Color = new Color(0, 0, 0, _blackA);
 
-        bool overlay = _noteOpen || _ended || !_started;
+        bool overlay = _noteOpen || _ended || !_started || _houseUi != null;
         _player.ControlLocked = overlay;
 
         if (!_started || _ended) return;
 
+        UpdateInteractions();
+        UpdateGrenades(f);
         UpdateRecording(f);
         UpdateObjective();
         UpdatePrompts();
         CheckWaves();
         CheckEnding();
+    }
+
+    // ================= 昼夜 =================
+
+    /// <summary>
+    /// 游戏钟推进 + 天色。日月位置与月相全部来自 1931-11-04 的实算数据：
+    /// 凌晨残月（39% 照亮）挂在东边，06:32 日出，16:29 日落，入夜无月只有星。
+    /// </summary>
+    private void UpdateDayCycle(float f)
+    {
+        if (DebugClock >= 0f)
+        {
+            _clock = DebugClock;
+        }
+        else if (_started && !_ended)
+        {
+            _clock += f * ClockRate / 3600f;
+            if (_clock > ClockMax) _clock = ClockMax;
+        }
+
+        float t = _clock;
+        // ---- world tint keyframes: pre-dawn / dawn / day / dusk / night ----
+        Color tint;
+        if (t < SunriseH - 0.9f)          // deep pre-dawn
+            tint = new Color(0.42f, 0.47f, 0.60f);
+        else if (t < SunriseH + 0.7f)     // dawn warms up
+            tint = LerpC(new Color(0.42f, 0.47f, 0.60f), new Color(0.85f, 0.78f, 0.72f),
+                (t - (SunriseH - 0.9f)) / 1.6f);
+        else if (t < SunsetH - 0.8f)      // full winter day
+            tint = new Color(1f, 1f, 1f);
+        else if (t < SunsetH + 0.9f)      // dusk amber
+            tint = LerpC(new Color(1f, 1f, 1f), new Color(0.72f, 0.62f, 0.58f),
+                (t - (SunsetH - 0.8f)) / 1.7f);
+        else                              // night falls, no moon tonight (月已落)
+            tint = new Color(0.40f, 0.44f, 0.58f);
+        _tint.Color = tint;
+
+        if (_sky != null) _sky.Art.DayT = t;
+    }
+
+    private static Color LerpC(Color a, Color b, float t)
+    {
+        t = Mathf.Clamp(t, 0f, 1f);
+        return new Color(
+            Mathf.Lerp(a.R, b.R, t),
+            Mathf.Lerp(a.G, b.G, t),
+            Mathf.Lerp(a.B, b.B, t));
+    }
+
+    // ================= 捡枪 / 进屋 / 手榴弹 =================
+
+    private void UpdateInteractions()
+    {
+        if (_houseUi != null) return;
+        float px = _player.GlobalPosition.X;
+
+        // enter house?
+        EnterableHouse nearHouse = null;
+        foreach (var h in _houses)
+            if (Mathf.Abs(h.DoorX - px) < 78f) { nearHouse = h; break; }
+
+        // loot rifle?
+        WeaponPickup nearPickup = null;
+        float bestP = 64f;
+        foreach (var p in _pickups)
+        {
+            if (p.Looted || !IsInstanceValid(p)) continue;
+            float d = Mathf.Abs(p.Position.X - px);
+            if (d < bestP) { bestP = d; nearPickup = p; }
+        }
+
+        if (Input.IsActionJustPressed("interact"))
+        {
+            if (nearHouse != null) OpenHouse(nearHouse);
+            else if (nearPickup != null) LootPickup(nearPickup);
+        }
+    }
+
+    private void LootPickup(WeaponPickup p)
+    {
+        p.MarkLooted();
+        if (p.Condition == WeaponPickup.Kind.Broken)
+        {
+            _hud.Toast("枪栓冻死了，拉不开——这支打不响。");
+            return;
+        }
+        _player.Ammo += p.Ammo;
+        _hud.Toast($"捡获一支步枪，里面还剩 {p.Ammo} 发。");
+        Shake(0.06f);
+    }
+
+    private void OpenHouse(EnterableHouse h)
+    {
+        var ui = new HouseInteriorUi(h.Id, h.Id == "h1" ? "江边村舍（半毁）" : "烧塌的院落");
+        ui.GotAmmo += n => _player.Ammo += n;
+        ui.GotGrenade += n => _player.Grenades += n;
+        ui.Closed += () => _houseUi = null;
+        AddChild(ui);
+        _houseUi = ui;
+    }
+
+    private void UpdateGrenades(float f)
+    {
+        if (_noteOpen || _houseUi != null || _ended) return;
+        if (Input.IsActionJustPressed("grenade") && _player.Grenades > 0)
+        {
+            _player.Grenades--;
+            var g = new GrenadeProj(_player.GlobalPosition + new Vector2(_player.Facing * 14f, -46f),
+                _player.Facing);
+            _game.AddChild(g);
+            _grenades.Add(g);
+            _hud.Toast("手榴弹出手——卧倒！");
+        }
+
+        for (int i = _grenades.Count - 1; i >= 0; i--)
+        {
+            var g = _grenades[i];
+            if (!g.Exploded) continue;
+            _grenades.RemoveAt(i);
+            Explode(g.GlobalPosition);
+            g.QueueFree();
+        }
+    }
+
+    private void Explode(Vector2 at)
+    {
+        Artillery(0.65f);
+        Shake(0.9f);
+        _fx.Puff(at, 30f);
+        _fx.Puff(at + new Vector2(-24f, 8f), 22f);
+        _fx.Puff(new Vector2(at.X, GroundY - 4f), 26f);
+        foreach (var e in _enemies)
+        {
+            if (!IsInstanceValid(e) || e.Gone) continue;
+            if (e.Position.DistanceTo(at) < 165f)
+            {
+                e.Hit();
+                e.Hit();   // blast kills outright
+            }
+        }
+        if (_player.GlobalPosition.DistanceTo(at) < 120f)
+            _player.TakeHit(at.X);
+    }
+
+    /// <summary>玩家是否正躲在沙袋掩体后（蹲/趴才算真掩护）。</summary>
+    public bool PlayerInCover()
+    {
+        if (_player == null || !_player.IsOnFloor()) return false;
+        bool low = Input.IsActionPressed("crouch") || Input.IsActionPressed("prone");
+        if (!low) return false;
+        float px = _player.GlobalPosition.X;
+        return _coverArt != null && _coverArt.Covers(px);
     }
 
     private void UpdateRecording(float f)
@@ -398,25 +626,47 @@ public partial class JiangqiaoLevel : Node2D
 
     private void UpdatePrompts()
     {
+        float px = _player.GlobalPosition.X;
+
+        EnterableHouse nearHouse = null;
+        foreach (var h in _houses)
+            if (Mathf.Abs(h.DoorX - px) < 78f) { nearHouse = h; break; }
+
+        WeaponPickup nearPickup = null;
+        float bestP = 64f;
+        foreach (var p in _pickups)
+        {
+            if (p.Looted || !IsInstanceValid(p)) continue;
+            float d = Mathf.Abs(p.Position.X - px);
+            if (d < bestP) { bestP = d; nearPickup = p; }
+        }
+
         Testimony near = null;
-        float best = 86f;
+        float bestT = 86f;
         foreach (var t in _testimonies)
         {
             if (t.Recorded) continue;
-            float d = Mathf.Abs(t.GlobalPosition.X - _player.GlobalPosition.X);
-            if (d < best) { best = d; near = t; }
+            float d = Mathf.Abs(t.GlobalPosition.X - px);
+            if (d < bestT) { bestT = d; near = t; }
         }
 
-        if (near != null)
+        if (nearHouse != null)
+            _hud.ShowPrompt("按 E · 进屋搜索");
+        else if (nearPickup != null)
+            _hud.ShowPrompt(nearPickup.Condition == WeaponPickup.Kind.Broken
+                ? "按 E · 捡起步枪（可能打不响）"
+                : "按 E · 捡枪拿子弹");
+        else if (near != null)
             _hud.ShowPrompt("按住 E · 记录口述");
-        else if (GameState.I.S.JiangqiaoTestimony.Count >= 3 && PlayerX > 4200f)
+        else if (GameState.I.S.JiangqiaoTestimony.Count >= 3 && px > 4200f)
             _hud.ShowPrompt("向东 · 走上江桥");
         else
             _hud.ShowPrompt("");
 
-        // 右上生命
+        // 右上生命 / 弹药 / 手榴弹
         string dots = _player.Hp >= 3 ? "● ● ●" : _player.Hp == 2 ? "● ● ○" : _player.Hp == 1 ? "● ○ ○" : "○ ○ ○";
-        _hpLabel.Text = $"生命  {dots}";
+        string ammoDots = new string('●', Mathf.Clamp(_player.Ammo, 0, 12));
+        _hpLabel.Text = $"生命  {dots}    弹药 {ammoDots} {_player.Ammo}    手榴弹 ×{_player.Grenades}";
 
         // 目标在屏幕外时给纸色箭头
         Vector2 target = near != null
@@ -559,12 +809,17 @@ public partial class JiangqiaoLevel : Node2D
         _fx.Shoot(origin, end, new Color(1f, 0.92f, 0.70f), 120f);
     }
 
-    /// <summary>敌兵阵亡：原地留下一具尸体（带掉落步枪与血迹），不是透明消失。</summary>
+    /// <summary>敌兵阵亡：原地留下尸体 + 一支可捡的步枪（可能没子弹也可能冻坏）。</summary>
     public void EnemyDied(EnemySoldier e)
     {
         var corpse = new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(e.Position.X, GroundY - 2), false);
+            new Vector2(e.Position.X, GroundY - 2), false, withRifle: false);
         _game.AddChild(corpse);
+        // the rifle he was carrying drops beside the body, lootable now
+        var roll = GD.Randf() < 0.4f
+            ? (WeaponPickup.Kind.Broken, 0)
+            : (WeaponPickup.Kind.Usable, (int)GD.RandRange(2, 8));
+        AddPickup(e.Position.X + (float)GD.RandRange(-70f, 70f), GroundY - 3, roll.Item1, roll.Item2);
         // 中弹处的血雾与雪尘
         _fx.Puff(e.Position + new Vector2(0, -62f), 14f);
         _fx.Puff(new Vector2(e.Position.X, GroundY - 3f), 10f);
@@ -576,6 +831,13 @@ public partial class JiangqiaoLevel : Node2D
         Shake(0.5f);
         _flashA = Mathf.Max(_flashA, 0.30f);
         _hud.Toast("你中弹了——蹲下能减少暴露");
+    }
+
+    private void OnDryFired()
+    {
+        if (_elapsed - _lastDryToast < 1.2f) return;
+        _lastDryToast = _elapsed;
+        _hud.Toast("弹仓空了——去尸体边捡枪，或者进屋搜弹药。");
     }
 
     private void OnPlayerDown()
@@ -599,7 +861,10 @@ public partial class JiangqiaoLevel : Node2D
         var origin = e.Position + new Vector2(-46, -66);
         Vector2 to = _player.GlobalPosition + new Vector2(0, -38);
         bool crouching = Input.IsActionPressed("crouch") && _player.IsOnFloor();
-        bool hit = GD.Randf() < (crouching ? 0.10f : 0.28f);
+        bool cover = PlayerInCover();
+        // 沙袋后面趴着基本打不中（真实掩体），站着挨打最惨
+        float hitChance = cover ? 0.04f : crouching ? 0.10f : 0.28f;
+        bool hit = GD.Randf() < hitChance;
 
         if (hit)
         {
@@ -640,11 +905,43 @@ public partial class JiangqiaoLevel : Node2D
     {
         public SkyScreen() { Layer = -20; }
 
-        public override void _Ready() => AddChild(new SkyArt());
+        public SkyArt Art { get; private set; }
 
-        private partial class SkyArt : Control
+        public override void _Ready()
+        {
+            Art = new SkyArt();
+            AddChild(Art);
+        }
+
+        /// <summary>
+        /// 1931-11-04 江桥上空（46.9N 123.4E，日出 06:32 / 日落 16:29，程序实算）。
+        /// 凌晨挂 39% 残月，白天冬日低太阳，入夜月已落、只剩星空。
+        /// </summary>
+        public partial class SkyArt : Control
         {
             private GradientTexture2D _glow;
+            private GradientTexture2D _moonGlow;
+            private float[] _starX;
+            private float[] _starY;
+            private float[] _starS;
+
+            public float DayT = 5.6f;   // game clock, hours
+
+            private static readonly Vector4 NightTop = new(0.05f, 0.07f, 0.13f, 1f);
+            private static readonly Vector4 PreDawnTop = new(0.07f, 0.10f, 0.18f, 1f);
+            private static readonly Vector4 DawnTop = new(0.28f, 0.30f, 0.42f, 1f);
+            private static readonly Vector4 DayTop = new(0.16f, 0.20f, 0.24f, 1f);
+            private static readonly Vector4 DuskTop = new(0.30f, 0.28f, 0.38f, 1f);
+            private static readonly Vector4 NightMid = new(0.10f, 0.13f, 0.20f, 1f);
+            private static readonly Vector4 PreDawnMid = new(0.18f, 0.21f, 0.30f, 1f);
+            private static readonly Vector4 DawnMid = new(0.65f, 0.55f, 0.50f, 1f);
+            private static readonly Vector4 DayMid = new(0.44f, 0.52f, 0.56f, 1f);
+            private static readonly Vector4 DuskMid = new(0.68f, 0.52f, 0.45f, 1f);
+            private static readonly Vector4 NightLow = new(0.17f, 0.18f, 0.23f, 1f);
+            private static readonly Vector4 PreDawnLow = new(0.36f, 0.34f, 0.36f, 1f);
+            private static readonly Vector4 DawnLow = new(0.88f, 0.74f, 0.58f, 1f);
+            private static readonly Vector4 DayLow = new(0.72f, 0.76f, 0.74f, 1f);
+            private static readonly Vector4 DuskLow = new(0.90f, 0.68f, 0.50f, 1f);
 
             public override void _Ready()
             {
@@ -664,39 +961,143 @@ public partial class JiangqiaoLevel : Node2D
                     FillFrom = new Vector2(0.5f, 0.5f),
                     FillTo = new Vector2(1f, 0.5f),
                 };
+
+                var mg = new Gradient();
+                mg.SetColor(0, new Color(0.82f, 0.85f, 0.92f, 0.30f));
+                mg.SetColor(1, new Color(0.82f, 0.85f, 0.92f, 0f));
+                _moonGlow = new GradientTexture2D
+                {
+                    Gradient = mg,
+                    Width = 192,
+                    Height = 192,
+                    Fill = GradientTexture2D.FillEnum.Radial,
+                    FillFrom = new Vector2(0.5f, 0.5f),
+                    FillTo = new Vector2(1f, 0.5f),
+                };
+
+                // fixed star field, never twinkles position (no per-frame random)
+                var rng = new RandomNumberGenerator();
+                rng.Seed = 19311104;
+                int n = 110;
+                _starX = new float[n];
+                _starY = new float[n];
+                _starS = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    _starX[i] = rng.Randf();
+                    _starY[i] = rng.Randf() * 0.62f;
+                    _starS[i] = 0.8f + rng.Randf() * 1.4f;
+                }
+            }
+
+            private static Color V(Vector4 v) => new(v.X, v.Y, v.Z);
+
+            /// <summary>sky gradient keyframes over the game clock.</summary>
+            private (Color top, Color mid, Color low) SkyColors(float t)
+            {
+                float sr = JiangqiaoLevel.SunriseH, ss = JiangqiaoLevel.SunsetH;
+                Color top, mid, low;
+                if (t < 5.0f) { top = V(NightTop); mid = V(NightMid); low = V(NightLow); }
+                else if (t < sr - 0.7f)
+                {
+                    float k = (t - 5.0f) / (sr - 0.7f - 5.0f);
+                    top = V(NightTop).Lerp(V(PreDawnTop), k); mid = V(NightMid).Lerp(V(PreDawnMid), k);
+                    low = V(NightLow).Lerp(V(PreDawnLow), k);
+                }
+                else if (t < sr + 1.3f)
+                {
+                    float k = (t - (sr - 0.7f)) / 2.0f;
+                    top = V(PreDawnTop).Lerp(V(DawnTop), k); mid = V(PreDawnMid).Lerp(V(DawnMid), k);
+                    low = V(PreDawnLow).Lerp(V(DawnLow), k);
+                }
+                else if (t < sr + 2.6f)
+                {
+                    float k = (t - (sr + 1.3f)) / 1.3f;
+                    top = V(DawnTop).Lerp(V(DayTop), k); mid = V(DawnMid).Lerp(V(DayMid), k);
+                    low = V(DawnLow).Lerp(V(DayLow), k);
+                }
+                else if (t < ss - 0.9f) { top = V(DayTop); mid = V(DayMid); low = V(DayLow); }
+                else if (t < ss + 0.6f)
+                {
+                    float k = (t - (ss - 0.9f)) / 1.5f;
+                    top = V(DayTop).Lerp(V(DuskTop), k); mid = V(DayMid).Lerp(V(DuskMid), k);
+                    low = V(DayLow).Lerp(V(DuskLow), k);
+                }
+                else if (t < ss + 2.2f)
+                {
+                    float k = (t - (ss + 0.6f)) / 1.6f;
+                    top = V(DuskTop).Lerp(V(NightTop), k); mid = V(DuskMid).Lerp(V(NightMid), k);
+                    low = V(DuskLow).Lerp(V(NightLow), k);
+                }
+                else { top = V(NightTop); mid = V(NightMid); low = V(NightLow); }
+                return (top, mid, low);
             }
 
             public override void _Draw()
             {
                 var s = GetViewportRect().Size;
-                var top = new Color(0.16f, 0.20f, 0.24f);
-                var mid = new Color(0.44f, 0.52f, 0.56f);
-                var low = new Color(0.72f, 0.76f, 0.74f);
+                float t = DayT;
+                float sr = JiangqiaoLevel.SunriseH, ss = JiangqiaoLevel.SunsetH;
+                var (top, mid, low) = SkyColors(t);
+
                 int bands = 30;
                 for (int i = 0; i < bands; i++)
                 {
-                    float t = i / (float)bands;
-                    Color c = t < 0.55f ? top.Lerp(mid, t / 0.55f) : mid.Lerp(low, (t - 0.55f) / 0.45f);
-                    DrawRect(new Rect2(0, s.Y * t, s.X, s.Y / bands + 1.5f), c);
+                    float f = i / (float)bands;
+                    Color c = f < 0.55f ? top.Lerp(mid, f / 0.55f) : mid.Lerp(low, (f - 0.55f) / 0.45f);
+                    DrawRect(new Rect2(0, s.Y * f, s.X, s.Y / bands + 1.5f), c);
                 }
 
-                // 冬日太阳：低、白、被云吃掉一半
-                var sun = new Vector2(s.X * 0.76f, 150);
-                DrawTextureRect(_glow, new Rect2(sun - new Vector2(150, 150), new Vector2(300, 300)), false);
-                DrawCircle(sun, 26f, new Color(0.97f, 0.95f, 0.88f, 0.55f));
-                DrawCircle(sun, 18f, new Color(0.98f, 0.96f, 0.90f, 0.35f));
+                // ---- stars: only in the dark, moonset already gone by nightfall ----
+                float nightA = 0f;
+                if (t < sr + 0.4f) nightA = Mathf.Clamp(1f - (t - 5.8f) / (sr + 0.4f - 5.8f), 0f, 1f) * 0.9f;
+                else if (t > ss + 1.2f) nightA = Mathf.Clamp((t - (ss + 1.2f)) / 1.2f, 0f, 1f) * 0.9f;
+                if (nightA > 0.01f)
+                {
+                    for (int i = 0; i < _starX.Length; i++)
+                        DrawCircle(new Vector2(_starX[i] * s.X, _starY[i] * s.Y),
+                            _starS[i], new Color(0.92f, 0.94f, 1f, nightA * (0.35f + 0.5f * (i % 5) / 5f)));
+                }
 
-                // 云：几团低矮的层云，边缘靠缩放拉软；不要拉成长条，否则像画面撕裂
+                // ---- moon: waning crescent, 39% lit, east sky before dawn ----
+                // (real ephemeris: it set 13:42 that day, so no moon at night in this mission)
+                if (t < sr + 1.1f)
+                {
+                    float fade = t < sr ? 1f : Mathf.Clamp(1f - (t - sr) / 1.1f, 0f, 1f);
+                    var moon = new Vector2(s.X * 0.68f, 168f);
+                    DrawTextureRect(_moonGlow, new Rect2(moon - new Vector2(96, 96), new Vector2(192, 192)), false);
+                    float r = 21f;
+                    DrawCircle(moon, r, new Color(0.87f, 0.89f, 0.93f, 0.95f * fade));
+                    // terminator carve: lit limb faces east (right), shadow bites from the left
+                    float d = (1f - 2f * JiangqiaoLevel.MoonLit) * r;
+                    DrawCircle(moon + new Vector2(-d * 1.9f, 1.5f), r * 0.96f, top.Lerp(mid, 0.4f));
+                }
+
+                // ---- sun: low winter arc, rises right (east) sets left (west) ----
+                if (t > sr - 0.5f && t < ss + 0.5f)
+                {
+                    float day = Mathf.Clamp((t - (sr - 0.5f)) / ((ss + 0.5f) - (sr - 0.5f)), 0f, 1f);
+                    var sun = new Vector2(
+                        Mathf.Lerp(s.X * 0.80f, s.X * 0.20f, day),
+                        s.Y * 0.62f - Mathf.Sin(day * Mathf.Pi) * (s.Y * 0.62f - 110f));
+                    DrawTextureRect(_glow, new Rect2(sun - new Vector2(150, 150), new Vector2(300, 300)), false);
+                    DrawCircle(sun, 26f, new Color(0.97f, 0.95f, 0.88f, 0.55f));
+                    DrawCircle(sun, 18f, new Color(0.98f, 0.96f, 0.90f, 0.35f));
+                }
+
+                // ---- clouds: low stratus, tinted by the sky itself ----
                 for (int i = 0; i < 5; i++)
                 {
                     float cy = 96 + i * 46 + Mathf.Sin(i * 2.1f) * 14f;
                     float cx = s.X * 0.5f + Mathf.Sin(i * 2.7f) * 300f;
                     float w = 86 + 26 * Mathf.Sin(i * 1.9f);
+                    var cloud = mid.Lerp(low, 0.4f);
+                    cloud.A = 0.10f;
                     for (int k = 0; k < 3; k++)
                     {
                         float off = (k - 1) * w * 0.55f;
                         DrawSetTransform(new Vector2(cx + off, cy + k * 5f), 0, new Vector2(2.4f, 0.72f));
-                        DrawCircle(Vector2.Zero, w, new Color(0.30f, 0.36f, 0.41f, 0.075f - k * 0.012f));
+                        DrawCircle(Vector2.Zero, w, new Color(cloud, 0.075f - k * 0.012f));
                     }
                 }
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
@@ -744,7 +1145,7 @@ public partial class JiangqiaoLevel : Node2D
         public override void _Ready()
         {
             // preload so first _Draw never hitches
-            foreach (var n in new[] { "mountains", "village", "tree_elm", "tree_birch", "willow", "grass" })
+            foreach (var n in new[] { "mountains", "village_ruined", "tree_elm", "tree_birch", "willow", "grass" })
                 Tex(n);
         }
 
@@ -944,10 +1345,11 @@ public partial class JiangqiaoLevel : Node2D
                     new Color(0.62f, 0.69f, 0.73f, 0.10f), 3f + (i % 3), true);
             }
 
-            // village cluster: generated watercolor art, mirror alternate
+            // village cluster: war-torn watercolor art, mirror alternate
+            // (炮火下的村子：破损的屋顶、烧黑的墙——1931 年嫩江沿岸村庄的真实样貌)
             float[] villages = { -760, 260, 690, 2520, 3000, 4180, 4590 };
             for (int i = 0; i < villages.Length; i++)
-                Sprite("village", new Vector2(villages[i], 568f),
+                Sprite("village_ruined", new Vector2(villages[i], 568f),
                     90f + (i % 3) * 11f, 1f, flip: i % 2 == 1);
 
             // mid tree line: generated birch/elm sprites, fixed seed layout
@@ -1535,12 +1937,31 @@ public partial class JiangqiaoLevel : Node2D
             }
         }
 
+        private Texture2D _bridgeTex;
+
         private void DrawBridge()
         {
             const float start = 4400f;
             const float end = 5200f;
             const float top = 376f;
             const float bottom = GroundY + 8f;
+
+            // generated bridge art (truss + piers, burned mid-section) replaces the old
+            // code-drawn one; keep the code path as fallback if the texture is missing
+            _bridgeTex ??= GD.Load<Texture2D>("res://assets/art/props/bridge.png");
+            if (_bridgeTex != null)
+            {
+                var bsz = _bridgeTex.GetSize();
+                float bh = 420f;
+                float bw = bh * bsz.X / bsz.Y;
+                float bx = start + (end - start - bw) * 0.5f;
+                // piers reach into the river ice, deck sits on the ground line
+                DrawTextureRect(_bridgeTex, new Rect2(bx, GroundY + 168f - bh, bw, bh), false);
+                // fresh snow line on the deck edge, ties the texture into the scene
+                DrawLine(new Vector2(start + 6f, GroundY - 6f), new Vector2(end - 6f, GroundY - 6f),
+                    new Color(0.92f, 0.94f, 0.94f, 0.75f), 3f, true);
+                return;
+            }
 
             // 远端桁架（偏后，颜色淡 + 墨边更细）——完好
             Truss(start + 40, end, top + 26, bottom - 4, new Color(0.28f, 0.32f, 0.34f, 0.55f), InkStyle.InkSoft, 3.4f, null);
@@ -1767,15 +2188,20 @@ public partial class JiangqiaoLevel : Node2D
         {
             public float X;
             public float BaseY;
-            public int Cols;
-            public float Dx;
-            public float RowShift;
-            public float RowH;
-            public float K;
+            public float W;        // drawn wall width
+            public float H;        // drawn wall height
         }
 
         private StackSpec[] _stacks = System.Array.Empty<StackSpec>();
         private Texture2D _sackTex;
+
+        /// <summary>沙袋是给主角躲的：蹲/趴在垛子投影范围内算进掩体。</summary>
+        public bool Covers(float x)
+        {
+            foreach (var s in _stacks)
+                if (Mathf.Abs(x - s.X) < s.W * 0.5f + 26f) return true;
+            return false;
+        }
 
         public override void _Ready()
         {
@@ -1785,16 +2211,15 @@ public partial class JiangqiaoLevel : Node2D
             var list = new List<StackSpec>();
             for (int i = 0; i < bases.Length; i++)
             {
-                bool isBridge = i == bases.Length - 1;
+                // waist-high cover: a standing rifleman must top the wall by half a torso,
+                // wall wide enough for one man prone behind it
+                float h = 54f + rng.RandfRange(-4f, 5f);
                 list.Add(new StackSpec
                 {
                     X = bases[i] + rng.RandfRange(-24f, 24f),
-                    BaseY = isBridge ? GroundY - 4f + rng.RandfRange(-1f, 2f) : GroundY - 11f + rng.RandfRange(-1.5f, 1.5f),
-                    Cols = (int)rng.RandfRange(isBridge ? 3f : 4f, 6.99f),
-                    Dx = isBridge ? 18f + rng.RandfRange(-2f, 2f) : 19f + rng.RandfRange(-3f, 3f),
-                    RowShift = 10f + rng.RandfRange(-2f, 2f),
-                    RowH = 13f + rng.RandfRange(-2f, 2f),
-                    K = isBridge ? 1f + rng.RandfRange(-0.05f, 0.05f) : 1.05f + rng.RandfRange(-0.06f, 0.06f),
+                    BaseY = GroundY - 2f,
+                    W = h * (2.55f + rng.RandfRange(-0.25f, 0.3f)),
+                    H = h,
                 });
             }
             _stacks = list.ToArray();
@@ -1804,30 +2229,25 @@ public partial class JiangqiaoLevel : Node2D
         public override void _Draw()
         {
             if (_sackTex == null) return;
-            var sz = _sackTex.GetSize();
             for (int i = 0; i < _stacks.Length; i++)
             {
                 var s = _stacks[i];
-                float w = (s.Cols - 1) * s.Dx + 26f;
-                float h = Mathf.Min(w * sz.Y / sz.X, 44f * s.K);
-                float ww = h * sz.X / sz.Y;
-                float cx = s.X + w * 0.5f;
+                float cx = s.X;
 
                 DrawSetTransform(new Vector2(cx, GroundY - 1f), 0, new Vector2(1f, 0.22f));
-                DrawCircle(Vector2.Zero, ww * 0.60f, new Color(0.13f, 0.14f, 0.15f, 0.30f));
+                DrawCircle(Vector2.Zero, s.W * 0.55f, new Color(0.13f, 0.14f, 0.15f, 0.30f));
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
                 bool flip = i % 2 == 1;
-                var col = new Color(1f, 1f, 1f, 1f);
                 if (flip)
                 {
                     DrawSetTransform(new Vector2(cx, GroundY + 1f), 0, new Vector2(-1f, 1f));
-                    DrawTextureRect(_sackTex, new Rect2(-ww * 0.5f, -h, ww, h), false, col);
+                    DrawTextureRect(_sackTex, new Rect2(-s.W * 0.5f, -s.H, s.W, s.H), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
                 else
                 {
-                    DrawTextureRect(_sackTex, new Rect2(cx - ww * 0.5f, GroundY + 1f - h, ww, h), false, col);
+                    DrawTextureRect(_sackTex, new Rect2(cx - s.W * 0.5f, GroundY + 1f - s.H, s.W, s.H), false);
                 }
             }
         }
@@ -2139,7 +2559,9 @@ public partial class EnemySoldier : Node2D
 
         // 推进到距玩家约 330px 处停下；到警戒线也停；玩家逼近则退半步。
         // 警觉时压上更坚决（更快逼近、站位更贴）。
+        // 玩家缩在掩体后面就往前顶——躲沙包不是无敌，日军会逼近到投弹距离。
         float targetDist = engaged ? 290f + _lane : 330f + _lane;
+        if (_level.PlayerInCover()) targetDist -= 95f;
         float stopX = Mathf.Max(_holdX + _lane, _level.PlayerX + targetDist);
         float runSpeed = engaged ? 96f : 64f;
         if (Position.X > stopX + 16f)
@@ -2199,6 +2621,59 @@ public partial class EnemySoldier : Node2D
         {
             Alert();
         }
+    }
+}
+
+/// <summary>木柄手榴弹：抛物线 + 2.2 秒引信，落点爆炸由关卡结算伤害。</summary>
+public partial class GrenadeProj : Node2D
+{
+    private Vector2 _vel;
+    private float _fuse = 2.2f;
+    private float _spin;
+
+    public bool Exploded { get; private set; }
+
+    public GrenadeProj(Vector2 pos, float facing)
+    {
+        Position = pos;
+        _vel = new Vector2(facing * 320f, -330f);
+        ZIndex = 3;
+    }
+
+    public override void _Process(double delta)
+    {
+        if (Exploded) return;
+        float f = (float)delta;
+        _vel += new Vector2(0, 1500f * f);
+        Position += _vel * f;
+        _spin += f * 9f;
+
+        // bounce once on snow, roll a little
+        if (Position.Y > JiangqiaoLevel.GroundY - 6f && _vel.Y > 0f)
+        {
+            Position = new Vector2(Position.X, JiangqiaoLevel.GroundY - 6f);
+            _vel = new Vector2(_vel.X * 0.35f, -_vel.Y * 0.28f);
+            if (Mathf.Abs(_vel.Y) < 60f) _vel = new Vector2(_vel.X * 0.8f, 0f);
+        }
+
+        _fuse -= f;
+        QueueRedraw();
+        if (_fuse <= 0f) Exploded = true;
+    }
+
+    public override void _Draw()
+    {
+        DrawSetTransform(new Vector2(0, JiangqiaoLevel.GroundY - Position.Y + 2f), 0, new Vector2(1.3f, 0.3f));
+        DrawCircle(Vector2.Zero, 7f, new Color(0.10f, 0.09f, 0.08f, 0.25f));
+        DrawSetTransform(new Vector2(0, 0), _spin, Vector2.One);
+        // wooden handle + head
+        DrawRect(new Rect2(-4f, -12f, 8f, 16f), new Color(0.42f, 0.32f, 0.20f));
+        DrawRect(new Rect2(-7f, -22f, 14f, 12f), new Color(0.30f, 0.31f, 0.33f));
+        DrawRect(new Rect2(-7f, -22f, 14f, 12f), new Color(0.18f, 0.18f, 0.20f, 0.8f), false, 1.2f);
+        // fuse spark near the end
+        if (_fuse < 0.6f && (int)(_fuse * 14f) % 2 == 0)
+            DrawCircle(new Vector2(0f, -24f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }
 

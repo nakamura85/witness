@@ -20,6 +20,7 @@ public partial class CorpseActor : Node2D
     private readonly float _seed;
     private readonly bool _headRight;
     private readonly float _rotJitter;
+    private readonly bool _withRifle;
 
     private static readonly Dictionary<string, Texture2D> _texCache = new();
 
@@ -32,10 +33,12 @@ public partial class CorpseActor : Node2D
         ["corpse_ija_supine"] = 122f,
     };
 
-    public CorpseActor(Faction faction, Vector2 position, bool facingRight, float rotJitter = -1f)
+    public CorpseActor(Faction faction, Vector2 position, bool facingRight, float rotJitter = -1f,
+        bool withRifle = true)
     {
         _faction = faction;
         _headRight = facingRight;
+        _withRifle = withRifle;
         var rng = new RandomNumberGenerator();
         rng.Randomize();
         _seed = rng.Randf();
@@ -45,8 +48,9 @@ public partial class CorpseActor : Node2D
         else if (r < 0.95f) _pose = Pose.Supine;
         else _pose = Pose.SideLying;
 
-        // pre-placed corpses pass fixed jitter so level layout is stable, deaths roll random
-        _rotJitter = rotJitter >= 0f ? rotJitter : rng.RandfRange(-0.26f, 0.26f);
+        // pre-placed corpses pass fixed jitter so level layout is stable, deaths roll random.
+        // small tilt only + pivot at body center, else one end floats 30px above the snow
+        _rotJitter = rotJitter >= 0f ? rotJitter : rng.RandfRange(-0.12f, 0.12f);
 
         Position = position;
         ZIndex = 0;
@@ -77,12 +81,14 @@ public partial class CorpseActor : Node2D
         float len = _texLen[TexName()];
         float h = len * sz.Y / sz.X;
         DrawContactShadow(len);
-        // small tilt only, head side flipped by scale X, so the body always lies on the ground line
-        DrawSetTransform(Vector2.Zero, -_rotJitter, new Vector2(HeadSign(), 1f));
-        DrawTextureRect(t, new Rect2(0f, -h + 3f, len, h), false);
+        // rotate around body center, not the edge: keeps both ends on the ground line,
+        // no more floating corpse ends
+        DrawSetTransform(new Vector2(HeadSign() * len * 0.5f, 0f), -_rotJitter,
+            new Vector2(HeadSign(), 1f));
+        DrawTextureRect(t, new Rect2(-len * 0.5f, -h + 3f, len, h), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
-        DrawDroppedRifle();
+        if (_withRifle) DrawDroppedRifle();
         DrawSnowDrift();
     }
 

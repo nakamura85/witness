@@ -1,4 +1,4 @@
-# 见证者（Witness）· v2.1 手绘漫画风二战亚洲战场叙事游戏
+# 见证者（Witness）· v2.2 手绘漫画风二战亚洲战场叙事游戏
 
 > 二战的历史不是从 1937 年才开始的。要还原事实，就得从源头讲起——1895 年的马关条约、1910 年的日韩合并条约，殖民如何一步步吞下朝鲜半岛与台湾地区，直到 1931 年九一八、1937 年的南京。
 
@@ -11,8 +11,8 @@
 - **程序化手绘层（纯 `Node2D._Draw()`）**：UI / 菜单 / 暴风雪·飘雪·灯笼光晕·暗角等特效、尸体与血迹、地形细节（沙袋、桥墩、桁架、弹坑、铁轨、碉堡），风格统一入口为 `scripts/InkStyle.cs`（墨色描边 `InkColor` + 平涂色板 + `PenStroke` 工具方法）。
 - **AI 生成贴图层（图生图，保持同款水彩漫画画风）**：
   - **史实军服角色立绘**（`assets/art/sprites/`）：东北军 1931 灰蓝棉服护耳棉帽青天白日帽徽、日军昭五式大檐帽黄星三八式步枪；含立姿 / 据枪 / 蹲 / 匍匐专姿（`soldier_na_aim` / `_crouch` / `_prone`）、**阵亡尸体**（`corpse_na/ija_prone/supine` 俯卧 / 仰卧）、NPC / 难民 / 建筑 / 道具。
-  - **视差背景贴图**（`assets/art/backdrop/`，layer by layer 厚度 / 纵深感）：雪山 `mountains`、东北民居村落 `village`、榆树 `tree_elm`、白桦 `tree_birch`、柳丛 `willow`、雪地枯草 `grass`，以 `DrawTextureRect` + `DrawSetTransform` 合成进 Far / Mid / Near / Fore 四层视差。
-  - **战场物件贴图**（`assets/art/props/`）：沙袋掩体堆 `sandbags`、弹药木箱 `crate`，与角色 / 背景同一管线出图。
+  - **视差背景贴图**（`assets/art/backdrop/`，layer by layer 厚度 / 纵深感）：雪山 `mountains`、东北民居村落（战后残破）`village_ruined`、榆树 `tree_elm`、白桦 `tree_birch`、柳丛 `willow`、雪地枯草 `grass`，以 `DrawTextureRect` + `DrawSetTransform` 合成进 Far / Mid / Near / Fore 四层视差。
+  - **战场物件贴图**（`assets/art/props/`）：沙袋掩体堆 `sandbags`、弹药木箱 `crate`、可进入的残破 / 焚毁近景民居 `house_ruined_near` / `house_burned_near`、含桥墩桁架的江桥 `bridge`，与角色 / 背景同一管线出图。
 - **图层**：4 层视差（Far 0.06 / Mid 0.24 / Near 0.55 / Fore 1.32；ZIndex Far -40 / Mid -30 / Near -20 / Player 0 / Enemy 2 / Fore 5）。贴图层与程序化层叠加产生厚度与纵深。
 
 ## 游戏流程
@@ -24,7 +24,7 @@
 5. **记录证言**：东北军幸存者口述史料，走到位置按住 E 约 1.2 秒记录
 6. **通关档案** → 史料馆
 
-## 近期更新要点（v2.0）
+## 近期更新要点（v2.2）
 
 > 以下修复全部**本机 Godot 4.7.2 mono 实机运行验证**（自动化截图脚本 `scripts/Capture.cs` 巡游 5 阶段截图，整轮 0 报错、0 三角化失败）。立绘与背景贴图由 ImageGen 以旧图为底图**图生图重绘**，画风一致。
 
@@ -37,10 +37,23 @@
 - **沙袋掩体 / 弹药木箱重制**（v2.1）：程序化胶囊沙包与纯色方块木箱全部替换为同款画风贴图（`assets/art/props/`），与背景 / 角色风格统一。
 - **截图库收敛**（v2.1）：旧实机截图全部删除，图库只保留 13 张最新实机画面（同文件名覆盖更新，不再累加）。
 
+### v2.2 嫩江江桥 · 真实性 + 交互大补强
+
+> 全部**本机 Godot 4.7.2 mono 实机运行验证**（自动化巡游截图 9 张 0 报错）；美术由 ImageGen 图生图重绘，画风一致。
+
+- **真实天文昼夜循环**（v2.2）：用程序（NOAA 太阳位置 + Meeus 月相）按泰来县（46.9°N, 123.4°E, UTC+8）当年实测天文数据重现——1931.11.4 **06:32 日出 / 16:29 日落**，**残月（月龄 23.2 天、亮面 39.2%、13:42 月落）**，**并非满月**。夜晚固定星空（110 颗星，种子 19311104）+ 残月低悬东天、日出前隐没；白昼太阳走冬季低弧线（东升西落）。`CanvasModulate` 按 5 关键帧（夜→晨→昼→昏→夜）渐变世界色温，夜晚压暗、白昼光线充足。
+- **可进入房屋 + 战利品系统**（v2.2）：背景拉近两栋近景民居——一栋残破、一栋焚毁（烧痕 / 弹孔 / 焦黑）。按 E 进入屋内搜刮：少量子弹（+4~8）、手榴弹（+1）、阵亡者**遗言字条 / 线索字条**（虚构姓名 + 伦理提示）、**需长按撬锁的宝箱**（约 1.4 秒撬开，60% 开出弹药+手榴弹，40% 冻锁失败）、灰烬。搜索状态跨场持久化（`WitnessState.JiangqiaoLoot`）。
+- **阵亡掉枪 + 拾取反击**（v2.2）：日军阵亡后尸体不再自带枪，改为尸体旁掉落可拾取 `WeaponPickup`——40% 枪栓冻死 / 0 弹「开不了枪」，60% 可用并带 2~8 发子弹；玩家按 E 拾取补弹，可躲沙包后反击。弹仓打空提示「去尸体边捡枪，或进屋搜弹药」。
+- **手榴弹**（v2.2 · G 键）：抛物线木柄手榴弹，落地反弹，2.2 秒引信后范围杀伤（165px 内敌兵 2× 受创即死、120px 内玩家受创），带炮击震屏。
+- **沙包掩体修正**（v2.2）：重绘 `sandbags.png`（**不再内嵌迷你人物**——旧版误把架枪者画成缩小兵），`CoverArt` 改为齐腰高连续沙墙（54px 高、腰宽 2.55×）；`PlayerInCover()` 检测蹲 / 匍匐贴墙，敌兵见玩家躲掩体则前压 95px。敌方命中率：掩体后 0.04 / 蹲 0.10 / 站立 0.28。
+- **尸体贴地修正**（v2.2）：`CorpseActor` 旋转改为绕身体中心（旧版绕边、±0.26 弧度把远端抬离雪面约 33px 致「尸体飘起」），抖动收紧到 ±0.12，尸体牢牢贴雪。
+- **桥 / 村落重绘**（v2.2）：江桥含桥墩、桁架、桥面雪线全部重绘（`assets/art/props/bridge.png`）；中景村落改为战后残破版 `village_ruined.png`（同款画风图生图）。
+
 ### 版本历史（一句话）
 
 | 版本 | 要点 |
 |------|------|
+| v2.2 | 真实天文昼夜循环（残月非满月）、可进入房屋+战利品/遗言字条/撬锁宝箱、阵亡掉枪拾取反击、手榴弹、沙包掩体修正（去迷你兵）、尸体贴地修正、江桥/村落重绘 |
 | v2.1 | 尸体 / 沙袋掩体 / 弹药木箱同款画风贴图重制、截图库收敛为 13 张最新实机画面（同文件名覆盖） |
 | v2.0 | 背景鬼畜 + 白线闪烁根除、史实军服重绘、军事专姿立绘 + 枪口锚点对齐、蹲/匍匐比例修正、视差背景贴图重制 |
 | v1.9 | 雪山圆簇雪帽、低姿蹲行重构、新增匍匐前进、白线闪烁三角化根修、纯代码解剖学尸体、Capture 实机截图自动化 |
@@ -77,61 +90,68 @@
 - **记录**：靠近发光的证词点，**按住 E 约 1.2 秒**（进度环）—— 被敌兵看见时会被打断
 - **解谜设计**：证言必须完整记录三份（机枪手赵永生、卫生员李桂兰、铁路工人孙德山），缺一不可通关。现场散落的物证碎片（歪把子零件、绷带卷、铁轨碎段）是完整还原证词的关键。
 
+### v2.2 新增交互（嫩江江桥）
+
+- **进入房屋 / 搜刮**：走到近景民居（残破 / 焚毁）前按 **E** 进入屋内，点击搜刮点（子弹 / 手榴弹 / 遗言字条 / 线索字条 / 灰烬），长按撬开**宝箱**（约 1.4 秒，60% 开出弹药+手榴弹，40% 冻锁失败）。搜索进度自动保存。
+- **拾取掉枪**：日军阵亡后尸体旁会掉落步枪，靠近按 **E** 拾取——可能枪栓冻死开不了（0 弹），也可能带 2~8 发可用子弹，自动补进弹仓。
+- **手榴弹**：按 **G** 投掷木柄手榴弹（抛物线 + 落地反弹 + 2.2 秒引信），范围杀伤靠近的日军；弹仓打空时优先去捡枪或进屋搜弹。
+- **沙包掩体**：蹲（S / ↓）或匍匐（Ctrl / C）贴住沙墙即进入「掩体」状态，日军命中率骤降；敌兵会前压逼近。
+
 ## 游戏截图（实机运行）
 
 以下截图由自动化巡游脚本实机运行生成（`scripts/Capture.cs`），**同文件名覆盖更新，只保留最新画面**。
 
 **标题 · 见证者（title.jpg 古城墙雪景照片 + 程序化飘雪 / 灯笼晕 / 暗角）**
 
-![标题](docs/screenshots/v00_title.png?v=2.1)
+![标题](docs/screenshots/v00_title.png?v=2.2)
 
 **东亚大地图 · 时间线 Hub（layer by layer 视差：纸张底 / 地理 / 航线箭头 / 纸条）**
 
-![大地图](docs/screenshots/v01_map.png?v=2.1)
+![大地图](docs/screenshots/v01_map.png?v=2.2)
 
 **纸条档案 01 · 汉城《日韩合并条约》1910**
 
-![纸条 01](docs/screenshots/v02_note_korea.png?v=2.1)
+![纸条 01](docs/screenshots/v02_note_korea.png?v=2.2)
 
 **纸条档案 02 · 台北《马关条约》割台 1895**
 
-![纸条 02](docs/screenshots/v03_note_taiwan.png?v=2.1)
+![纸条 02](docs/screenshots/v03_note_taiwan.png?v=2.2)
 
 **进军箭头生长完成 · 汉城 → 鸭绿江 → 沈阳 → 嫩江江桥**
 
-![进军箭头](docs/screenshots/v04_map_arrows.png?v=2.1)
+![进军箭头](docs/screenshots/v04_map_arrows.png?v=2.2)
 
 **雪原全景 · 同款画风背景贴图合成四层视差（雪山 / 村落 / 树 / 草，layer by layer 厚度感）**
 
-![雪原全景](docs/screenshots/v46_jq_scene.png?v=2.1)
+![雪原全景](docs/screenshots/v46_jq_scene.png?v=2.2)
 
 **行走 · 史实军服立绘 + 纸娃娃分层动画**
 
-![行走](docs/screenshots/v14_walk_a.png?v=2.1)
+![行走](docs/screenshots/v14_walk_a.png?v=2.2)
 
 **敌兵推进 · 关东军迎面前压（景深错位）**
 
-![敌兵推进](docs/screenshots/v12_enemy_advance.png?v=2.1)
+![敌兵推进](docs/screenshots/v12_enemy_advance.png?v=2.2)
 
 **立姿据枪 · 枪托抵肩贴腮瞄准 + 枪口火光对齐枪管尖**
 
-![立姿据枪](docs/screenshots/v47_jq_fire.png?v=2.1)
+![立姿据枪](docs/screenshots/v47_jq_fire.png?v=2.2)
 
 **跪蹲持枪 · 军事标准跪姿（S 键）**
 
-![跪蹲持枪](docs/screenshots/v48_jq_crouch.png?v=2.1)
+![跪蹲持枪](docs/screenshots/v48_jq_crouch.png?v=2.2)
 
 **低姿匍匐 · 军事条令低姿匍匐前进（Ctrl/C 键）**
 
-![低姿匍匐](docs/screenshots/v49_jq_prone.png?v=2.1)
+![低姿匍匐](docs/screenshots/v49_jq_prone.png?v=2.2)
 
 **敌兵阵亡 · 同款画风尸体贴图（俯卧 / 仰卧）+ 掉落步枪 + 脚下雪脊**
 
-![雪地尸体](docs/screenshots/v26_corpse.png?v=2.1)
+![雪地尸体](docs/screenshots/v26_corpse.png?v=2.2)
 
 **掩体沙袋 · 同款画风沙袋堆贴图（前景层，人从掩体后经过）**
 
-![掩体沙袋](docs/screenshots/v22_bridge.png?v=2.1)
+![掩体沙袋](docs/screenshots/v22_bridge.png?v=2.2)
 
 ## 如何运行（小白版，3 步）
 
@@ -184,13 +204,15 @@ witness/
 │   ├── AsiaMap.cs       # 东亚大地图（layer by layer 视差 + 进军箭头 + 纸条档案）
 │   ├── JiangqiaoLevel.cs# 嫩江江桥关卡（4 层视差雪原 + 程序化场景 + 生成式背景贴图）
 │   ├── Capture.cs       # 实机自动化截图脚本（开发用，push 前移除）
+│   ├── EnterableHouse.cs# 可进入房屋 + 屋内战利品/遗言字条/撬锁宝箱 UI
+│   ├── WeaponPickup.cs  # 阵亡掉落枪支拾取（可用/枪栓冻死）+ 弹药补充
 │   ├── Main.cs          # 入口节点 + fade-to-black 丝滑转场
 │   └── ...              # 其余脚本
 ├── assets/
 │   ├── art/
 │   │   ├── title.jpg        # 标题背景照片（古城墙雪景）
 │   │   ├── sprites/         # AI 生成的史实军服角色立绘（soldier_na/ija + 专姿 aim/crouch/prone + corpse_na/ija prone·supine + NPC/难民/建筑/道具）
-│   ├── props/           # AI 生成的战场物件贴图（sandbags 沙袋掩体堆 / crate 弹药木箱）
+│   ├── props/           # AI 生成的战场物件贴图（sandbags 沙袋掩体堆 / crate 弹药木箱 / house_ruined_near·house_burned_near 可进入民居 / bridge 江桥含桥墩）
 │   ├── backdrop/        # 生成的视差背景贴图（mountains/village/tree_elm/tree_birch/willow/grass）
 │   │   └── ...              # 其他场景/道具贴图
 │   └── fonts/           # 字体（未内嵌时回退系统字体）

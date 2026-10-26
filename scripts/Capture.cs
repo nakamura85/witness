@@ -19,6 +19,9 @@ public partial class Capture : Node
     {
         GD.Print("CAPTURE _Ready: building JiangqiaoLevel");
         _lvl = new JiangqiaoLevel(new Main());
+        // gallery shots in full winter daylight (11:00); the day/night cycle
+        // otherwise starts pre-dawn and every shot would be dark blue
+        _lvl.DebugClock = 11.0f;
         AddChild(_lvl);
         _started = true;
         _t = 0f;

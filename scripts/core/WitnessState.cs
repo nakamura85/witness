@@ -42,6 +42,7 @@ public class WitnessState
     public bool MapOrdered;                                   // 东亚大地图：三张纸条已按年代归档
     public bool JiangqiaoDone;                                // 是否通关 1931 嫩江江桥试玩关
     public HashSet<string> JiangqiaoTestimony = new();        // 已记录的江桥证言 id
+    public HashSet<string> JiangqiaoLoot = new();             // 已搜刮过的屋子/箱子（按 id 持久）
 
     /// <summary>关卡内可收集的 6 件证据（对应史料卡 1-6）。</summary>
     public static readonly string[] EvidenceIds = { "film", "rabe", "vautrin", "roster", "medical", "letter" };

@@ -13,10 +13,15 @@ public partial class FieldPlayer : CharacterBody2D
     public event Action Hit;
     public event Action Down;
     public event Action Landed;
+    public event Action DryFired;               // trigger pulled, no rounds left
 
     public SpriteActor Figure { get; private set; }
     public int Hp = 3;
     public bool ControlLocked;
+
+    // ammo economy: belt rounds run out, loot rifles from the dead to keep fighting
+    public int Ammo = 15;
+    public int Grenades = 1;
 
     private float _facing = 1f;
     private float _coyote;
@@ -123,6 +128,14 @@ public partial class FieldPlayer : CharacterBody2D
 
     private void Fire(float forcedFacing = 0f)
     {
+        if (Ammo <= 0)
+        {
+            // bolt clicks on an empty chamber
+            _shootCd = 0.45f;
+            DryFired?.Invoke();
+            return;
+        }
+        Ammo--;
         _shootCd = 0.62f;
         _aimTimer = 0.55f;
         Figure.MuzzleFlash = 1f;
