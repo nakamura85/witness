@@ -2487,20 +2487,36 @@ public partial class JiangqiaoLevel : Node2D
             var skip = new HashSet<int>(_railSkipIdx);
             float railY = GroundY - 1f;
 
-            // ballast bed: packed darker snow with soft top edge, rails cannot
-            // just float on white paper
-            DrawColoredPolygon(new[]
+            // a crater sitting on the rail line means the shelling broke the
+            // track - skip sleepers and leave a gap in the rails there, so the
+            // pits read as battlefield damage instead of holes punched through
+            // a pristine line.
+            bool OnRailCrater(float x)
             {
-                new Vector2(2380, railY + 2), new Vector2(WorldW + 60, railY + 2),
-                new Vector2(WorldW + 60, railY + 22), new Vector2(2380, railY + 22),
-            }, new Color(0.73f, 0.755f, 0.765f, 0.5f));
-            DrawLine(new Vector2(2380, railY + 2), new Vector2(WorldW + 60, railY + 2),
-                new Color(0.90f, 0.925f, 0.93f, 0.75f), 2.6f, true);
+                for (int i = 0; i < _craterX.Length; i++)
+                    if (_craterX[i] > 2380f && _craterX[i] < WorldW && Mathf.Abs(x - _craterX[i]) < _craterR[i] * 0.82f)
+                        return true;
+                return false;
+            }
+
+            // ballast bed: packed darker snow with a gently wavy top edge so
+            // it doesn't read as a ruler-straight line drawn on white paper
+            var ballast = new List<Vector2>();
+            for (float x = 2380f; x <= WorldW + 60f; x += 38f)
+                ballast.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
+            ballast.Add(new Vector2(WorldW + 60f, railY + 22f));
+            ballast.Add(new Vector2(2380f, railY + 22f));
+            DrawColoredPolygon(ballast.ToArray(), new Color(0.73f, 0.755f, 0.765f, 0.5f));
+            // soft top-edge highlight following the same wave
+            var topEdge = new List<Vector2>();
+            for (float x = 2380f; x <= WorldW + 60f; x += 38f)
+                topEdge.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
+            DrawPolyline(topEdge.ToArray(), new Color(0.90f, 0.925f, 0.93f, 0.7f), 2.6f, false);
 
             int k = 0;
             for (float x = 2400; x < WorldW; x += 34, k++)
             {
-                if (skip.Contains(k)) continue;
+                if (skip.Contains(k) || OnRailCrater(x + 11f)) continue;
                 // each sleeper got own height/brightness jitter (deterministic,
                 // picture stays stable between frames)
                 float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
@@ -2520,36 +2536,95 @@ public partial class JiangqiaoLevel : Node2D
                         new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
             }
 
-            // two parallel rails: dark ink base + steel sheen + snow caps.
-            // snow sits in short patches, wind never piles it one straight line
+            // two parallel rails: broken at the craters, drawn as short intact
+            // segments with steel sheen. snow caps sit on top in short patches.
             foreach (float ry in new[] { railY, railY + 12 })
             {
-                DrawLine(new Vector2(2400, ry), new Vector2(WorldW, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
-                DrawLine(new Vector2(2400, ry), new Vector2(WorldW, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
-                // 轨顶积雪：短促的亮段（不是通条白线，雪是被风一段段吹积的）
-                for (float sx = 2420; sx < WorldW; sx += 88)
+                // ink base, segmented around the blast gaps
+                float segStart = 2400f;
+                for (float x = 2400f; x <= WorldW; x += 10f)
                 {
-                    float seg = 14f + Mathf.Sin(sx * 0.07f) * 8f;
-                    DrawLine(new Vector2(sx, ry - 1.2f), new Vector2(sx + seg, ry - 1.2f),
-                        new Color(0.96f, 0.97f, 0.97f, 0.85f), 2.4f, true);
+                    if (OnRailCrater(x))
+                    {
+                        if (x - segStart > 4f)
+                            DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
+                        segStart = x + 10f;
+                    }
                 }
+                if (WorldW - segStart > 4f)
+                    DrawLine(new Vector2(segStart, ry), new Vector2(WorldW, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
+
+                // steel sheen only on the intact lengths
+                segStart = 2400f;
+                for (float x = 2400f; x <= WorldW; x += 10f)
+                {
+                    if (OnRailCrater(x))
+                    {
+                        if (x - segStart > 4f)
+                            DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
+                        segStart = x + 10f;
+                    }
+                }
+                if (WorldW - segStart > 4f)
+                    DrawLine(new Vector2(segStart, ry), new Vector2(WorldW, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
+            }
+
+            // 轨顶积雪：短促的亮段（不是通条白线，雪是被风一段段吹积的），避开被炸断处
+            for (float sx = 2420; sx < WorldW; sx += 88)
+            {
+                if (OnRailCrater(sx)) continue;
+                float seg = 14f + Mathf.Sin(sx * 0.07f) * 8f;
+                DrawLine(new Vector2(sx, railY - 1.2f), new Vector2(sx + seg, railY - 1.2f),
+                    new Color(0.96f, 0.97f, 0.97f, 0.85f), 2.4f, true);
+            }
+
+            // scattered gravel / ice specks on the ballast so it isn't a flat wash
+            for (float gx = 2410; gx < WorldW; gx += 57f)
+            {
+                if (OnRailCrater(gx)) continue;
+                float gy = railY + 8f + Mathf.Sin(gx * 0.13f) * 4f;
+                DrawCircle(new Vector2(gx, gy), 1.4f, new Color(0.62f, 0.64f, 0.66f, 0.7f));
             }
         }
 
         private void DrawCraters()
         {
+            // shell craters as snow depressions: a raised thrown-snow rim around
+            // a concave pit that deepens toward the centre - NOT a near-black
+            // pancake stamped flat on the ground (that read as a hole punched
+            // in the world). All squashed flat because we look down at the snow.
             for (int i = 0; i < _craterX.Length; i++)
             {
                 float x = _craterX[i];
                 float r = _craterR[i];
-                DrawSetTransform(new Vector2(x, GroundY + 2), 0, new Vector2(1f, 0.34f));
-                // 外层炸坑土（暗棕）：先描墨边再填色
-                var outer = CircleVerts(r, 10);
-                InkStyle.PenStroke(this, outer, new Color(0.38f, 0.32f, 0.28f, 0.80f), InkStyle.InkSoft, InkStyle.Stroke);
-                // 内层坑底（最深）
-                var inner = CircleVerts(r * 0.72f, 10);
-                InkStyle.PenStroke(this, inner, new Color(0.18f, 0.15f, 0.12f, 0.88f), InkStyle.InkSoft, InkStyle.ThinStroke);
+
+                // soft bluish contact shade just under the near rim
+                DrawSetTransform(new Vector2(x, GroundY + 4f), 0, new Vector2(1f, 0.30f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.55f, 0.60f, 0.64f), 0.22f),
+                    new Rect2(-r * 1.5f, -r * 1.5f, r * 3f, r * 3f), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                // thrown-snow rim: bright pile ringing the pit
+                DrawSetTransform(new Vector2(x, GroundY + 1f), 0, new Vector2(1f, 0.34f));
+                DrawColoredPolygon(CircleVerts(r * 1.14f, 22), new Color(0.93f, 0.95f, 0.95f, 0.92f));
+                // pit: stacked darker ellipses give a soft concave read
+                DrawColoredPolygon(CircleVerts(r * 0.92f, 20), new Color(0.62f, 0.66f, 0.70f, 0.95f));
+                DrawColoredPolygon(CircleVerts(r * 0.60f, 18), new Color(0.47f, 0.51f, 0.56f, 0.95f));
+                DrawColoredPolygon(CircleVerts(r * 0.30f, 14), new Color(0.35f, 0.38f, 0.43f, 0.90f));
+                // upper rim catches the light; near rim drops a thin shadow lip
+                DrawPolyline(CircleVerts(r * 1.12f, 22, Mathf.Pi, Mathf.Tau), new Color(0.99f, 0.995f, 0.995f, 0.9f), 2.0f, false);
+                DrawPolyline(CircleVerts(r * 1.12f, 22, 0, Mathf.Pi), new Color(0.45f, 0.49f, 0.53f, 0.5f), 2.2f, false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                // a few ejecta chips flung just outside the rim
+                for (int e = 0; e < 5; e++)
+                {
+                    float a = (float)e / 5 * Mathf.Tau + 0.6f;
+                    float d = r * (1.25f + (e * 7 % 5) * 0.06f);
+                    float ex = x + Mathf.Cos(a) * d;
+                    float ey = (GroundY + 1f) + Mathf.Sin(a) * d * 0.34f;
+                    DrawCircle(new Vector2(ex, ey), 1.5f + (e % 2), new Color(0.78f, 0.81f, 0.83f, 0.8f));
+                }
             }
         }
 
@@ -2748,7 +2823,10 @@ public partial class JiangqiaoLevel : Node2D
                 new Vector2(1120, GroundY + 9), new Vector2(1700, GroundY + 10),
             }, new Color(0.97f, 0.98f, 0.98f, 0.55f), 3f, true);
 
-            // trench-side ammo crates, generated watercolor sprite now
+            // trench-side ammo crates, generated watercolor sprite now.
+            // blended into the snow: a drift behind, a snow cap on top and a
+            // base mound so the box reads as weathered/half-buried, not a hard
+            // black block dropped on white paper.
             var crate = CrateTex();
             if (crate != null)
             {
@@ -2759,10 +2837,26 @@ public partial class JiangqiaoLevel : Node2D
                     float ch = _crateH[ci];
                     float cw = ch * csz.X / csz.Y;
                     float rot = _crateRot[ci];
-                    // half-buried look: sink 2px into the snow, tilt each box its own way
-                    SnowShadow.Draw(this, new Vector2(x + 10f, GroundY - 1f), cw * 0.55f, 0.28f);
+                    // snow drift behind the crate
+                    DrawSetTransform(new Vector2(x + 2f, GroundY - 2f), 0, new Vector2(1.6f, 0.5f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.88f, 0.91f, 0.92f), 0.5f),
+                        new Rect2(-cw * 0.7f, -cw * 0.7f, cw * 1.4f, cw * 1.4f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    // soft contact shadow
+                    SnowShadow.Draw(this, new Vector2(x + 10f, GroundY - 1f), cw * 0.55f, 0.22f);
+                    // the crate itself, tilted, sunk a touch
                     DrawSetTransform(new Vector2(x + 8f, GroundY - 1f), rot, Vector2.One);
                     DrawTextureRect(crate, new Rect2(-cw * 0.5f, -ch + 2f, cw, ch), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    // snow piled on the crate top -> half-buried look
+                    DrawSetTransform(new Vector2(x + 8f, GroundY - 1f - ch + 4f), rot, Vector2.One);
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.95f, 0.97f, 0.97f), 0.7f),
+                        new Rect2(-cw * 0.55f, -6f, cw * 1.1f, 12f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    // snow mound at the base front
+                    DrawSetTransform(new Vector2(x + 6f, GroundY + 1f), 0, new Vector2(1.4f, 0.4f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.94f, 0.96f, 0.96f), 0.55f),
+                        new Rect2(-cw * 0.5f, -8f, cw, 16f), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
             }

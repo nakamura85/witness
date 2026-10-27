@@ -10,6 +10,7 @@ namespace Witness;
 public partial class Capture : Node
 {
     private JiangqiaoLevel _lvl;
+    private SubViewport _sub;
     private float _t;
     private int _stage;
     private bool _started;
@@ -23,11 +24,18 @@ public partial class Capture : Node
     public override void _Ready()
     {
         GD.Print("CAPTURE _Ready: building JiangqiaoLevel");
+        // render into an explicit SubViewport: the headless dummy renderer does
+        // not back the main window viewport with a readable texture, so we read
+        // the SubViewport's render target instead (it is allocated reliably).
+        _sub = new SubViewport();
+        _sub.Size = new Vector2I(1280, 720);
+        _sub.RenderTargetUpdateMode = SubViewport.UpdateMode.Always;
+        AddChild(_sub);
         _lvl = new JiangqiaoLevel(new Main());
         // gallery shots in full winter daylight (11:00); the day/night cycle
         // otherwise starts pre-dawn and every shot would be dark blue
         _lvl.DebugClock = 11.0f;
-        AddChild(_lvl);
+        _sub.AddChild(_lvl);
         _started = true;
         _t = 0f;
         _stage = 0;
@@ -169,11 +177,30 @@ public partial class Capture : Node
 
     private float PlayerX() => _lvl?._player?.Position.X ?? 0f;
 
+    // once any viewport texture has been read successfully, later shots only
+    // need a couple of attempts - this stops a headless startup race from
+    // cascading into a long hang where every shot waits out its retries.
+    private static bool _texOk;
+
     private async void SaveShot(string name)
     {
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        var tex = GetViewport().GetTexture();
-        var img = tex.GetImage();
+        // headless dummy renderer occasionally hands back a null viewport
+        // texture for the first few frames - wait it out instead of dropping
+        // the shot (the burnt-village frame used to get skipped).
+        Image img = null;
+        int max = _texOk ? 3 : 60;
+        for (int attempt = 0; attempt < max && img == null; attempt++)
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            var tex = _sub.GetTexture();
+            if (tex != null) img = tex.GetImage();
+        }
+        if (img == null)
+        {
+            GD.PrintErr($"CAPTURE skip {name} (no viewport texture after {max} tries)");
+            return;
+        }
+        _texOk = true;
         if (!System.IO.Directory.Exists(Dir)) System.IO.Directory.CreateDirectory(Dir);
         string path = System.IO.Path.Combine(Dir, name);
         img.SavePng(path);
