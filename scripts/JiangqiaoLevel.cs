@@ -226,17 +226,20 @@ public partial class JiangqiaoLevel : Node2D
     /// </summary>
     private void BuildHouses()
     {
+        // v3.5 person-scale audit: player stands 108px. near-row houses land
+        // 1.6-2.0 person heights (user rule: 1.5-2), far row 1.0-1.6 so they
+        // read as distant buildings, not dollhouse props.
         // far row: scenery ruins, cannot enter (lift > 0 = reads further away)
-        AddHouse("f1", 460f + Jit(28), "house_posts", 190f, false, 14f);
-        AddHouse("f2", 1230f + Jit(42), "house_skeleton_near", 235f, false, 16f);
-        AddHouse("f4", 1680f + Jit(45), "house_posts", 145f, false, 19f);
-        AddHouse("f3", 3910f + Jit(35), "house_burned_near", 210f, false, 12f);
+        AddHouse("f1", 460f + Jit(28), "house_posts", 250f, false, 14f);
+        AddHouse("f2", 1230f + Jit(42), "house_skeleton_near", 280f, false, 16f);
+        AddHouse("f4", 1680f + Jit(45), "house_posts", 210f, false, 19f);
+        AddHouse("f3", 3910f + Jit(35), "house_burned_near", 265f, false, 12f);
 
         // near row: enterable loot spots, the intact one teaches players
         // "the house that still looks whole got the goods" lah
         AddHouse("h1", 845f + Jit(24), "house_ruined_near", 330f, true, 0f);
         AddHouse("h3", 1885f + Jit(30), "house_intact_near", 312f, true, 0f);
-        AddHouse("h4", 3180f + Jit(45), "house_posts", 235f, false, 0f);
+        AddHouse("h4", 3180f + Jit(45), "house_posts", 320f, false, 0f);
         AddHouse("h2", 2760f, "house_burned_near", 360f, true, 0f);
     }
 
@@ -2323,10 +2326,14 @@ public partial class JiangqiaoLevel : Node2D
             var rng = new RandomNumberGenerator();
             rng.Randomize();
 
-            // 弹坑位置 ±20、半径 ±6
+            // 弹坑位置 ±20、半径 ±6。
+            // anchors picked so the rim never kisses a sandbag wall, bunker or
+            // ammo crate - a shell hole right against the cover reads wrong.
+            // old 4060 slot was boxed in by the 4160 wall, bunker 4050 and
+            // crate 3960, dropped it instead of squeezing another one in.
             var craterListX = new List<float>();
             var craterListR = new List<float>();
-            foreach (float x in new[] { 1260f, 1640f, 2080f, 2480f, 2890f, 3260f, 3720f, 4060f })
+            foreach (float x in new[] { 1260f, 1640f, 2080f, 2540f, 2890f, 3260f, 3780f })
             {
                 craterListX.Add(x + rng.RandfRange(-22f, 22f));
                 craterListR.Add(26f + rng.RandfRange(-6f, 15f));

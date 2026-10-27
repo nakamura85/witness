@@ -12,6 +12,7 @@ namespace Witness;
 public partial class EnterableHouse : Node2D
 {
     private readonly string _id;
+    private readonly string _texName;
     private readonly Texture2D _tex;
     private readonly float _w;
     private readonly bool _enterable;
@@ -28,6 +29,7 @@ public partial class EnterableHouse : Node2D
         bool enterable = true, float lift = 0f)
     {
         _id = id;
+        _texName = texName;
         _tex = LoadTex(texName);
         _w = w;
         _enterable = enterable;
@@ -69,10 +71,17 @@ public partial class EnterableHouse : Node2D
 
         if (!_enterable) return;   // scenery ruin: no door light, nothing to search
 
-        // door: dark opening + faint warm light, marks the enterable spot
-        float dx = _w * 0.18f;
-        float dw = 26f;
-        float dh = 52f;
+        // v3.5 door overlay aligned to the painted doorway of each texture,
+        // height scales with the house (about one man tall, player is 108px)
+        (float fx, float fh) = _texName switch
+        {
+            "house_intact_near" => (0.48f, 0.45f),
+            "house_burned_near" => (0.25f, 0.50f),
+            _ => (0.18f, 0.40f),
+        };
+        float dx = _w * fx;
+        float dw = Mathf.Clamp(_w * 0.08f, 24f, 34f);
+        float dh = h * fh;
         DrawRect(new Rect2(dx - dw * 0.5f, gl - dh, dw, dh), new Color(0.10f, 0.08f, 0.07f, 0.96f));
         DrawRect(new Rect2(dx - dw * 0.5f, gl - dh, dw, 5f), new Color(0.30f, 0.24f, 0.18f, 0.9f));
         DrawLine(new Vector2(dx - dw * 0.5f, gl - dh), new Vector2(dx - dw * 0.5f, gl),
