@@ -2571,8 +2571,14 @@ public partial class JiangqiaoLevel : Node2D
                 float bh = 420f;
                 float bw = bh * bsz.X / bsz.Y;
                 float bx = start + (end - start - bw) * 0.5f;
-                // piers reach into the river ice, deck sits on the ground line
-                DrawTextureRect(_bridgeTex, new Rect2(bx, GroundY + 168f - bh, bw, bh), false);
+                // v3.0 seat fix: measured the texture with a pixel scan - the
+                // deck / bottom chord sits at 53% of the texture height, piers
+                // run down to ~87%. The old rect parked the texture bottom at
+                // GroundY+168, which left the chord floating 30px ABOVE the
+                // rail line - that gap was the "levitating bridge". Now the
+                // chord top lands exactly on railY so the rails run onto the
+                // deck and the pier feet bury below the ice.
+                DrawTextureRect(_bridgeTex, new Rect2(bx, GroundY - 2f - 0.53f * bh, bw, bh), false);
 
                 // v2.9 float fix, part 1: west abutment. The truss used to just
                 // stop in mid-air at the span start - no support, no ground
@@ -2605,9 +2611,11 @@ public partial class JiangqiaoLevel : Node2D
                 // feet ended on a hard horizontal cut against the snow - every
                 // support read as "standing on the snow, not in it". Soft drift
                 // blobs melt the base line into the ice and snow.
+                // pier feet now land at ~GroundY+141 with the new seat, so the
+                // drift blobs bury that cut line where the feet meet the ice
                 for (float dx2 = start + 90f; dx2 < end - 40f; dx2 += 150f)
                 {
-                    DrawSetTransform(new Vector2(dx2, GroundY + 164f), 0, new Vector2(2.1f, 0.42f));
+                    DrawSetTransform(new Vector2(dx2, GroundY + 138f), 0, new Vector2(2.1f, 0.42f));
                     DrawTextureRect(SoftSnow.Blob(new Color(0.90f, 0.93f, 0.94f), 0.75f),
                         new Rect2(-20f, -20f, 40f, 40f), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);

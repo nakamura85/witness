@@ -201,7 +201,7 @@ public partial class AsiaMap : Control
         };
         _enter.AddThemeStyleboxOverride("normal", enterStyle);
         _enter.AddThemeColorOverride("font_color", new Color(0.94f, 0.89f, 0.77f));
-        _enter.Pressed += () => _main.StartJiangqiao();
+        _enter.Pressed += () => EnterJiangqiao();
         AddChild(_enter);
     }
 
@@ -372,7 +372,7 @@ public partial class AsiaMap : Control
         _hint.Text = !KoreaRead || !TaiwanRead
             ? "先读右侧两张纸条：1895 台湾，1910 大韩帝国。"
             : !BriefRead
-                ? "路线显影了：日军自汉城北上。读作战简报，进入江桥阵地。"
+                ? "路线显影了：九一八之后，日军沿四洮、洮昂铁路北上。读作战简报，进入江桥阵地。"
                 : "阵地已在等待。点下方按钮，进入 1931 年 11 月 4 日。";
 
         if (RouteOn)
@@ -485,6 +485,39 @@ public partial class AsiaMap : Control
         Toast(both
             ? "两张纸读完了：1895 台湾 → 1910 大韩帝国。1931 年 11 月，关东军沿铁路北上。"
             : which == "korea" ? "已读：1910 日韩合并条约" : "已读：1895 马关条约·割台");
+    }
+
+    /// <summary>
+    /// v3.0: the 9.18 incident now leads the flow. The full Mukden level is
+    /// still unmade, so for now it passes as one archive popup before the
+    /// bridge battle; the popup shows only once per save, afterwards the
+    /// enter button goes straight into the level.
+    /// </summary>
+    private void EnterJiangqiao()
+    {
+        if (GameState.I.S.MapNote918)
+        {
+            _main.StartJiangqiao();
+            return;
+        }
+
+        var ui = new FieldNoteUi(
+            "档案 · 1931 年 9 月 18 日 夜",
+            "沈阳 · 九一八事变",
+            new[]
+            {
+                "1931 年 9 月 18 日夜，日军自行炸毁沈阳北侧柳条湖段的南满铁路路轨，反诬中国军队所为，随即进攻北大营、占领沈阳。此后数月，辽宁、吉林相继沦陷。",
+                "抵抗并没有结束。一个多月后，部队就将在下方的嫩江江桥打响反击——这是九一八之后，中国军队第一次有组织的、大规模的抵抗。",
+                "（九一八是完整章节，正式关卡日后制作；此处先以档案带过，先行进入嫩江江桥。）",
+            },
+            "依据：远东国际军事法庭判决书（九一八部分）；辽宁省档案馆公开史料。",
+            () =>
+            {
+                GameState.I.S.MapNote918 = true;
+                GameState.I.Save();
+            });
+        ui.Closed += () => _main.StartJiangqiao();
+        AddChild(ui);
     }
 
     // ================= 地图绘制（逐层） =================
@@ -920,13 +953,14 @@ public partial class AsiaMap : Control
         {
             if (!RouteOn) return;
 
-            // 史实顺序：汉城 → 平壤 → 安东 → 沈阳 → 长春 → 哈尔滨 → 齐齐哈尔 → 江桥
-            // v2.9: the terminus is the real bridge site south of Qiqihar
-            // (Taolai, 123.35E 46.45N), not Nenjiang city up north.
+            // advance leg followed the Sitao + Taoang railways: Shenyang ->
+            // Changchun -> Taonan -> Jiangqiao. Harbin fell only in early 1932,
+            // AFTER the bridge battle, so it never belonged on this leg - the
+            // Harbin 731 tag stays on the map as a marker for the later chapter.
             var key = new[]
             {
                 P(127f, 37.5f), P(125.7f, 39f), P(124.4f, 40.1f), P(123.4f, 41.8f),
-                P(125.3f, 43.9f), P(126.6f, 45.8f), P(123.9f, 47.3f), P(123.35f, 46.45f),
+                P(125.3f, 43.9f), P(122.6f, 45.3f), P(123.35f, 46.45f),
             };
             var path = CurvedPath(key, 0.14f);
             int count = Mathf.Clamp((int)(path.Count * Progress), 2, path.Count);

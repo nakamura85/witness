@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text.Json;
 using Godot;
 using Witness;
 
@@ -18,12 +17,11 @@ public partial class Loc : Node
 
     [Signal] public delegate void LanguageChangedEventHandler();
 
-    private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
-
     public override void _Ready()
     {
         I = this;
-        SetLang(ReadStoredLang());
+        Settings.EnsureLoaded();
+        SetLang(Settings.Lang);
     }
 
     public void SetLang(string lang)
@@ -31,7 +29,8 @@ public partial class Loc : Node
         Lang = LocCore.Normalize(lang);
         _cur = LocCore.Load(Lang);
         _fallback = Lang == "zh-CN" ? _cur : LocCore.Load("zh-CN");
-        WriteStoredLang();
+        Settings.Lang = Lang;
+        Settings.Save();
         EmitSignal(SignalName.LanguageChanged);
     }
 
@@ -45,26 +44,4 @@ public partial class Loc : Node
     }
 
     public string Tf(string key, params object[] args) => string.Format(T(key), args);
-
-    // ---- 语言偏好持久化 ----
-
-    private string ReadStoredLang()
-    {
-        var f = FileAccess.Open("user://settings.json", FileAccess.ModeFlags.Read);
-        if (f == null) return "zh-CN";
-        var parsed = Json.ParseString(f.GetAsText());
-        f.Close();
-        if (parsed.VariantType == Variant.Type.Nil) return "zh-CN";
-        return parsed.AsGodotDictionary().GetValueOrDefault("lang", "zh-CN").AsString();
-    }
-
-    private void WriteStoredLang()
-    {
-        var f = FileAccess.Open("user://settings.json", FileAccess.ModeFlags.Write);
-        if (f == null) return;
-        f.StoreString(JsonSerializer.Serialize(new SettingsData { lang = Lang }, JsonOpts));
-        f.Close();
-    }
-
-    private class SettingsData { public string lang { get; set; } }
 }
