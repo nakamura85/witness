@@ -506,13 +506,13 @@ public partial class FigureActor : Node2D
         if (MuzzleFlash > 0.01f)
         {
             float a = MuzzleFlash;
-            var c = new Color(1f, 0.82f, 0.42f, 0.85f * a);
-            DrawCircle(tip, 7.5f * a, new Color(1f, 0.70f, 0.30f, 0.25f * a));
+            var c = new Color(0.98f, 0.82f, 0.48f, 0.55f * a);
+            DrawCircle(tip, 5.5f * a, new Color(1f, 0.72f, 0.34f, 0.16f * a));
             DrawColoredPolygon(new[]
             {
-                tip + new Vector2(0, -2.2f), tip + dir * (16f * a), tip + new Vector2(0, 2.2f),
+                tip + new Vector2(0, -1.8f), tip + dir * (12f * a), tip + new Vector2(0, 1.8f),
             }, c);
-            DrawCircle(tip, 2.6f * a, new Color(1f, 0.96f, 0.80f));
+            DrawCircle(tip, 2.0f * a, new Color(1f, 0.94f, 0.80f, 0.75f * a));
         }
     }
 

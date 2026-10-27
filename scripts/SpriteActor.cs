@@ -569,15 +569,28 @@ public partial class SpriteActor : Node2D
                 InkStyle.InkColor, 1.5f, true);
         }
 
-        // —— 枪口火光：亮核 + 外晕 + 前向火舌 ——
+        // —— muzzle flash: quick warm pop, gone in a blink, smoke stays a bit ——
         if (MuzzleFlash > 0.05f)
         {
             var muzzle = MuzzlePoint();
-            float r = 4f + MuzzleFlash * 6f;
-            DrawCircle(muzzle, r, new Color(1f, 0.85f, 0.30f, MuzzleFlash * 0.85f));
-            DrawCircle(muzzle, r * 0.55f, new Color(1f, 1f, 0.62f, MuzzleFlash));
-            DrawLine(muzzle, muzzle + new Vector2(Facing * (12f + r * 2.2f), -1f),
-                new Color(1f, 0.92f, 0.55f, MuzzleFlash * 0.8f), 2.2f, true);
+            float a = MuzzleFlash;
+            float r = 3f + a * 3.5f;
+            DrawCircle(muzzle, r * 1.9f, new Color(1f, 0.78f, 0.40f, 0.15f * a));
+            DrawCircle(muzzle, r, new Color(0.98f, 0.80f, 0.44f, 0.50f * a));
+            DrawCircle(muzzle, r * 0.5f, new Color(1f, 0.94f, 0.80f, 0.80f * a));
+            DrawColoredPolygon(new[]
+            {
+                muzzle + new Vector2(0, -r * 0.5f),
+                muzzle + new Vector2(Facing * (r * 2.6f + 4f), -1f),
+                muzzle + new Vector2(0, r * 0.5f),
+            }, new Color(0.98f, 0.82f, 0.48f, 0.45f * a));
+            // smoke lingers one beat longer than the flame itself
+            if (a < 0.85f)
+            {
+                float s = (0.85f - a) / 0.85f;
+                var up = muzzle + new Vector2(Facing * 3f, -6f - 6f * s);
+                DrawCircle(up, 2.5f + 4f * s, new Color(0.60f, 0.62f, 0.65f, 0.28f * s));
+            }
         }
     }
 }
