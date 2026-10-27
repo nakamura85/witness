@@ -60,8 +60,12 @@ public partial class WeaponPickup : Node2D
     {
         var rng = new RandomNumberGenerator();
         rng.Seed = (ulong)(Mathf.RoundToInt(_seed * 1000000f) + 31);
-        // a dropped rifle lands messy: big random angle, random slide offset, random scale
-        float ang = rng.RandfRange(-0.85f, 0.85f);
+        // a dropped rifle lands messy: random angle, random slide offset, random scale.
+        // v3.11: the angle used to swing +-0.85 rad — half the guns stood up
+        // like tent pegs instead of lying where they fell. A rifle dropped on
+        // snow settles nearly flat; +-0.20 rad keeps a little scatter without
+        // planting the muzzle in the air.
+        float ang = rng.RandfRange(-0.20f, 0.20f);
         bool flip = rng.Randf() > 0.5f;
         float ox = rng.RandfRange(-13f, 13f);
         float oy = rng.RandfRange(-2f, 4f);

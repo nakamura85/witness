@@ -595,24 +595,30 @@ public partial class JiangqiaoLevel : Node2D
 
         // 2. 弹坑旁（日军，朝向相反）
         // v3.8: was 2090 — right inside the intact house h3 (1885-2197), body
-        // clipped into the wall. Now draped over the crater rim at 2290, on
-        // open snow between the house and the track.
+        // clipped into the wall.
+        // v3.11: was 2290 — that crater is gone (its rim sat inside the 2320
+        // sandbag stack). The body now drapes the west rim of the blown rail
+        // crater at 2540, clear of the stack and of burned house h2.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(2290, GroundY - 2), true, 0.06f));
+            new Vector2(2505, GroundY - 2), true, 0.06f));
 
         // 3. 战壕边（东北军，头倒在战壕方向）
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
             new Vector2(1550, GroundY - 2), false, 0.22f));
 
         // 4. 碉堡前（日军，身体挡在碉堡入口前）
-        // v3.8: was 3000, inside burned house h2; bunker also moved out of
-        // that footprint to 3600, corpse follows and falls toward its door
+        // v3.8: was 3000, inside burned house h2; corpse followed the bunker.
+        // v3.11: was 3650 — dead centre behind the sandbag stack, so the pile
+        // hid the whole body and only a limb stuck out. Follows the bunker to
+        // its new spot at 3835.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(3650, GroundY - 2), false, -0.10f));
+            new Vector2(3870, GroundY - 2), false, -0.10f));
 
         // 5. 桥头铁路旁（东北军，头朝冰面倒）
+        // v3.11: was 4380 — dead centre behind the 4388 sandbag stack. Now at
+        // the west abutment of the bridge, on the ice side, clear of the stack.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
-            new Vector2(4380, GroundY - 2), true, 0.14f));
+            new Vector2(4520, GroundY - 2), true, 0.14f));
     }
 
     private void BuildPlayer()
@@ -2369,12 +2375,14 @@ public partial class JiangqiaoLevel : Node2D
             // ammo crate - a shell hole right against the cover reads wrong.
             // v3.8: dropped 2080/2890/3260 — all three sat inside near-house
             // footprints (h3/h2/h4) and would vanish behind them now that the
-            // houses draw in front of the ground art. 2290 is the new hole in
-            // the open gap between h3 and the track; 2540/3780 stay to break
+            // houses draw in front of the ground art. 2540/3780 stay to break
             // the rails where they are visible.
+            // v3.11: dropped 2290 as well — its rim sat inside the sandbag
+            // stack at 2320, so the stack hid half the hole. 1640 moved to
+            // 1760: the old rim ran under bunker 1550's right base.
             var craterListX = new List<float>();
             var craterListR = new List<float>();
-            foreach (float x in new[] { 1260f, 1640f, 2290f, 2540f, 3780f })
+            foreach (float x in new[] { 1260f, 1760f, 2540f, 3780f })
             {
                 craterListX.Add(x + rng.RandfRange(-22f, 22f));
                 craterListR.Add(26f + rng.RandfRange(-6f, 15f));
@@ -2396,14 +2404,19 @@ public partial class JiangqiaoLevel : Node2D
             _crateH = crateListH.ToArray();
             _crateRot = crateListRot.ToArray();
 
-            // 碉堡位置 ±18、宽 ±6、高 ±5
+            // 碉堡位置、宽、高
             var bxList = new List<float>();
             var bwList = new List<float>();
             var fhList = new List<float>();
-            // v3.8: bunker 3050 was buried behind burned house h2, moved to 3600
-            foreach (float bx in new[] { 1550f, 3600f, 4050f })
+            // v3.8: bunker 3050 was buried behind burned house h2, moved to 3600.
+            // v3.11: 3600 and 4050 both sat right behind sandbag stacks
+            // (3580 / 4160) — only a corner of concrete poked out and read as
+            // a stray block on the snow. 3600 now stands in the open between
+            // the rail crater and the ammo crate; 4050 is dropped, two forts
+            // keep the line without stacking junk behind the cover walls.
+            foreach (float bx in new[] { 1550f, 3835f })
             {
-                bxList.Add(bx + rng.RandfRange(-18f, 18f));
+                bxList.Add(bx + rng.RandfRange(-8f, 8f));
                 bwList.Add(56f + rng.RandfRange(-4f, 8f));
                 fhList.Add(38f + rng.RandfRange(-5f, 5f));
             }
@@ -3118,7 +3131,11 @@ public partial class JiangqiaoLevel : Node2D
         {
             var rng = new RandomNumberGenerator();
             rng.Randomize();
-            float[] bases = { 980f, 2320f, 3580f, 4160f, 4388f };
+            // v3.11: 3580 -> 3640. The old anchor's left edge could reach into
+            // the h4 footprint (3180-3545), so the house corner poked out
+            // behind the stack like a random block. 3640 clears h4 fully and
+            // still stops short of the rail crater at 3780.
+            float[] bases = { 980f, 2320f, 3640f, 4160f, 4388f };
             var list = new List<StackSpec>();
             for (int i = 0; i < bases.Length; i++)
             {

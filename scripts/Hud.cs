@@ -187,11 +187,15 @@ public partial class Hud : CanvasLayer
         public override void _Draw()
         {
             if (!_on) return;
-            var paper = new Color(0.91f, 0.86f, 0.75f, 0.9f);
+            // v3.11: was a 90% opaque 26px chevron — when it crossed a prop on
+            // the right edge (a dropped rifle, say) it read as part of the
+            // scene instead of a HUD hint. Smaller and more translucent now,
+            // clearly an overlay wherever it lands.
+            var paper = new Color(0.91f, 0.86f, 0.75f, 0.55f);
             // 指向 +x 的燕尾箭头，绕中心旋转
             DrawColoredPolygon(new Vector2[]
             {
-                new(40, 24), new(14, 10), new(21, 24), new(14, 38),
+                new(36, 24), new(17, 14), new(22, 24), new(17, 34),
             }, paper);
         }
     }

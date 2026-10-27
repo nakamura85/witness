@@ -68,15 +68,25 @@ public partial class AsiaMap : Control
 
     private void BuildHeader()
     {
+        // v3.11: the two lines used to be parked by hand-guessed Y offsets, and
+        // every guess landed too close - the subtitle kept kissing the title's
+        // descenders. Now both live in one vertical container: the container
+        // measures the title's real rendered height and drops the subtitle a
+        // clean 14px below it, so the line spacing is structural, not luck.
+        var header = new VBoxContainer();
+        header.Position = new Vector2(54, 8);
+        header.AddThemeConstantOverride("separation", 14);
+        header.MouseFilter = MouseFilterEnum.Ignore;
+        AddChild(header);
+
         var title = new Label
         {
             Text = "记忆档案馆 · 东亚 1895—1945",
         };
-        title.AddThemeFontSizeOverride("font_size", 28);
+        title.AddThemeFontSizeOverride("font_size", 25);
         title.AddThemeColorOverride("font_color", new Color(0.90f, 0.85f, 0.73f));
-        title.Position = new Vector2(54, 10);
         title.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(title);
+        header.AddChild(title);
 
         var sub = new Label
         {
@@ -84,9 +94,8 @@ public partial class AsiaMap : Control
         };
         sub.AddThemeFontSizeOverride("font_size", 14);
         sub.AddThemeColorOverride("font_color", new Color(0.68f, 0.63f, 0.53f));
-        sub.Position = new Vector2(56, 70);
         sub.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(sub);
+        header.AddChild(sub);
     }
 
     private void BuildLabels()
