@@ -13,7 +13,12 @@ public partial class Capture : Node
     private float _t;
     private int _stage;
     private bool _started;
-    private const string Dir = "C:/Users/ChangFee/WorkBuddy/2026-10-26-09-06-52/witness-repo/_shots";
+    // v2.9: this used to be a hardcoded absolute path that included the
+    // original author's home folder, so a fresh clone wrote to a directory
+    // that does not exist on anyone else's machine. res:// resolves against
+    // the project folder wherever the project is checked out.
+    private static string Dir
+        => ProjectSettings.GlobalizePath("res://_shots");
 
     public override void _Ready()
     {

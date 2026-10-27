@@ -18,7 +18,11 @@ public partial class ShotTour : Node
     {
         _dir = ProjectSettings.GlobalizePath("res://docs/screenshots");
         Directory.CreateDirectory(_dir);
-        _logPath = Path.Combine(_dir, "tour_log.txt");
+        // v2.9: the log used to be written next to the screenshots, so the
+        // gallery folder ended up with a tour_log.txt in it that no one
+        // wants in the published set. _shots/ is the scratch area.
+        _logPath = ProjectSettings.GlobalizePath("res://_shots/tour_log.txt");
+        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_logPath)!);
         File.WriteAllText(_logPath, $"tour start {System.DateTime.Now:HH:mm:ss.fff}\r\n");
         _ = Run();
     }

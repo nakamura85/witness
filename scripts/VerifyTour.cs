@@ -11,9 +11,13 @@ public partial class VerifyTour : Node
     private string _scratch;
     private string _log;
 
-    // Only these frames belong to the published gallery. Everything else is
-    // a mid-tour audit frame and must stay out of docs/screenshots, otherwise
+    // Only these five frames belong to the published gallery. Everything else
+    // is a mid-tour audit frame and must stay out of docs/screenshots, otherwise
     // every audit run litters the gallery with a dozen unreferenced frames.
+    //
+    // The level frames (v46..v51) are ShotTour's job - it owns those.
+    // Capture.cs is a different thing entirely: it writes to _shots/ for
+    // eyeballing, not to the published gallery.
     private static readonly string[] GalleryShots =
     {
         "v00_title", "v01_map", "v02_note_korea", "v03_note_taiwan", "v04_map_arrows"
