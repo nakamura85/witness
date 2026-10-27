@@ -2345,6 +2345,7 @@ public partial class JiangqiaoLevel : Node2D
         private float[] _bunkerBW = System.Array.Empty<float>();
         private float[] _bunkerFH = System.Array.Empty<float>();
         private int[] _railSkipIdx = System.Array.Empty<int>();       // 被去掉的枕木序号（破损感）
+        private float[] _railDmgX = System.Array.Empty<float>();      // shell damage spots along the whole rail line
         private int[] _trussSkipDiags = System.Array.Empty<int>();    // 桥桁架被去掉的斜腹杆
         private int[] _pierDamageIdx = System.Array.Empty<int>();     // 被炮弹蹭过的桥墩（画烧黑斑）
 
@@ -2415,6 +2416,20 @@ public partial class JiangqiaoLevel : Node2D
             int railCount = (int)((WorldW - 2400f) / 34f) + 2;
             for (int k = 0; k < 30; k++) railSkip.Add((int)rng.RandfRange(0, railCount));
             _railSkipIdx = railSkip.ToArray();
+
+            // shell damage strung out along the whole run of track, not only
+            // where the big craters sit - shelling never lands in one spot
+            var railDmg = new List<float>();
+            float dmgX = 2620f;
+            while (dmgX < WorldW - 120f)
+            {
+                bool nearCrater = false;
+                for (int i = 0; i < _craterX.Length; i++)
+                    if (Mathf.Abs(_craterX[i] - dmgX) < 110f) nearCrater = true;
+                if (!nearCrater) railDmg.Add(dmgX);
+                dmgX += rng.RandfRange(260f, 430f);
+            }
+            _railDmgX = railDmg.ToArray();
 
             // 桥桁架：随机去掉 2~4 根斜腹杆
             var diagSkip = new HashSet<int>();
@@ -2584,6 +2599,41 @@ public partial class JiangqiaoLevel : Node2D
                         new Color(0.27f, 0.25f, 0.23f, 0.8f));
                 }
             }
+
+            // lighter shell nicks all along the track - short broken rail with
+            // curled stubs, scorch on the bed, kicked ballast. one every few
+            // hundred px so no stretch of line reads as untouched.
+            foreach (float dxp in _railDmgX)
+            {
+                var rng2 = new RandomNumberGenerator();
+                rng2.Seed = (ulong)(int)(dxp * 0.71f) + 977;
+
+                DrawSetTransform(new Vector2(dxp, railY + 9f), 0, new Vector2(0.55f, 0.34f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.21f, 0.19f, 0.17f), 0.5f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                foreach (float ry in new[] { railY, railY + 12 })
+                foreach (float sgn in new[] { -1f, 1f })
+                {
+                    float ex = dxp + sgn * 10f;
+                    float len = rng2.RandfRange(6f, 11f);
+                    float tilt = 0.4f + rng2.RandfRange(-0.1f, 0.25f);
+                    float tx = ex + sgn * len * Mathf.Cos(tilt);
+                    float ty = ry - len * Mathf.Sin(tilt);
+                    DrawLine(new Vector2(ex, ry), new Vector2(tx, ty),
+                        InkStyle.InkColor, InkStyle.ThinStroke, true);
+                    DrawCircle(new Vector2(tx, ty), 1.1f, new Color(0.85f, 0.86f, 0.84f));
+                }
+
+                for (int s = 0; s < 3; s++)
+                {
+                    float px = dxp + rng2.RandfRange(-12f, 12f);
+                    float py = railY + rng2.RandfRange(2f, 15f);
+                    DrawCircle(new Vector2(px, py), rng2.RandfRange(0.7f, 1.4f),
+                        new Color(0.27f, 0.25f, 0.23f, 0.8f));
+                }
+            }
         }
 
         private void DrawRailway()
@@ -2600,6 +2650,13 @@ public partial class JiangqiaoLevel : Node2D
                 for (int i = 0; i < _craterX.Length; i++)
                     if (_craterX[i] > 2380f && _craterX[i] < WorldW && Mathf.Abs(x - _craterX[i]) < _craterR[i] * 0.82f)
                         return true;
+                return false;
+            }
+
+            bool NearRailDmg(float x, float tol)
+            {
+                foreach (float d in _railDmgX)
+                    if (Mathf.Abs(x - d) < tol) return true;
                 return false;
             }
 
@@ -2625,7 +2682,10 @@ public partial class JiangqiaoLevel : Node2D
                 // picture stays stable between frames)
                 float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
                 float shade = 0.40f + 0.06f * Mathf.Sin(k * 3.7f);
-                var wood = new Color(shade, shade * 0.80f, shade * 0.60f);
+                bool charred = NearRailDmg(x + 11f, 30f);
+                var wood = charred
+                    ? new Color(0.17f, 0.14f, 0.12f)
+                    : new Color(shade, shade * 0.80f, shade * 0.60f);
                 var r = new Rect2(x, railY + 3 + jy, 22, 13);
                 // sleeper: ink frame then wood fill, the hand-drawn manga way
                 InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
@@ -2634,7 +2694,7 @@ public partial class JiangqiaoLevel : Node2D
                     new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
                 // thin snow on the sleeper top for ~60% of them, phase-shifted
                 // so it don't read as a copied row
-                if (Mathf.Sin(k * 7.31f) > -0.2f)
+                if (!charred && Mathf.Sin(k * 7.31f) > -0.2f)
                     DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
                         new Vector2(x + 20, r.Position.Y + 1.2f),
                         new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
@@ -2648,7 +2708,7 @@ public partial class JiangqiaoLevel : Node2D
                 float segStart = 2400f;
                 for (float x = 2400f; x <= WorldW; x += 10f)
                 {
-                    if (OnRailCrater(x))
+                    if (OnRailCrater(x) || NearRailDmg(x, 9f))
                     {
                         if (x - segStart > 4f)
                             DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
@@ -2662,7 +2722,7 @@ public partial class JiangqiaoLevel : Node2D
                 segStart = 2400f;
                 for (float x = 2400f; x <= WorldW; x += 10f)
                 {
-                    if (OnRailCrater(x))
+                    if (OnRailCrater(x) || NearRailDmg(x, 9f))
                     {
                         if (x - segStart > 4f)
                             DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
@@ -2676,7 +2736,7 @@ public partial class JiangqiaoLevel : Node2D
             // 轨顶积雪：短促的亮段（不是通条白线，雪是被风一段段吹积的），避开被炸断处
             for (float sx = 2420; sx < WorldW; sx += 88)
             {
-                if (OnRailCrater(sx)) continue;
+                if (OnRailCrater(sx) || NearRailDmg(sx, 20f)) continue;
                 float seg = 14f + Mathf.Sin(sx * 0.07f) * 8f;
                 DrawLine(new Vector2(sx, railY - 1.2f), new Vector2(sx + seg, railY - 1.2f),
                     new Color(0.96f, 0.97f, 0.97f, 0.85f), 2.4f, true);
@@ -2685,7 +2745,7 @@ public partial class JiangqiaoLevel : Node2D
             // scattered gravel / ice specks on the ballast so it isn't a flat wash
             for (float gx = 2410; gx < WorldW; gx += 57f)
             {
-                if (OnRailCrater(gx)) continue;
+                if (OnRailCrater(gx) || NearRailDmg(gx, 12f)) continue;
                 float gy = railY + 8f + Mathf.Sin(gx * 0.13f) * 4f;
                 DrawCircle(new Vector2(gx, gy), 1.4f, new Color(0.62f, 0.64f, 0.66f, 0.7f));
             }

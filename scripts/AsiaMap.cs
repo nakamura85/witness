@@ -74,7 +74,7 @@ public partial class AsiaMap : Control
         };
         title.AddThemeFontSizeOverride("font_size", 28);
         title.AddThemeColorOverride("font_color", new Color(0.90f, 0.85f, 0.73f));
-        title.Position = new Vector2(54, 22);
+        title.Position = new Vector2(54, 10);
         title.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(title);
 
