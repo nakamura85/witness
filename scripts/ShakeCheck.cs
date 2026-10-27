@@ -18,7 +18,11 @@ public partial class ShakeCheck : Node
     private float _t;
     private int _shot;
     private bool _started;
-    private const string Dir = "C:/Users/ChangFee/WorkBuddy/2026-10-26-09-06-52/witness-repo/_shots";
+    // v2.9: this was a hardcoded absolute path including the original
+    // author's home folder, so a fresh clone wrote to a folder that does not
+    // exist on anyone else's machine. res:// resolves against the project.
+    private static string Dir
+        => ProjectSettings.GlobalizePath("res://_shots");
 
     public override void _Ready()
     {

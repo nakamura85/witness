@@ -21,7 +21,11 @@ public partial class GunCheck : Node2D
     private int _shot;
     private bool _started;
     private Camera2D _cam;
-    private const string Dir = "C:/Users/ChangFee/WorkBuddy/2026-10-26-09-06-52/witness-repo/_shots";
+    // v2.9: this was a hardcoded absolute path including the original
+    // author's home folder, so a fresh clone wrote to a folder that does not
+    // exist on anyone else's machine. res:// resolves against the project.
+    private static string Dir
+        => ProjectSettings.GlobalizePath("res://_shots");
 
     // five different seeds, so the three burial depths all show up
     private static readonly float[] Seeds = { 0.13f, 0.41f, 0.62f, 0.78f, 0.94f };
