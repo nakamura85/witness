@@ -78,7 +78,9 @@ public partial class VerifyTour : Node
             await Shot("v06_map_enter");
 
             await Click("进入关卡");
-            await Frames(70);
+            await Frames(35);            // v3.1: the one-time 9.18 archive popup
+            await Click("收起纸条");      // leads the flow now, dismiss it first
+            await Frames(45);
             await Shot("v07_intro");
             await Tap("advance");
             await Frames(45);

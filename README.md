@@ -211,47 +211,47 @@
 
 **标题 · 见证者（title.jpg 古城墙雪景照片 + 程序化飘雪 / 灯笼晕 / 暗角）**
 
-![标题](docs/screenshots/v00_title.png?v=2.9)
+![标题](docs/screenshots/v00_title.png?v=3.1)
 
 **东亚大地图 · 时间线 Hub（layer by layer 视差：纸张底 / 地理 / 航线箭头 / 纸条）**
 
-![大地图](docs/screenshots/v01_map.png?v=2.9)
+![大地图](docs/screenshots/v01_map.png?v=3.1)
 
 **纸条档案 01 · 汉城《日韩合并条约》1910**
 
-![纸条 01](docs/screenshots/v02_note_korea.png?v=2.9)
+![纸条 01](docs/screenshots/v02_note_korea.png?v=3.1)
 
 **纸条档案 02 · 台北《马关条约》割台 1895**
 
-![纸条 02](docs/screenshots/v03_note_taiwan.png?v=2.9)
+![纸条 02](docs/screenshots/v03_note_taiwan.png?v=3.1)
 
 **进军箭头生长完成 · 汉城 → 鸭绿江 → 沈阳 → 嫩江江桥**
 
-![进军箭头](docs/screenshots/v04_map_arrows.png?v=2.9)
+![进军箭头](docs/screenshots/v04_map_arrows.png?v=3.1)
 
 **雪原全景 · 同款画风背景贴图合成四层视差（雪山 / 村落 / 树 / 草，layer by layer 厚度感）**
 
-![雪原全景](docs/screenshots/v46_jq_scene.png?v=2.9)
+![雪原全景](docs/screenshots/v46_jq_scene.png?v=3.1)
 
 **立姿据枪 · 枪托抵肩贴腮瞄准 + 枪口火光对齐枪管尖**
 
-![立姿据枪](docs/screenshots/v47_jq_fire.png?v=2.9)
+![立姿据枪](docs/screenshots/v47_jq_fire.png?v=3.1)
 
 **跪蹲持枪 · 军事标准跪姿（S 键）**
 
-![跪蹲持枪](docs/screenshots/v48_jq_crouch.png?v=2.9)
+![跪蹲持枪](docs/screenshots/v48_jq_crouch.png?v=3.1)
 
 **低姿匍匐 · 军事条令低姿匍匐前进（Ctrl/C 键）**
 
-![低姿匍匐](docs/screenshots/v49_jq_prone.png?v=2.9)
+![低姿匍匐](docs/screenshots/v49_jq_prone.png?v=3.1)
 
 **完好房屋 · 烟囱动态炊烟（贴图静态烟已抹除，只剩程序化动态烟）**
 
-![烟囱动态炊烟](docs/screenshots/v51_jq_chimney.png?v=2.9)
+![烟囱动态炊烟](docs/screenshots/v51_jq_chimney.png?v=3.1)
 
 **焚毁村落 · 焦柱断壁 + 动态黑烟 + 残火（程序化演出，非贴图）**
 
-![焚毁村落](docs/screenshots/v50_jq_burnt.png?v=2.9)
+![焚毁村落](docs/screenshots/v50_jq_burnt.png?v=3.1)
 
 ## 如何运行（小白版，3 步）
 
