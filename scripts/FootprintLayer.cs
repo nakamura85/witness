@@ -68,10 +68,13 @@ public partial class FootprintLayer : Node2D
                 float dir = Mathf.Atan2(pvel.Y, pvel.X);
                 AddPrint(new Print
                 {
-                    // side offset also nudges Y a little: alternating feet read
-                    // as depth, not one straight row of dots
+                    // v2.9: sink the print a few px BELOW the boot line. The old
+                    // y sat right on the bright surface polyline, so every print
+                    // straddled the horizon edge and read as a dark blob
+                    // floating on the snow rim. Inside the field it reads as a
+                    // dent pressed into the snow.
                     Pos = new Vector2(ppos.X + (_playerLeftFoot ? -5f : 5f),
-                                      ppos.Y - 1f + (_playerLeftFoot ? 2.4f : -1.6f)),
+                                      ppos.Y + 3f + (_playerLeftFoot ? 1.6f : -0.6f)),
                     Rot = dir,
                     Age = 0f,
                     Side = _playerLeftFoot ? -1f : 1f,
@@ -102,7 +105,7 @@ public partial class FootprintLayer : Node2D
                     AddPrint(new Print
                     {
                         Pos = new Vector2(epos.X + (_enemyLeftFoot ? -4.5f : 4.5f),
-                                          epos.Y - 1f + (_enemyLeftFoot ? 2.2f : -1.5f)),
+                                          epos.Y + 3f + (_enemyLeftFoot ? 1.5f : -0.5f)),
                         Rot = dir,
                         Age = 0f,
                         Side = _enemyLeftFoot ? -1f : 1f,
@@ -148,27 +151,31 @@ public partial class FootprintLayer : Node2D
             // footprint actually piled up at the world origin, never under boots
             var at = p.Pos;
 
+            // v2.9: whole stack lightened. The old values (hole at 0.55 alpha,
+            // near-black tread arcs) turned each print into a dark pellet and
+            // a trail of them looked like droppings, not boot marks. A real
+            // print in snow is mostly a soft grey dent with a faint rim.
             // 第 1 层：最暗的洞底（雪被踩到底部 → 露出下面的冻土颜色）
-            DrawSetTransform(at, p.Rot, new Vector2(9f, 4f) * depthMul);
-            DrawCircle(Vector2.Zero, 1f, new Color(0.22f, 0.24f, 0.26f, 0.55f * a));
+            DrawSetTransform(at, p.Rot, new Vector2(9.5f, 3.4f) * depthMul);
+            DrawCircle(Vector2.Zero, 1f, new Color(0.34f, 0.37f, 0.40f, 0.30f * a));
 
             // 第 2 层：压实雪层（鞋跟部分更深——heel stamp）
-            DrawSetTransform(at, p.Rot, new Vector2(7.5f, 4.2f) * depthMul);
-            DrawCircle(new Vector2(0.2f * p.Side, -0.5f), 1.1f, new Color(0.36f, 0.39f, 0.42f, 0.50f * a));
+            DrawSetTransform(at, p.Rot, new Vector2(7.5f, 3.6f) * depthMul);
+            DrawCircle(new Vector2(0.2f * p.Side, -0.5f), 1.1f, new Color(0.45f, 0.48f, 0.51f, 0.26f * a));
 
             // 第 3 层：鞋整体轮廓（椭圆 = 靴底压实雪）
-            DrawSetTransform(at, p.Rot, new Vector2(8f + p.SpeedMag * 0.02f, 4.6f) * depthMul);
-            DrawCircle(Vector2.Zero, 1f, new Color(0.50f, 0.53f, 0.56f, 0.40f * a));
+            DrawSetTransform(at, p.Rot, new Vector2(8.5f + p.SpeedMag * 0.02f, 3.9f) * depthMul);
+            DrawCircle(Vector2.Zero, 1f, new Color(0.55f, 0.58f, 0.61f, 0.22f * a));
 
             DrawSetTransform(at, p.Rot, Vector2.One);
 
             // 第 4 层：靴底纹路弧（3 条横线 → 军靴纹路），只在年轻脚印可见
             if (k < 0.5f)
             {
-                float treadAlpha = 0.55f * (1f - k * 2f) * a;
-                DrawLine(new Vector2(-5f, -0.8f), new Vector2(5f, -0.8f), new Color(0.30f, 0.32f, 0.34f, treadAlpha), 0.8f, true);
-                DrawLine(new Vector2(-5f, 0.2f), new Vector2(5f, 0.2f), new Color(0.30f, 0.32f, 0.34f, treadAlpha), 0.8f, true);
-                DrawLine(new Vector2(-4f, 1.2f), new Vector2(4f, 1.2f), new Color(0.30f, 0.32f, 0.34f, treadAlpha * 0.7f), 0.7f, true);
+                float treadAlpha = 0.26f * (1f - k * 2f) * a;
+                DrawLine(new Vector2(-5f, -0.8f), new Vector2(5f, -0.8f), new Color(0.38f, 0.41f, 0.44f, treadAlpha), 0.8f, true);
+                DrawLine(new Vector2(-5f, 0.2f), new Vector2(5f, 0.2f), new Color(0.38f, 0.41f, 0.44f, treadAlpha), 0.8f, true);
+                DrawLine(new Vector2(-4f, 1.2f), new Vector2(4f, 1.2f), new Color(0.38f, 0.41f, 0.44f, treadAlpha * 0.7f), 0.7f, true);
             }
 
             // 第 5 层：toe drag（前掌被拖动的雪屑线）——高速走路才明显
@@ -189,7 +196,7 @@ public partial class FootprintLayer : Node2D
             }
 
             // 第 6 层：被挤到旁边的亮雪边（雪被鞋压出去 → 隆起的亮边）
-            float rimAlpha = 0.50f * (1f - k * 1.5f) * a;
+            float rimAlpha = 0.32f * (1f - k * 1.5f) * a;
             if (rimAlpha > 0.02f)
             {
                 DrawLine(new Vector2(-7f * depthMul, -2.2f * depthMul),

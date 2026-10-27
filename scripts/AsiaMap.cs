@@ -141,9 +141,14 @@ public partial class AsiaMap : Control
         // so people read it as "731 first, Jiangqiao later".
         // Now it says the 1932 institute (the real predecessor), and the
         // formation + combat dates live in the chapter list on the right.
-        Tag("哈尔滨 · 石井四郎细菌战研究所 1932", 126.6f, 45.8f, 12, -3, 9);
+        // v2.9: the bridge pin used to sit at lon 125.2 / lat 49.2 - that is
+        // Nenjiang city way up north, not the battle site. The real Jiangqiao
+        // (-Taolai county) is SOUTH of Qiqihar, ~123.35E 46.45N, where the
+        // railway crosses the lower Nen River. With the pin up north the map
+        // read "Harbin 731 first, Jiangqiao later on the Soviet border".
+        Tag("哈尔滨 · 石井四郎细菌战研究所 1932（731 前身）", 126.6f, 45.8f, 12, -3, 9);
         Tag("齐齐哈尔", 123.9f, 47.3f, -62, -4, 10);
-        Tag("嫩江 · 江桥 1931.11", 125.2f, 49.2f, 14, -3, 11, 0f, new Color(0.62f, 0.21f, 0.16f, 0.90f));
+        Tag("嫩江 · 江桥 1931.11", 123.35f, 46.45f, -26, 16, 11, 0f, new Color(0.62f, 0.21f, 0.16f, 0.90f));
         // v2.8: "南京 1937" used to sit right on the coastline and the sea
         // cut the characters in half. It now sits inland, to the west.
         Tag("南京 1937", 118.8f, 32f, -76, -8, 10);
@@ -203,35 +208,37 @@ public partial class AsiaMap : Control
     /// <summary>档案栏右列：后面几章要经过的地方（现在只登记，不开放）。</summary>
     private void BuildChapters()
     {
-        var head = new Label { Text = "后续章节 · 尚未抵达" };
+        var head = new Label { Text = "章节顺序 · 时间线" };
         head.AddThemeFontSizeOverride("font_size", 13);
         head.AddThemeColorOverride("font_color", new Color(0.30f, 0.26f, 0.21f, 0.60f));
         head.Position = new Vector2(980, 138);
         head.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(head);
 
-        // v2.7: sort by the real years and split 731 into its three stages:
-        // 1932 Ishii sets up the bacteriology research institute (the ancestor)
-        // 1936 formally raised as "Kwantung Army Epidemic Prevention and Water Supply Department"
-        // 1940 first used in combat (Ningbo, Changde)
-        // Before this the list said only "1932 Harbin / 731 Unit", which called
-        // the 1932 ancestor the finished unit.
-        string[] rows =
+        // v2.9: full chronological timeline. The old list started at 1932
+        // (731 predecessor), so the column read "731 first, Jiangqiao later".
+        // Now 9.18 and Jiangqiao lead the list and the bridge row is the
+        // highlighted current chapter, so the order is fixed: 9.18 ->
+        // Jiangqiao (1931.11) -> 731 predecessor (1932) -> formed (1936) ->
+        // combat use (1940).
+        (string, Color?)[] rows =
         {
-            "1932　哈尔滨 · 细菌战研究所（731 前身）",
-            "1936　关东军防疫给水部（731 成军）",
-            "1937　南京",
-            "1938　平房基地 · 人体实验",
-            "1940　细菌战投入实战",
-            "1942　马来亚 · 知知港",
-            "1942　新加坡",
-            "1945　终战",
+            ("1931.9　沈阳 · 九一八事变", null),
+            ("1931.11　嫩江江桥 · 当前战役", new Color(0.62f, 0.21f, 0.16f, 0.85f)),
+            ("1932　哈尔滨 · 细菌战研究所（731 前身）", null),
+            ("1936　关东军防疫给水部（731 成军）", null),
+            ("1937　南京", null),
+            ("1938　平房基地 · 人体实验", null),
+            ("1940　细菌战投入实战", null),
+            ("1942　马来亚 · 知知港", null),
+            ("1942　新加坡", null),
+            ("1945　终战", null),
         };
         for (int i = 0; i < rows.Length; i++)
         {
-            var l = new Label { Text = rows[i] };
+            var l = new Label { Text = rows[i].Item1 };
             l.AddThemeFontSizeOverride("font_size", 11);
-            l.AddThemeColorOverride("font_color", new Color(0.26f, 0.22f, 0.18f, 0.52f));
+            l.AddThemeColorOverride("font_color", rows[i].Item2 ?? new Color(0.26f, 0.22f, 0.18f, 0.52f));
             l.Position = new Vector2(980, 162 + i * 24);
             l.MouseFilter = MouseFilterEnum.Ignore;
             AddChild(l);
@@ -245,7 +252,7 @@ public partial class AsiaMap : Control
         };
         note.AddThemeFontSizeOverride("font_size", 11);
         note.AddThemeColorOverride("font_color", new Color(0.32f, 0.27f, 0.22f, 0.40f));
-        note.Position = new Vector2(980, 366);
+        note.Position = new Vector2(980, 414);
         note.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(note);
     }
@@ -838,8 +845,9 @@ public partial class AsiaMap : Control
             Geo(river, 1.7f,                                                  // 黑龙江
                 (121f, 53.4f), (123f, 52.6f), (125f, 51.5f), (127f, 50.2f), (129f, 49f),
                 (131.5f, 48.2f), (133.5f, 48.6f), (135.4f, 48.4f));
-            Geo(new Color(0.34f, 0.40f, 0.45f, 0.34f), 1.2f,                   // 嫩江
-                (126f, 50.4f), (125.4f, 49.4f), (124.7f, 48.4f), (124.2f, 47.7f), (123.9f, 47.3f));
+            Geo(new Color(0.34f, 0.40f, 0.45f, 0.34f), 1.2f,                   // 嫩江（下游到江桥渡口）
+                (126f, 50.4f), (125.4f, 49.4f), (124.7f, 48.4f), (124.2f, 47.7f), (123.9f, 47.3f),
+                (123.6f, 46.9f), (123.35f, 46.45f));
             Geo(river, 1.4f,                                                  // 黄河（含河套）
                 (96.5f, 35.2f), (101f, 35.8f), (103.8f, 36.1f), (106.5f, 39f), (108.2f, 40.3f),
                 (110.6f, 37.6f), (112.5f, 35.2f), (114.5f, 34.9f), (116.5f, 36.2f), (118.6f, 37.6f));
@@ -912,11 +920,13 @@ public partial class AsiaMap : Control
         {
             if (!RouteOn) return;
 
-            // 史实顺序：汉城 → 平壤 → 安东 → 沈阳 → 长春 → 哈尔滨 → 齐齐哈尔 → 嫩江
+            // 史实顺序：汉城 → 平壤 → 安东 → 沈阳 → 长春 → 哈尔滨 → 齐齐哈尔 → 江桥
+            // v2.9: the terminus is the real bridge site south of Qiqihar
+            // (Taolai, 123.35E 46.45N), not Nenjiang city up north.
             var key = new[]
             {
                 P(127f, 37.5f), P(125.7f, 39f), P(124.4f, 40.1f), P(123.4f, 41.8f),
-                P(125.3f, 43.9f), P(126.6f, 45.8f), P(123.9f, 47.3f), P(125.2f, 49.2f),
+                P(125.3f, 43.9f), P(126.6f, 45.8f), P(123.9f, 47.3f), P(123.35f, 46.45f),
             };
             var path = CurvedPath(key, 0.14f);
             int count = Mathf.Clamp((int)(path.Count * Progress), 2, path.Count);
@@ -965,7 +975,7 @@ public partial class AsiaMap : Control
 
         private void DrawPins()
         {
-            Pin(P(125.2f, 49.2f), GameState.I.S.JiangqiaoDone, true);   // 嫩江 · 江桥
+            Pin(P(123.35f, 46.45f), GameState.I.S.JiangqiaoDone, true); // 嫩江 · 江桥（泰来）
             Pin(P(126.6f, 45.8f), false, false);                        // 哈尔滨 · 731
             Pin(P(118.8f, 32f), false, false);                          // 南京
         }
@@ -1014,7 +1024,7 @@ public partial class AsiaMap : Control
             if (RouteOn)
             {
                 float pulse = 0.55f + 0.2f * Mathf.Sin((float)Time.GetTicksMsec() / 420f);
-                DrawArc(P(125.2f, 49.2f), 15f + pulse * 3f, 0, Mathf.Tau, 28,
+                DrawArc(P(123.35f, 46.45f), 15f + pulse * 3f, 0, Mathf.Tau, 28,
                     new Color(Route, 0.55f), 1.4f, true);
             }
         }

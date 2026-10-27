@@ -354,20 +354,32 @@ public partial class SpriteActor : Node2D
         {
             // 蹲走：低姿蹲行（双膝深弯、重心下坐、上身后倾 sightly），比站姿矮一头
             legK = 0.55f;
-            frontRot = (-0.72f - swing * 0.14f) * Facing;
-            backRot = (0.50f + swing * 0.12f) * Facing;
+            // v2.9: keep the crotch closed. The old pair (-0.72 / +0.50) swung
+            // both leg strips opposite ways around the same hip hinge, the
+            // wedge between them opened wide and the background showed
+            // through the hollow body = legs looking detached from the torso.
+            frontRot = (-0.58f - swing * 0.12f) * Facing;
+            backRot = (0.26f + swing * 0.10f) * Facing;
         }
         else if (air)
         {
-            frontRot = -0.62f * Facing;           // 收腿：前腿抬起
-            backRot = 0.34f * Facing;             // 后腿后拖
+            // v2.9 jump tuck: both legs rotate the SAME direction now. Before
+            // this the front leg swung forward (-0.62) while the back leg
+            // dragged back (+0.34), the two strips fanned open around the
+            // shared crotch pivot and the gap read as "feet split from the
+            // body" mid-jump. A real jump tuck brings both knees up together,
+            // which also keeps the hip seam shut. Slight legK pull keeps the
+            // boots tucked under the torso.
+            legK = 0.95f;
+            frontRot = -0.48f * Facing;
+            backRot = -0.14f * Facing;
         }
         else if (Crouched)
         {
             // 静蹲：双膝深弯重心坐实，比站姿明显矮一头
             legK = 0.55f;
-            frontRot = -0.72f * Facing;
-            backRot = 0.50f * Facing;
+            frontRot = -0.58f * Facing;
+            backRot = 0.26f * Facing;
         }
         if (_landT > 0f && !Crouched)
             legK *= 1f - 0.10f * _landT;

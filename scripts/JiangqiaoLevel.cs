@@ -1763,10 +1763,13 @@ public partial class JiangqiaoLevel : Node2D
             DrawRect(Full(-1400, 578, 240), snow);
 
             // 雪原起伏的亮边与投影
+            // v2.9: tone it down. At 0.65 alpha this crest also ran as a
+            // full-width white line behind the village row, stacking with the
+            // ground one into two horizon stripes.
             var crest = new List<Vector2>();
             for (float x = -1400; x <= WorldW + 2400; x += 70)
                 crest.Add(new Vector2(x, 574 + Mathf.Sin(x * 0.0031f) * 6f + Mathf.Sin(x * 0.011f) * 3f));
-            DrawPolyline(crest.ToArray(), new Color(0.92f, 0.94f, 0.945f, 0.65f), 2.2f, true);
+            DrawPolyline(crest.ToArray(), new Color(0.88f, 0.91f, 0.92f, 0.26f), 1.6f, true);
             // 只留一条极淡的投影带，别做成一排平行线（会像贴纸）
             var under = VGradient(new Color(0.60f, 0.67f, 0.71f, 0.18f), new Color(0.60f, 0.67f, 0.71f, 0f));
             DrawTextureRect(under, Full(-1400, 578, 26), false);
@@ -2386,9 +2389,14 @@ public partial class JiangqiaoLevel : Node2D
             ground.Add(new Vector2(WorldW + 600, 900));
             ground.Add(new Vector2(-400, 900));
             DrawColoredPolygon(ground.ToArray(), new Color(0.855f, 0.875f, 0.875f));
-            DrawPolyline(surface.ToArray(), new Color(0.98f, 0.99f, 0.99f, 0.9f), 3f, true);
+            // v2.9: the old edge highlight was near-white at 0.9 alpha, so a
+            // crisp white line ran the full width of the level straight behind
+            // every character. Soften it into the snow fill: same line, but a
+            // tone close to the surface and low alpha, just enough to suggest
+            // a wind-packed crest instead of drawing a horizon stripe.
+            DrawPolyline(surface.ToArray(), new Color(0.92f, 0.945f, 0.945f, 0.4f), 2f, true);
             DrawPolyline(surface.Select(p => p + new Vector2(0, 8)).ToArray(),
-                new Color(0.66f, 0.72f, 0.76f, 0.55f), 6f, true);
+                new Color(0.70f, 0.75f, 0.78f, 0.32f), 5f, true);
 
             // 冰面裂缝与车辙
             for (int i = 0; i < 26; i++)
@@ -2565,9 +2573,50 @@ public partial class JiangqiaoLevel : Node2D
                 float bx = start + (end - start - bw) * 0.5f;
                 // piers reach into the river ice, deck sits on the ground line
                 DrawTextureRect(_bridgeTex, new Rect2(bx, GroundY + 168f - bh, bw, bh), false);
+
+                // v2.9 float fix, part 1: west abutment. The truss used to just
+                // stop in mid-air at the span start - no support, no ground
+                // contact, whole bridge read like it was levitating. A concrete
+                // abutment under the west end seats the truss into the ground.
+                var abut = new[]
+                {
+                    new Vector2(start - 14f, GroundY - 46f),
+                    new Vector2(start + 62f, GroundY - 46f),
+                    new Vector2(start + 70f, GroundY + 34f),
+                    new Vector2(start - 22f, GroundY + 34f),
+                };
+                DrawColoredPolygon(abut, new Color(0.40f, 0.42f, 0.44f));
+                DrawPolyline(abut, new Color(0.20f, 0.21f, 0.22f, 0.85f), 1.6f, true);
+                // abutment shading + snow cap, same manga treatment as the piers
+                DrawColoredPolygon(new[]
+                {
+                    new Vector2(start - 14f, GroundY - 46f),
+                    new Vector2(start - 4f, GroundY - 46f),
+                    new Vector2(start - 10f, GroundY + 34f),
+                    new Vector2(start - 22f, GroundY + 34f),
+                }, new Color(0.28f, 0.30f, 0.32f, 0.7f));
+                DrawLine(new Vector2(start - 18f, GroundY - 46f), new Vector2(start + 60f, GroundY - 46f),
+                    new Color(0.94f, 0.96f, 0.96f, 0.9f), 3f, true);
                 // fresh snow line on the deck edge, ties the texture into the scene
                 DrawLine(new Vector2(start + 6f, GroundY - 6f), new Vector2(end - 6f, GroundY - 6f),
                     new Color(0.92f, 0.94f, 0.94f, 0.75f), 3f, true);
+
+                // v2.9 float fix, part 2: bury the texture bottom edge. The pier
+                // feet ended on a hard horizontal cut against the snow - every
+                // support read as "standing on the snow, not in it". Soft drift
+                // blobs melt the base line into the ice and snow.
+                for (float dx2 = start + 90f; dx2 < end - 40f; dx2 += 150f)
+                {
+                    DrawSetTransform(new Vector2(dx2, GroundY + 164f), 0, new Vector2(2.1f, 0.42f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.90f, 0.93f, 0.94f), 0.75f),
+                        new Rect2(-20f, -20f, 40f, 40f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                }
+                // contact shading where the span crosses the near snowfield
+                DrawSetTransform(new Vector2(start + 130f, GroundY + 12f), 0, new Vector2(3.2f, 0.5f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.55f, 0.60f, 0.64f), 0.30f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 return;
             }
 
