@@ -314,7 +314,9 @@ public partial class SpriteActor : Node2D
         // 优先级最高的状态用整张专项立绘替换纸娃娃，动作是按军事条令画的，
         // 不再靠刚性贴图变形硬凑。腾空/翻越时不进入专姿。
         var (ptex, ps, pox, muzY) = PoseInfo();
-        if (ptex != null)
+        // 趴/蹲"静止"用整张专姿图（姿势标准）；但"趴着前进/蹲着前进"必须让纸娃娃接手
+        // （下面的腿部摆动），否则专姿图被冻结、整张图原地滑动（用户反馈的"纸片人滑过去"）。
+        if (ptex != null && !proneWalk && !crouchWalk)
         {
             var sz = ptex.GetSize();
             _torso.Visible = false; _legBack.Visible = false; _legFront.Visible = false;
@@ -351,7 +353,7 @@ public partial class SpriteActor : Node2D
             // 匍匐：双腿向后伸平贴地拖行。镜像对称姿势，旋转不乘 Facing
             //（镜像容器会自动把方向翻到角色背后）
             legK = 1f;
-            float crawl = proneWalk ? Mathf.Sin(Phase) * 0.10f : 0f;
+            float crawl = proneWalk ? Mathf.Sin(Phase) * 0.40f : 0f;  // 加大爬行腿摆幅度，明确匍匐前进感（#8）
             frontRot = 1.42f + crawl;
             backRot = 1.56f - crawl;
         }
@@ -363,8 +365,9 @@ public partial class SpriteActor : Node2D
             // both leg strips opposite ways around the same hip hinge, the
             // wedge between them opened wide and the background showed
             // through the hollow body = legs looking detached from the torso.
-            frontRot = (-0.58f - swing * 0.12f) * Facing;
-            backRot = (0.26f + swing * 0.10f) * Facing;
+            // 蹲走：保留 v2.9 的"髋部闭合"基准角，仅加大摆幅让腿部明显交替（#8）
+            frontRot = (-0.58f - swing * 0.30f) * Facing;
+            backRot = (0.26f + swing * 0.26f) * Facing;
         }
         else if (air)
         {
@@ -409,8 +412,9 @@ public partial class SpriteActor : Node2D
             // 一旦放倒步枪会竖着戳地；压平则枪线保持水平，读作"低姿持枪匍匐"）。
             // 髋部桥片已隐藏，腿部由 Prone 分支向后伸平衔接。
             torsoScale = new Vector2(1.02f, 0.48f);
-            torsoY = -Height * 0.37f + (proneWalk ? Mathf.Abs(Mathf.Cos(Phase)) * 1.5f : 0f);
-            torsoRot = 0.05f;
+            // 前进时躯干随爬行前后错动 + 轻微扭转，给出明确的爬行感（#8）
+            torsoY = -Height * 0.37f + (proneWalk ? Mathf.Sin(Phase) * 2.2f : 0f);
+            torsoRot = 0.05f + (proneWalk ? Mathf.Sin(Phase) * 0.04f : 0f);
         }
         else if (crouchWalk)
         {
@@ -556,14 +560,8 @@ public partial class SpriteActor : Node2D
                 Height * 0.13f, 0.26f, stretch);
         }
 
-        // —— 瞄准指示线 ——
-        if (Aim > 0.5f)
-        {
-            var muzzle = MuzzlePoint();
-            DrawLine(muzzle, muzzle + new Vector2(Facing * 14f, -2f),
-                InkStyle.InkColor, 1.5f, true);
-        }
-
+        // 枪口火光提供开火反馈；原本 Aim>0.5 时从枪口向前画的 InkColor 深墨"瞄准指示线"
+        // 被误读成枪口黑线，已移除（鼠标本身即是瞄准参考）。
         // —— muzzle flash: quick warm pop, gone in a blink, smoke stays a bit ——
         if (MuzzleFlash > 0.05f)
         {

@@ -1157,7 +1157,9 @@ public partial class FieldNoteUi : CanvasLayer
         _paragraphs = paragraphs;
         _source = source;
         _onClose = onClose;
-        Layer = 20;
+        // 30 > DialogueUi(25) / HouseInteriorUi(20)：笔记常被 AddChild 进屋内面板，
+        // CanvasLayer 按自身 Layer 跨整棵树排序，同 Layer 会被父层盖住 → 笔记盖在最上层（#4）
+        Layer = 30;
     }
 
     public override void _Ready()

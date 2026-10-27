@@ -323,7 +323,8 @@ public partial class JiangqiaoLevel : Node2D
 
     private void AddHouse(string id, float x, string tex, float w, bool enterable, float lift)
     {
-        var h = new EnterableHouse(id, new Vector2(x, GroundY), tex, w, enterable, lift);
+        // 屋基下沉 8px 进雪面：雪面顶边是起伏波浪线，平的房屋底边会露缝显得"飘在雪上"（#6）
+        var h = new EnterableHouse(id, new Vector2(x, GroundY + 8f), tex, w, enterable, lift);
         _game.AddChild(h);
         if (enterable) _houses.Add(h);
         AddHouseSmoke(h, tex, x, w, lift);
@@ -3581,7 +3582,7 @@ public partial class GrenadeProj : Node2D
         float f = (float)delta;
         _vel += new Vector2(0, 1500f * f);
         Position += _vel * f;
-        _spin += f * 9f;
+        _spin += f * 2.4f;   // 缓慢翻滚，不再像快速"转圈圈"的观感（#5）
 
         // bounce once on snow, roll a little
         if (Position.Y > JiangqiaoLevel.GroundY - 6f && _vel.Y > 0f)
