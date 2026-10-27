@@ -1,4 +1,4 @@
-# 见证者（Witness）· v2.8 手绘漫画风二战亚洲战场叙事游戏
+# 见证者（Witness）· v2.9 手绘漫画风二战亚洲战场叙事游戏
 
 > 二战的历史不是从 1937 年才开始的。要还原事实，就得从源头讲起——1895 年的马关条约、1910 年的日韩合并条约，殖民如何一步步吞下朝鲜半岛与台湾地区，直到 1931 年九一八、1937 年的南京。
 
@@ -124,10 +124,21 @@
 - **验收工具链补全**（v2.8）：新增 `scripts/ShakeCheck.cs` + `scenes/ShakeCheck.tscn`（背景抖动/白线两帧比对）、`scripts/GunCheck.cs` + `scenes/GunCheck.tscn`（掉枪埋雪独立场景，五档埋深同框对比）、`scenes/Verify.tscn`（地图/纸条/关卡验收巡游）；`JiangqiaoLevel` 加了 `DebugNoSnow` / `DebugNoSmoke` 两个验证开关，让验收跑只量背景本身。
 - **截图库覆盖更新**（v2.8）：15 张实机画廊全部重拍（同文件名覆盖，不累加）；地图 / 纸条两张因文案改动重拍；地图章节列表文字溢出被裁切的问题一并修掉（缩短文案 + 列位左移）。
 
+### v2.9 贴图缓存串色根修 + 埋雪重做 + 验收图不再污染正式图库
+
+- **`SoftSnow` 缓存 key 串色根修（本轮最硬的一个 bug）**（v2.9）：软衰减贴图按「颜色 + alpha」缓存，但 key 写的是 `tint.GetHashCode() ^ (int)(alpha*1000)`。Godot 的 C# `Color.GetHashCode()` 把 R/G/B 从 float **直接截断成 uint**（`0.90f` 和 `0.55f` 都变成 `0`），而且**不算 alpha**——于是所有颜色哈希到同一个数，key 里只剩 alpha 一个变量。结果是：**任何两个用了相同 alpha 的调用方共用同一张贴图**，颜色完全被忽略。
+  - 现场表现：尸体旁边本该是浅色雪堆的地方，拿到的是 `EnterableHouse` 缓存的**近黑屋影**贴图，雪面上凭空多出一块硬边深灰多边形；反过来，深色阴影又会拿到浅色贴图而消失。
+  - 修法：key 改为按 `R/G/B/A` 的确切字节拼装（`((int)(tint.R*255)<<24) ^ … ^ (int)(alpha*1000)*7919`），保证任何两次请求都不会撞桶。
+- **埋雪三档重做（视觉上原本毫无区别）**（v2.9）：旧埋深只有 5px，而整支枪才 10px 高，三档（平躺 / 半埋 / 只露枪管）画出来**几乎一模一样**。现在雪堆锚定在**雪面**（不再跟着枪一起下沉），堆体由多层软衰减团叠出真实高度与圆顶，枪身随埋深整体下沉；同时把雪堆色调校到与实测雪面（白天约 `0.74`）一致，雪堆是「融进地面」而不是「浮在地面的一块白斑」。`WeaponPickup` 与 `CorpseActor` 两处掉枪统一走这套逻辑。
+- **尸体掉枪「白纸片」根修**（v2.9）：`CorpseActor` 里的掉枪还留着 v2.8 已在 `WeaponPickup` 修掉的硬边白色长条（`DrawRect` 68×3），同一处 bug 漏改了一个文件。现已一并改成软衰减带 + 分档埋雪。
+- **验收巡游不再污染正式图库**（v2.9）：`scripts/VerifyTour.cs` 之前把中间验收帧直接写进 `docs/screenshots/`，每跑一次巡游就往正式图库里塞十几张中间图，把 README 引用的画廊搅乱。现在中间帧改输出到 `user://verify_shots/`，**正式图库由 `scripts/Capture.cs` 独家维护**，图库文件数与 README 引用数保持一致（11 张）。
+- **README 图库精简**（v2.9）：按远程 `main` 分支上的一笔提交，移除 4 张与其它画面重复的引用（行走 / 敌兵推进 / 雪地尸体 / 掩体沙袋），并同步删除对应图片文件，README 引用数与 `docs/screenshots/` 文件数一致。
+
 ### 版本历史（一句话）
 
 | 版本 | 要点 |
 |------|------|
+| v2.9 | `SoftSnow` 缓存 key 串色根修（Godot Color 哈希截断导致同 alpha 异色共用贴图）、埋雪三档重做（雪堆锚定雪面 + 枪身下沉 + 色调校准）、尸体掉枪「白纸片」补修、验收巡游改输出到临时目录不再污染正式图库、README 图库精简至 11 张并与文件一一对应 |
 | v2.8 | 软径向衰减贴图（白线/亮白弧线根修）、远景村庄改用侧视贴图逐栋摆（视角统一）、雪雾改画在村庄之前、相机与视差层同源（开场抖动根修）、掉枪「白纸片」根修（硬边白条改软衰减带 + 埋雪改世界坐标软雪堆）、地图五处标签碰撞根修、地图章节列表溢出修正、15 张实机图库全量覆盖 |
 | v2.7 | 远景村庄重做、枪械埋雪（三档埋深 + 最低点贴地）、纸娃娃腰部白线与射击上下半身分离根修、柳丛程序化重做、地图时间线顺序修正、朝鲜半岛改大韩帝国 |
 | v2.6 | 日军手上/枪边残影根修（纸娃娃改掩膜分件：只保留踩得到地的像素，枪永远进不了腿片）、两腿从真正的裆缝切开（不再沿贴图中线切大腿）、烟囱炊烟与焚毁房屋黑烟改成程序化动态演出、残火与余烬、房屋静态烟云从贴图里抹除（烟源锚点同步重标）、动态烟实机两帧比对验收、截图库新增完好房屋烟囱一张 |
@@ -184,63 +195,47 @@
 
 **标题 · 见证者（title.jpg 古城墙雪景照片 + 程序化飘雪 / 灯笼晕 / 暗角）**
 
-![标题](docs/screenshots/v00_title.png?v=2.8)
+![标题](docs/screenshots/v00_title.png?v=2.9)
 
 **东亚大地图 · 时间线 Hub（layer by layer 视差：纸张底 / 地理 / 航线箭头 / 纸条）**
 
-![大地图](docs/screenshots/v01_map.png?v=2.8)
+![大地图](docs/screenshots/v01_map.png?v=2.9)
 
 **纸条档案 01 · 汉城《日韩合并条约》1910**
 
-![纸条 01](docs/screenshots/v02_note_korea.png?v=2.8)
+![纸条 01](docs/screenshots/v02_note_korea.png?v=2.9)
 
 **纸条档案 02 · 台北《马关条约》割台 1895**
 
-![纸条 02](docs/screenshots/v03_note_taiwan.png?v=2.8)
+![纸条 02](docs/screenshots/v03_note_taiwan.png?v=2.9)
 
 **进军箭头生长完成 · 汉城 → 鸭绿江 → 沈阳 → 嫩江江桥**
 
-![进军箭头](docs/screenshots/v04_map_arrows.png?v=2.8)
+![进军箭头](docs/screenshots/v04_map_arrows.png?v=2.9)
 
 **雪原全景 · 同款画风背景贴图合成四层视差（雪山 / 村落 / 树 / 草，layer by layer 厚度感）**
 
-![雪原全景](docs/screenshots/v46_jq_scene.png?v=2.8)
-
-**行走 · 史实军服立绘 + 纸娃娃分层动画**
-
-![行走](docs/screenshots/v14_walk_a.png?v=2.8)
-
-**敌兵推进 · 关东军迎面前压（景深错位）**
-
-![敌兵推进](docs/screenshots/v12_enemy_advance.png?v=2.8)
+![雪原全景](docs/screenshots/v46_jq_scene.png?v=2.9)
 
 **立姿据枪 · 枪托抵肩贴腮瞄准 + 枪口火光对齐枪管尖**
 
-![立姿据枪](docs/screenshots/v47_jq_fire.png?v=2.8)
+![立姿据枪](docs/screenshots/v47_jq_fire.png?v=2.9)
 
 **跪蹲持枪 · 军事标准跪姿（S 键）**
 
-![跪蹲持枪](docs/screenshots/v48_jq_crouch.png?v=2.8)
+![跪蹲持枪](docs/screenshots/v48_jq_crouch.png?v=2.9)
 
 **低姿匍匐 · 军事条令低姿匍匐前进（Ctrl/C 键）**
 
-![低姿匍匐](docs/screenshots/v49_jq_prone.png?v=2.8)
-
-**敌兵阵亡 · 同款画风尸体贴图（俯卧 / 仰卧）+ 掉落步枪 + 脚下雪脊**
-
-![雪地尸体](docs/screenshots/v26_corpse.png?v=2.8)
-
-**掩体沙袋 · 同款画风沙袋堆贴图（前景层，人从掩体后经过）**
-
-![掩体沙袋](docs/screenshots/v22_bridge.png?v=2.8)
+![低姿匍匐](docs/screenshots/v49_jq_prone.png?v=2.9)
 
 **完好房屋 · 烟囱动态炊烟（贴图静态烟已抹除，只剩程序化动态烟）**
 
-![烟囱动态炊烟](docs/screenshots/v51_jq_chimney.png?v=2.8)
+![烟囱动态炊烟](docs/screenshots/v51_jq_chimney.png?v=2.9)
 
 **焚毁村落 · 焦柱断壁 + 动态黑烟 + 残火（程序化演出，非贴图）**
 
-![焚毁村落](docs/screenshots/v50_jq_burnt.png?v=2.8)
+![焚毁村落](docs/screenshots/v50_jq_burnt.png?v=2.9)
 
 ## 如何运行（小白版，3 步）
 
@@ -317,7 +312,7 @@ witness/
 │   ├── ShakeCheck.tscn  # 背景抖动/白线验收场景（开发用）
 │   ├── GunCheck.tscn    # 掉枪埋雪验收场景（开发用）
 │   └── Verify.tscn      # 地图/纸条验收巡游场景（开发用）
-└── docs/screenshots/    # 实机运行的截图（15 张最新画面，同文件名覆盖更新）
+└── docs/screenshots/    # 实机运行的截图（11 张最新画面，同文件名覆盖更新）
 ```
 
 ## 给开发者的提示

@@ -56,8 +56,13 @@ public partial class GunCheck : Node2D
     /// <summary>Flat snow ground, so the rifles are not floating in the void.</summary>
     public override void _Draw()
     {
+        // v2.9: the ground used to be 0.855 grey, which is much lighter
+        // than the snow the rifles actually lie on in the level (about
+        // 0.74 in daylight). On a white sheet every drift reads as a
+        // visible blob, so the test bed has to use the real tone or the
+        // whole check is meaningless.
         DrawLine(new Vector2(-900, 4), new Vector2(900, 4),
-            new Color(0.855f, 0.875f, 0.875f), 400f);
+            new Color(0.74f, 0.76f, 0.76f), 400f);
     }
 
     public override void _Process(double delta)

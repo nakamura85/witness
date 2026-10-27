@@ -8,13 +8,24 @@ namespace Witness;
 public partial class VerifyTour : Node
 {
     private string _dir;
+    private string _scratch;
     private string _log;
+
+    // Only these frames belong to the published gallery. Everything else is
+    // a mid-tour audit frame and must stay out of docs/screenshots, otherwise
+    // every audit run litters the gallery with a dozen unreferenced frames.
+    private static readonly string[] GalleryShots =
+    {
+        "v00_title", "v01_map", "v02_note_korea", "v03_note_taiwan", "v04_map_arrows"
+    };
 
     public override void _Ready()
     {
         _dir = ProjectSettings.GlobalizePath("res://docs/screenshots");
         Directory.CreateDirectory(_dir);
-        _log = Path.Combine(_dir, "verify_log.txt");
+        _scratch = ProjectSettings.GlobalizePath("user://verify_shots");
+        Directory.CreateDirectory(_scratch);
+        _log = Path.Combine(_scratch, "verify_log.txt");
         File.WriteAllText(_log, $"start {System.DateTime.Now:HH:mm:ss}\r\n");
         _ = Run();
     }
@@ -231,8 +242,9 @@ public partial class VerifyTour : Node
         // （表现就是“整屏纯白”——之前误判成游戏 bug 的正是这个）。
         await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         var img = GetTree().Root.GetTexture().GetImage();
-        img.SavePng(Path.Combine(_dir, name + ".png"));
-        GD.Print("SHOT " + name);
+        bool gallery = System.Array.IndexOf(GalleryShots, name) >= 0;
+        img.SavePng(Path.Combine(gallery ? _dir : _scratch, name + ".png"));
+        GD.Print("SHOT " + name + (gallery ? " [gallery]" : ""));
         Log($"px300={img.GetPixel(400, 300).ToHtml()}");
     }
 }

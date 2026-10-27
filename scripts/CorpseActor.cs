@@ -112,6 +112,12 @@ public partial class CorpseActor : Node2D
         float ry = rng.RandfRange(4f, 15f);
         float ang = rng.RandfRange(-0.85f, 0.85f);
 
+        // v2.9: the rifle next to a body gets the same three burial tiers
+        // as a loose pickup, so the two kinds of dropped weapon read as
+        // one system instead of two different props.
+        float sink = rng.Randf();
+        float buried = sink < 0.45f ? 0f : (sink < 0.80f ? 0.42f : 0.85f);
+
         DrawSetTransform(new Vector2(rx, ry), ang, Vector2.One);
         var wood = new Color(0.34f, 0.25f, 0.17f, 0.96f);
         var metal = new Color(0.24f, 0.26f, 0.29f, 0.96f);
@@ -124,8 +130,45 @@ public partial class CorpseActor : Node2D
         DrawRect(new Rect2(-8f, -3.4f, 46f, 3.8f), metal);
         DrawRect(new Rect2(8f, -5.2f, 10f, 2.4f), metal);
         DrawCircle(new Vector2(1.5f, 0.8f), 1.7f, metal);
-        DrawRect(new Rect2(-32f, 2.6f, 64f, 2.8f), new Color(0.93f, 0.95f, 0.96f, 0.82f));
+        // v2.9 root fix. This was a plain DrawRect: a hard white bar 64px
+        // long and 2.8px wide. It tilts with the rifle, so on flat snow it
+        // read as a strip of white paper taped to the weapon. The same bug
+        // was already fixed on the loose pickups in v2.8, but this second
+        // copy on the corpse was missed. It is now the soft falloff band.
+        DrawSetTransform(new Vector2(rx, ry), ang, new Vector2(1.4f, 0.15f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.84f, 0.87f, 0.88f), 0.42f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+        // v2.9: the drift over the buried part, laid along the rifle's axis
+        // from the stock toward the muzzle, the same way the loose pickups
+        // do it.
+        if (buried > 0f)
+        {
+            var origin = new Vector2(rx, ry);
+            Vector2 butt = origin + new Vector2(-36f, 0f).Rotated(ang);
+            Vector2 muzzle = origin + new Vector2(38f, 0f).Rotated(ang);
+            const int steps = 5;
+            for (int k = 0; k < steps; k++)
+            {
+                float t = k / (steps - 1f);
+                Vector2 p = butt.Lerp(muzzle, t * buried);
+                float shrink = 1f - t * 0.45f;
+                float h = Mathf.Lerp(0.50f, 0.22f, t);
+                float a = Mathf.Lerp(0.55f, 0.26f, t);
+                float tone = Mathf.Lerp(0.76f, 0.82f, t);
+                DrawSetTransform(new Vector2(p.X, p.Y + buried * 2.6f), 0,
+                    new Vector2(0.95f * shrink, h));
+                DrawTextureRect(SoftSnow.Blob(new Color(tone, tone * 1.02f, tone * 1.02f), a),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+            }
+            Vector2 crest = butt.Lerp(muzzle, buried * 0.45f);
+            DrawSetTransform(new Vector2(crest.X, crest.Y - buried * 2.2f), 0,
+                new Vector2(0.85f, 0.20f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.84f, 0.87f, 0.88f), 0.34f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        }
     }
 
     // two low drifts hugging the body (head end + legs end) so the corpse

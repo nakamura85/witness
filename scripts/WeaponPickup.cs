@@ -1,4 +1,5 @@
 using Godot;
+using System.Collections.Generic;
 
 namespace Witness;
 
@@ -72,7 +73,7 @@ public partial class WeaponPickup : Node2D
         // jitters frame to frame.
         float sink = rng.Randf();
         // 0 = lying flat on the snow, 1 = sunk until only the barrel shows
-        float buried = sink < 0.45f ? 0f : (sink < 0.80f ? 0.35f : 0.68f);
+        float buried = sink < 0.45f ? 0f : (sink < 0.80f ? 0.42f : 0.85f);
 
         // v2.7 floating gun root fix:
         // the old way rotated +-0.85 rad around the geometric centre (ox, oy),
@@ -98,11 +99,12 @@ public partial class WeaponPickup : Node2D
         // contact shadow: sits right under the gun, on the snow
         SnowShadow.Draw(this, new Vector2(ox, groundY + 1f), 40f * sc, 0.24f);
 
-        // v2.8: a buried rifle sits lower in the snow - the drift is drawn on
-        // top of it, so the rifle has to sink for the cover to reach the
-        // receiver. Without this the gun stayed at ground level and the
-        // snow blob was only a puff next to it.
-        float sinkDy = buried * 5f;
+        // v2.9: the old burial depth was 5 pixels, while the whole rifle is
+        // only about 10 pixels tall, and the snow blob followed the rifle
+        // down instead of staying on the surface. Now the drift does the
+        // covering and the rifle barely sinks at all - just enough to sit
+        // inside the mound instead of on top of it.
+        float sinkDy = buried * 2.5f;
 
         DrawSetTransform(new Vector2(ox, groundY + sinkDy), rot, new Vector2(sgn, sc));
         var wood = Condition == Kind.Broken
@@ -142,7 +144,7 @@ public partial class WeaponPickup : Node2D
                 new Vector2(ox, groundY + sinkDy) + bandOffset,
                 rot,
                 new Vector2(sgn * 1.5f, sc * 0.16f));
-            DrawTextureRect(SoftSnow.Blob(new Color(0.93f, 0.95f, 0.96f), 0.75f),
+            DrawTextureRect(SoftSnow.Blob(new Color(0.84f, 0.87f, 0.88f), 0.42f),
                 new Rect2(-20f, -20f, 40f, 40f), false);
             // back to the rifle's own transform for the rest of the body
             DrawSetTransform(new Vector2(ox, groundY + sinkDy), rot, new Vector2(sgn, sc));
@@ -188,23 +190,57 @@ public partial class WeaponPickup : Node2D
         // it does not tilt with the rifle.
         if (buried > 0f)
         {
-            // how deep the snow sits over the gun: the deeper it is, the
-            // higher up the barrel the drift reaches
-            float depth = buried * 7f;
-            float cx = ox;
+            // v2.9 rewrite of the burial.
+            //
+            // The old code sank the rifle a few pixels and drew ONE flat blob
+            // over its middle. Two things were wrong with that:
+            //   - the rifle is only ~10px tall, so a 5px sink under a 10px
+            //     flat blob covered almost nothing. All three tiers looked
+            //     identical, which is exactly what the player reported.
+            //   - the blob followed the rifle down as it sank, so the cover
+            //     never actually got deeper.
+            //
+            // What a half-buried rifle actually looks like: the snow piles
+            // up against the STOCK and the receiver, and only the barrel
+            // points out of the drift. So the drift is laid along the
+            // rifle's own axis, starting at the butt and reaching toward
+            // the muzzle, and how far it reaches is what the burial depth
+            // means.
+            //
+            // The drift stays in the ground snow tone (about 0.74 in
+            // daylight, measured off the level), so it merges with the plain
+            // instead of looking like a pale blob dropped on it.
+            float coverFrac = buried;              // 0.42 = up to the receiver
+            float coverPx = buried * 12f;          // how tall the mound gets
 
-            // the drift sits on the snow line and reaches up over the lower
-            // part of the rifle. It must not swallow the whole gun - a rifle
-            // buried past recognition is not a rifle any more.
-            float cy = groundY + sinkDy - depth * 0.10f;
+            // butt and muzzle in world space, so the drift can follow the
+            // rifle no matter which way it is turned
+            var origin = new Vector2(ox, groundY + sinkDy);
+            Vector2 ButtWorld = origin + new Vector2(buttX * sgn * sc, 0f).Rotated(rot);
+            Vector2 MuzzleWorld = origin + new Vector2(tipX * sgn * sc, 0f).Rotated(rot);
 
-            // the drift itself, in the colour of the snow on the ground
-            DrawSetTransform(new Vector2(cx, cy), 0, new Vector2(1.05f, 0.24f));
-            DrawTextureRect(SoftSnow.Blob(new Color(0.855f, 0.875f, 0.875f), 0.85f),
-                new Rect2(-20f, -20f, 40f, 40f), false);
-            // the lit crest on top of the drift
-            DrawSetTransform(new Vector2(cx, cy - depth * 0.16f), 0, new Vector2(0.80f, 0.14f));
-            DrawTextureRect(SoftSnow.Blob(new Color(0.93f, 0.95f, 0.96f), 0.55f),
+            const int steps = 5;
+            for (int k = 0; k < steps; k++)
+            {
+                float t = k / (steps - 1f);
+                float along = t * coverFrac;
+                Vector2 p = ButtWorld.Lerp(MuzzleWorld, along);
+                // the mound is tallest at the butt and thins toward the
+                // muzzle, where the barrel finally comes out
+                float shrink = 1f - t * 0.45f;
+                float h = Mathf.Lerp(0.50f, 0.22f, t);
+                float a = Mathf.Lerp(0.55f, 0.26f, t);
+                float tone = Mathf.Lerp(0.76f, 0.82f, t);
+                DrawSetTransform(new Vector2(p.X, p.Y + coverPx * 0.22f), 0,
+                    new Vector2(0.95f * shrink, h));
+                DrawTextureRect(SoftSnow.Blob(new Color(tone, tone * 1.02f, tone * 1.02f), a),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+            }
+            // lit crest along the top of the drift
+            Vector2 crest = ButtWorld.Lerp(MuzzleWorld, coverFrac * 0.45f);
+            DrawSetTransform(new Vector2(crest.X, crest.Y - coverPx * 0.18f), 0,
+                new Vector2(0.85f, 0.20f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.84f, 0.87f, 0.88f), 0.34f),
                 new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }

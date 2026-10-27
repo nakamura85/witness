@@ -27,7 +27,26 @@ public static class SoftSnow
 
     public static ImageTexture Blob(Color tint, float alpha)
     {
-        int key = tint.GetHashCode() ^ (int)(alpha * 1000f);
+        // v2.9: the cache key was tint.GetHashCode() ^ (int)(alpha*1000).
+        //
+        // That was broken in a nasty way. Godot's C# Color.GetHashCode()
+        // casts R/G/B straight from float to uint, so 0.90f becomes 0 and
+        // 0.55f also becomes 0 - every colour we ever ask for hashed to the
+        // SAME number, and alpha is not part of the hash at all. The key
+        // therefore carried nothing but the alpha, so any two callers using
+        // the same alpha shared one texture no matter how different their
+        // colours were.
+        //
+        // The visible symptom: the pale snow drift around a corpse asked for
+        // a light blob and got back the near-black house shadow cached under
+        // the same alpha, so a hard dark octagon sat on the snow next to
+        // every body.
+        //
+        // The key is now built from the exact bytes, so no two requests can
+        // ever share a slot.
+        int key = ((int)(tint.R * 255f) << 24) ^ ((int)(tint.G * 255f) << 16)
+            ^ ((int)(tint.B * 255f) << 8) ^ ((int)(tint.A * 255f))
+            ^ ((int)(alpha * 1000f) * 7919);
         if (_cache.TryGetValue(key, out var cached)) return cached;
 
         const int size = 64;
