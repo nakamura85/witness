@@ -174,7 +174,7 @@
 
 ### v3.12 用户实机反馈遗留项修复（代码层落实，待本地实机验证）
 
-> ⚠️ **诚实说明**：本环境无 Godot 4.7 + C# 运行时，以下为**代码层落实**，未做实机视觉验证。在 v3.11 基础上对照用户 8 张反馈截图逐一核对——其中 **① 雪地白线（v3.8 已根除）、身体腰部接缝（v3.6 髋补偿已根除）、角色/农舍比例（v3.5 已按 1.5–2 人高重定）、沙包后「神秘方块」即碉堡（v3.11 已根修）四项远端已修**，故本次只针对**仍破损的 5 项**做最小修复，避免覆盖远端更优的修复：
+> ⚠️ **诚实说明**：Godot 4.7.2 引擎启动、C# 方案编译（`dotnet build` 0 错误）、素材导入（无头编辑器 70 张 `.ctex`）在本环境均**已实跑验证通过**；但**无头渲染回退到 dummy 渲染服务（沙箱进程拿不到 Vulkan/GPU 设备）**，`Viewport.GetTexture().GetImage()` 读不到像素，故实机截图无法在此环境生成。以下为**代码层落实**，需在你本地有 GPU/显示的机器上跑 `Capture.cs` / `CaptureMap.cs` 做视觉验证。在 v3.11 基础上对照用户 8 张反馈截图逐一核对——其中 **① 雪地白线（v3.8 已根除）、身体腰部接缝（v3.6 髋补偿已根除）、角色/农舍比例（v3.5 已按 1.5–2 人高重定）、沙包后「神秘方块」即碉堡（v3.11 已根修）四项远端已修**，故本次只针对**仍破损的 5 项**做最小修复，避免覆盖远端更优的修复：
 
 - **② 开枪枪口前黑线**：`SpriteActor.cs` 移除 `Aim>0.5` 时从枪口向前画的 `InkColor` 深墨「瞄准指示线」（鼠标即瞄准参考，火光给开火反馈）。若重截后仍在，则来自立绘 `soldier_na_aim.jpg` 枪管偏暗像素（素材问题，需重出贴图）。
 - **③ / ⑦ 记录点/证物「方块」**：`EvidencePoint.cs` 未收集时方块发光矩形 + 方块纸页 → 柔和圆形光晕 + 倾斜便条（读作随手放雪里的便条）；碉堡类「方块」已由 v3.11 根修。江桥关若仍有别的方块请把位置截图发我。
@@ -183,7 +183,7 @@
 - **⑥ 房子飘在雪上**：`JiangqiaoLevel.cs` `AddHouse()` 屋基 `GroundY→GroundY+8` 下沉进起伏雪面，缝被雪盖住。
 - **⑧ 趴/蹲前进无动画、纸片人滑动**：`SpriteActor.cs` 移动时跳过军人专姿整图（交回纸娃娃腿部摆动）+ 趴姿腿摆 `0.10→0.40`、蹲走腿摆 `0.12/0.10→0.30/0.26`（**保留 v2.9 髋部闭合基准角，只加摆幅**，避免重新张开裤裆缝）、趴进时躯干随爬行前后错动（`Sin*2.2`）+ 轻微扭转。
 
-> **截图**：本环境无法运行 Godot，v3.12 对应的实机截图需你本地 `Capture.cs` / `CaptureMap.cs` 重截后覆盖 `docs/screenshots/` 再提交（重点 `v47_jq_fire` 枪口黑线、`v48_jq_crouch`/`v49_jq_prone` 趴蹲动画、`v14_walk_a` 身体、`v46_jq_scene` 房屋比例、证据点相关图）。
+> **截图**：本环境 Godot **能启动、能编译、能导入**，但无头渲染只能用 dummy 服务（无 GPU）读不到帧，所以 v3.12 实机截图需你本地（有显卡/显示的机器）重截。一键流程：① 首次 `Godot --headless --editor --quit` 导入素材；② `"Godot_v4.7.2-stable_mono_win64_console.exe" --headless --path . scenes/Capture.tscn` 生成江桥图到 `_shots/`；③ 同法跑 `scenes/CaptureMap.tscn` 生成标题/地图图；④ 把 `_shots/` 按映射拷进 `docs/screenshots/`（`capture_02→v46_jq_scene`、`capture_03→v47_jq_fire`、`capture_04→v48_jq_crouch`、`capture_05→v49_jq_prone`、`capture_10_chimney→v51_jq_chimney`、`capture_11→v50_jq_burnt`、`map_00→v00_title`、`map_01→v01_map`、`map_02→v02_note_korea`、`map_03→v03_note_taiwan`、`map_04→v04_map_arrows`），并把 README 图链 `?v=3.11` 改 `?v=3.12`；⑤ `git add docs/screenshots && git commit && git push`。重点看 `v47_jq_fire`（枪口黑线）、`v48`/`v49`（趴蹲动画）、`v46_jq_scene`（房屋沉雪）、证据点相关图。
 
 ### v3.10 铁轨全线性战损 + 页眉间距补足
 
