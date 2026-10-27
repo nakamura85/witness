@@ -707,7 +707,7 @@ public partial class JiangqiaoLevel : Node2D
         layer.AddChild(_vitals);
 
         // 弹药改用子弹图标：打掉一发暗一发，拾取了再点亮，不再用点点点
-        _ammoBar = new AmmoBar { Position = new Vector2(920, 34) };
+        _ammoBar = new AmmoBar { Position = new Vector2(920, 38) };
         _ammoBar.Bind(_player);
         layer.AddChild(_ammoBar);
     }
@@ -3685,7 +3685,7 @@ public partial class VitalsBar : Control
         var labelC = new Color(0.86f, 0.82f, 0.72f);
         var heart = new Color(0.86f, 0.09f, 0.13f);          // bright fresh red
         var heartDark = new Color(0.26f, 0.16f, 0.15f, 0.9f); // lost heart: hollow dark
-        float heartRow = 10f, nadeRow = 30f;
+        float heartRow = 8f, nadeRow = 42f;
 
         DrawString(font, new Vector2(0, heartRow + 5f), "生命", HorizontalAlignment.Left, -1, 14, labelC);
         DrawString(font, new Vector2(0, nadeRow + 5f), "手榴弹", HorizontalAlignment.Left, -1, 14, labelC);
