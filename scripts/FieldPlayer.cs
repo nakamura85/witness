@@ -16,13 +16,31 @@ public partial class FieldPlayer : CharacterBody2D
     public event Action DryFired;               // trigger pulled, no rounds left
 
     public SpriteActor Figure { get; private set; }
-    public int Hp = 3;
+    public const int HpMax = 5;
+    public int Hp = HpMax;
     public bool ControlLocked;
 
     // ammo economy: belt rounds run out, loot rifles from the dead to keep fighting
+    public const int AmmoCap = 15;
     public int Ammo = 15;
-    public int AmmoMax = 15;   // rounds ever carried; spent rounds stay on the HUD as dim shells
+    public int AmmoMax = AmmoCap;   // belt never grows past 15; spent rounds stay on the HUD as dim shells
+    public const int GrenadeCap = 5;
     public int Grenades = 1;
+
+    /// <summary>bandage / medkit healing, clamped at max</summary>
+    public void Heal(int n) => Hp = Mathf.Min(HpMax, Hp + Mathf.Max(0, n));
+
+    public bool Wounded => Hp < HpMax;
+
+    /// <summary>returns rounds actually taken, bag full means fewer</summary>
+    public int AddAmmo(int n)
+    {
+        int took = Mathf.Min(n, AmmoCap - Ammo);
+        Ammo += took;
+        return took;
+    }
+
+    public void AddGrenade(int n) => Grenades = Mathf.Min(GrenadeCap, Grenades + n);
 
     private float _facing = 1f;
     private float _coyote;
@@ -174,7 +192,7 @@ public partial class FieldPlayer : CharacterBody2D
     {
         GlobalPosition = pos;
         Velocity = Vector2.Zero;
-        Hp = 3;
+        Hp = HpMax;
         _invuln = 1.2f;
     }
 

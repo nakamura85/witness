@@ -110,7 +110,7 @@ public partial class JiangqiaoLevel : Node2D
     internal Camera2D _cam;
     private Node2D _game;
     private Hud _hud;
-    private Label _hpLabel;
+    private VitalsBar _vitals;
     private AmmoBar _ammoBar;
     private ColorRect _flash;
     private ColorRect _blackout;
@@ -507,7 +507,9 @@ public partial class JiangqiaoLevel : Node2D
     {
         // 四成冻坏/打不响，六成还有几发——真实战场上捡枪就是这样赌运气
         if (GD.Randf() < 0.4f) return (WeaponPickup.Kind.Broken, 0);
-        return (WeaponPickup.Kind.Usable, (int)GD.RandRange(2, 8));
+        // loose rounds: usually a handful, finding 8+ is a lucky day
+        int n = GD.Randf() < 0.12f ? (int)GD.RandRange(6, 8) : (int)GD.RandRange(1, 5);
+        return (WeaponPickup.Kind.Usable, n);
     }
 
     private void AddPickup(float x, float y, WeaponPickup.Kind kind, int ammo)
@@ -690,17 +692,11 @@ public partial class JiangqiaoLevel : Node2D
 
         var layer = new CanvasLayer { Layer = 11 };
         AddChild(layer);
-        _hpLabel = new Label
-        {
-            Text = "生命  ● ● ●",
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
-        _hpLabel.AddThemeFontSizeOverride("font_size", 15);
-        _hpLabel.AddThemeColorOverride("font_color", new Color(0.86f, 0.82f, 0.72f));
-        _hpLabel.Position = new Vector2(1080, 14);
-        _hpLabel.CustomMinimumSize = new Vector2(180, 0);
-        _hpLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
-        layer.AddChild(_hpLabel);
+
+        // vitals drawn as icons: red hearts + stick grenades, self-redraws
+        _vitals = new VitalsBar { Position = new Vector2(880, 10) };
+        _vitals.Bind(_player);
+        layer.AddChild(_vitals);
 
         // 弹药改用子弹图标：打掉一发暗一发，拾取了再点亮，不再用点点点
         _ammoBar = new AmmoBar { Position = new Vector2(920, 34) };
@@ -894,9 +890,10 @@ public partial class JiangqiaoLevel : Node2D
             _hud.Toast("枪栓冻死了，拉不开——这支打不响。");
             return;
         }
-        _player.Ammo += p.Ammo;
-        if (_player.Ammo > _player.AmmoMax) _player.AmmoMax = _player.Ammo;
-        _hud.Toast($"捡获一支步枪，里面还剩 {p.Ammo} 发。");
+        int took = _player.AddAmmo(p.Ammo);
+        _hud.Toast(took >= p.Ammo
+            ? $"捡获一支步枪，里面还剩 {p.Ammo} 发。"
+            : $"捡获步枪，弹袋满了，只带上 {took} 发。");
         Shake(0.06f);
     }
 
@@ -909,8 +906,22 @@ public partial class JiangqiaoLevel : Node2D
             _ => "烧塌的院落",
         };
         var ui = new HouseInteriorUi(h.Id, title);
-        ui.GotAmmo += n => { _player.Ammo += n; if (_player.Ammo > _player.AmmoMax) _player.AmmoMax = _player.Ammo; };
-        ui.GotGrenade += n => _player.Grenades += n;
+        ui.CanHeal = () => _player.Wounded;
+        ui.GotAmmo += n =>
+        {
+            int took = _player.AddAmmo(n);
+            if (took < n) _hud.Toast($"弹袋只装得下 {took} 发，剩下的只好留在盒里。");
+        };
+        ui.GotGrenade += n => _player.AddGrenade(n);
+        ui.GotHeal += n =>
+        {
+            int before = _player.Hp;
+            _player.Heal(n);
+            int gained = _player.Hp - before;
+            _hud.Toast(gained > 0
+                ? (n > 1 ? "医药包把伤全处理了。" : "纱布裹紧伤口，好受了些。")
+                : "身上没伤口，用不上。");
+        };
         ui.Closed += () => _houseUi = null;
         AddChild(ui);
         _houseUi = ui;
@@ -1069,9 +1080,7 @@ public partial class JiangqiaoLevel : Node2D
         else
             _hud.ShowPrompt("");
 
-        // 右上生命 / 弹药（图标条自己重绘） / 手榴弹
-        string dots = _player.Hp >= 3 ? "● ● ●" : _player.Hp == 2 ? "● ● ○" : _player.Hp == 1 ? "● ○ ○" : "○ ○ ○";
-        _hpLabel.Text = $"生命  {dots}    手榴弹 ×{_player.Grenades}";
+        // target arrow below; vitals + ammo bars redraw themselves
 
         // 目标在屏幕外时给纸色箭头
         Vector2 target = near != null
@@ -3535,7 +3544,7 @@ public partial class Testimony : Node2D
 
 /// <summary>
 /// HUD 弹药条：一颗子弹一个图标。开枪打掉的那发不消失——变成暗壳留在弹排里；
-/// 拾取补给时把新弹点亮、并把总容量撑大。右上角一排右对齐。
+/// 弹袋最多 15 发，右上角一排右对齐。
 /// </summary>
 public partial class AmmoBar : Control
 {
@@ -3549,7 +3558,7 @@ public partial class AmmoBar : Control
     public override void _Draw()
     {
         if (_p == null) return;
-        int total = Mathf.Max(_p.AmmoMax, _p.Ammo);
+        int total = FieldPlayer.AmmoCap;
         int shown = Mathf.Min(total, 40);
         float step = IconW + Gap;
 
@@ -3577,6 +3586,91 @@ public partial class AmmoBar : Control
         DrawString(font, new Vector2(RowW - shown * step - 40f, 15f),
             $"{_p.Ammo}/{total}", HorizontalAlignment.Left, -1, 12,
             new Color(0.86f, 0.82f, 0.72f));
+    }
+}
+
+/// <summary>
+/// 生命 / 手榴弹图标条：鲜红心形一排（最多 5，空掉的是暗色空心），
+/// 下面一排小木柄手榴弹（最多 5），全部自绘，不用文字点。
+/// </summary>
+public partial class VitalsBar : Control
+{
+    private FieldPlayer _p;
+    private const int MaxHearts = FieldPlayer.HpMax;
+    private const int MaxGrenades = FieldPlayer.GrenadeCap;
+    private const float HeartW = 15f, HeartGap = 21f, NadeW = 9f, NadeGap = 14f;
+
+    public void Bind(FieldPlayer p) { _p = p; }
+
+    public override void _Process(double delta) => QueueRedraw();
+
+    public override void _Draw()
+    {
+        if (_p == null) return;
+        var font = ThemeDB.FallbackFont;
+        var labelC = new Color(0.86f, 0.82f, 0.72f);
+        var heart = new Color(0.86f, 0.09f, 0.13f);          // bright fresh red
+        var heartDark = new Color(0.26f, 0.16f, 0.15f, 0.9f); // lost heart: hollow dark
+        float heartRow = 10f, nadeRow = 30f;
+
+        DrawString(font, new Vector2(0, heartRow + 5f), "生命", HorizontalAlignment.Left, -1, 14, labelC);
+        DrawString(font, new Vector2(0, nadeRow + 5f), "手榴弹", HorizontalAlignment.Left, -1, 14, labelC);
+
+        float hx = 62f;
+        for (int i = 0; i < MaxHearts; i++)
+            DrawHeart(new Vector2(hx + i * HeartGap, heartRow), heart, i < _p.Hp);
+
+        float gx = 62f;
+        for (int i = 0; i < MaxGrenades; i++)
+            DrawStickGrenade(new Vector2(gx + i * NadeGap, nadeRow), i < _p.Grenades);
+    }
+
+    private void DrawHeart(Vector2 c, Color col, bool full)
+    {
+        // heart = two lobes + V bottom, filled when alive
+        float r = 3.4f;
+        var lobeL = c + new Vector2(-r * 0.75f, -2.2f);
+        var lobeR = c + new Vector2(r * 0.75f, -2.2f);
+        var pts = new Vector2[]
+        {
+            new(c.X - 6.6f, c.Y - 3.4f), new(c.X, c.Y + 7.4f), new(c.X + 6.6f, c.Y - 3.4f),
+        };
+        if (full)
+        {
+            DrawCircle(lobeL, r, col);
+            DrawCircle(lobeR, r, col);
+            DrawColoredPolygon(pts, col);
+            // tiny paper highlight so it reads as an object, not a flat dot
+            DrawCircle(lobeL + new Vector2(-1.1f, -1.1f), 1.1f, new Color(1f, 0.75f, 0.72f, 0.55f));
+        }
+        else
+        {
+            var dim = new Color(0.30f, 0.24f, 0.22f, 0.55f);
+            DrawCircle(lobeL, r, dim);
+            DrawCircle(lobeR, r, dim);
+            DrawColoredPolygon(pts, dim);
+            DrawArc(c + new Vector2(0, 0.6f), 8.4f, Mathf.Pi, Mathf.Tau, 20,
+                new Color(0.45f, 0.20f, 0.18f, 0.5f), 1.2f, true);
+        }
+    }
+
+    private void DrawStickGrenade(Vector2 basePt, bool full)
+    {
+        // Type 24 style: wooden stick handle + tin oval head + end cap
+        var stick = full ? new Color(0.58f, 0.42f, 0.24f) : new Color(0.30f, 0.26f, 0.22f, 0.55f);
+        var head = full ? new Color(0.36f, 0.38f, 0.33f) : new Color(0.26f, 0.26f, 0.24f, 0.55f);
+        var cap = full ? new Color(0.66f, 0.62f, 0.54f) : new Color(0.34f, 0.33f, 0.30f, 0.55f);
+
+        // stick: vertical, head sits on top
+        DrawRect(new Rect2(basePt.X - 1.6f, basePt.Y - 6f, 3.2f, 12f), stick);
+        // tin head
+        DrawCircle(basePt + new Vector2(0, -8.2f), 4.2f, head);
+        DrawRect(new Rect2(basePt.X - 2.1f, basePt.Y - 14.6f, 4.2f, 2.6f), cap);
+        // pull cord hint on a live one
+        if (full)
+            DrawLine(new Vector2(basePt.X + 1.8f, basePt.Y + 6f),
+                new Vector2(basePt.X + 3.6f, basePt.Y + 8.6f),
+                new Color(0.80f, 0.74f, 0.62f, 0.8f), 1f, true);
     }
 }
 

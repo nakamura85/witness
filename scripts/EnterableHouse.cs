@@ -107,6 +107,8 @@ public partial class HouseInteriorUi : CanvasLayer
     public event Action Closed;
     public event Action<int> GotAmmo;
     public event Action<int> GotGrenade;
+    public event Action<int> GotHeal;       // 1 = gauze, 99 = medkit (full)
+    public Func<bool> CanHeal = () => true; // level asks the player; full hp wastes nothing
 
     private readonly string _houseId;
     private readonly string _houseTitle;
@@ -132,7 +134,7 @@ public partial class HouseInteriorUi : CanvasLayer
     private partial class Spot : Button
     {
         public string SpotId;
-        public string Kind;        // ammo / grenade / letter / clue / chest / ash
+        public string Kind;        // ammo / grenade / letter / will / clue / gauze / medkit / chest / ash
         public string ResultText;
         public bool Done;
         public float PryProgress;  // chest only
@@ -202,10 +204,18 @@ public partial class HouseInteriorUi : CanvasLayer
     private void BuildSpots()
     {
         // every house rolls its own loot table, chest always somewhere around
-        AddSpot("ammo1", "弹药盒", "ammo", $"翻出半盒步枪弹（+{_rng.RandiRange(4, 8)} 发）");
+        // ammo: usually just a few rounds, a full box is a rare lucky find
+        int ammoN = _rng.Randf() < 0.12f ? _rng.RandiRange(6, 8) : _rng.RandiRange(1, 5);
+        AddSpot("ammo1", "弹药盒", "ammo", $"翻出一小袋步枪弹（+{ammoN} 发）");
         AddSpot("letter1", "压在灶台下的信", "letter", "");
+        if (_rng.Randf() > 0.5f)
+            AddSpot("will1", "叠得整整齐齐的遗书", "will", "");
         if (_rng.Randf() > 0.35f)
-            AddSpot("grenade1", "木柄手榴弹", "grenade", $"从房梁上摸到一颗手榴弹（+1）");
+            AddSpot("grenade1", "木柄手榴弹", "grenade", "");
+        if (_rng.Randf() < 0.18f)
+            AddSpot("gauze1", "半卷干净的纱布", "gauze", "");
+        if (_rng.Randf() < 0.05f)
+            AddSpot("medkit1", "军医留下的医药包", "medkit", "");
         AddSpot("chest1", "上锁的弹药箱", "chest", "");
         if (_rng.Randf() > 0.5f)
             AddSpot("clue1", "烧剩一半的文件", "clue", "");
@@ -254,17 +264,58 @@ public partial class HouseInteriorUi : CanvasLayer
         {
             case "ammo":
             {
-                int n = _rng.RandiRange(4, 8);
+                int n = _rng.Randf() < 0.12f ? _rng.RandiRange(6, 8) : _rng.RandiRange(1, 5);
                 GotAmmo?.Invoke(n);
-                s.ResultText = $"翻出半盒步枪弹（+{n} 发）";
+                s.ResultText = $"翻出一小袋步枪弹（+{n} 发）";
                 MarkDone(s);
                 break;
             }
             case "grenade":
-                GotGrenade?.Invoke(1);
-                s.ResultText = "从房梁上摸到一颗手榴弹（+1）";
+            {
+                // wet wood and old fuses: some of these things simply won't go off
+                float r = _rng.Randf();
+                if (r < 0.20f)
+                {
+                    s.ResultText = "从房梁上摸到一颗手榴弹——木柄受潮，引信哑了，扔不得。";
+                    MarkDone(s);
+                    break;
+                }
+                int n = r > 0.90f ? 2 : 1;
+                GotGrenade?.Invoke(n);
+                s.ResultText = n == 2
+                    ? "房梁上挂着一小串，两颗还能用（+2）。"
+                    : "从房梁上摸到一颗手榴弹（+1）";
                 MarkDone(s);
                 break;
+            }
+            case "gauze":
+            {
+                if (!CanHeal())
+                {
+                    s.ResultText = "身上没伤口，纱布先留在这儿吧。";
+                    s.Text = s.ResultText;
+                    s.Disabled = false;
+                    break;
+                }
+                GotHeal?.Invoke(1);
+                s.ResultText = "绷带还干净，裹紧伤口好受了些（生命 +1）。";
+                MarkDone(s);
+                break;
+            }
+            case "medkit":
+            {
+                if (!CanHeal())
+                {
+                    s.ResultText = "眼下没伤，医药包先收在原处。";
+                    s.Text = s.ResultText;
+                    s.Disabled = false;
+                    break;
+                }
+                GotHeal?.Invoke(99);
+                s.ResultText = "纱布、碘酒、夹板样样齐全——伤全处理了一遍（生命全回复）。";
+                MarkDone(s);
+                break;
+            }
             case "letter":
                 OpenNote("灶台砖下压着的一封信",
                     new[]
@@ -273,6 +324,16 @@ public partial class HouseInteriorUi : CanvasLayer
                         "“要是我回不去，别叫人把我的名字写错了。是永胜的胜，得胜的胜。”",
                     },
                     "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵家书意象改写。");
+                MarkDone(s);
+                break;
+            case "will":
+                OpenNote("叠得整整齐齐的遗书",
+                    new[]
+                    {
+                        "“若我阵亡，勿念。此身许国，不得许家。”",
+                        "“口袋里余钱四十枚，托同乡带回，给妹妹缴学费。她若问起我，就说我在北边教书的。”",
+                    },
+                    "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵遗书意象改写。");
                 MarkDone(s);
                 break;
             case "clue":
@@ -318,10 +379,13 @@ public partial class HouseInteriorUi : CanvasLayer
                 bool open = _rng.Randf() < 0.6f;
                 if (open)
                 {
-                    int n = _rng.RandiRange(6, 12);
+                    int n = _rng.RandiRange(2, 6);
+                    bool hasNade = _rng.Randf() < 0.5f;
                     GotAmmo?.Invoke(n);
-                    GotGrenade?.Invoke(1);
-                    _chestSpot.ResultText = $"锁开了：整盒步枪弹（+{n} 发）和一颗手榴弹。";
+                    if (hasNade) GotGrenade?.Invoke(1);
+                    _chestSpot.ResultText = hasNade
+                        ? $"锁开了：一小袋步枪弹（+{n} 发）和一颗手榴弹。"
+                        : $"锁开了：一小袋步枪弹（+{n} 发）。";
                     _chestSpot.Text = "弹药箱（已撬开）";
                     MarkDone(_chestSpot);
                     _chestSpot.Disabled = false;
