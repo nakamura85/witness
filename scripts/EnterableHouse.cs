@@ -35,8 +35,11 @@ public partial class EnterableHouse : Node2D
         _enterable = enterable;
         _lift = lift;
         Position = pos;
-        // lifted houses sit a step further back in the depth row
-        ZIndex = lift > 0f ? -4 : -3;
+        // lifted houses sit a step further back in the depth row.
+        // v3.8: near row now draws IN FRONT of the ground art (the railway
+        // band is part of it), so the track passes behind the village houses
+        // instead of slicing through their front walls.
+        ZIndex = lift > 0f ? -2 : -1;
     }
 
     private static Texture2D LoadTex(string name)

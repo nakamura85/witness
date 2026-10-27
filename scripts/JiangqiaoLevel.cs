@@ -236,9 +236,11 @@ public partial class JiangqiaoLevel : Node2D
         AddHouse("f3", 3910f + Jit(35), "house_burned_near", 265f, false, 12f);
 
         // near row: enterable loot spots, the intact one teaches players
-        // "the house that still looks whole got the goods" lah
+        // "the house that still looks whole got the goods" lah.
+        // h3 sits fixed (no jitter) so the 2197-2380 gap stays open for the
+        // crater + fallen soldier vignette next to it.
         AddHouse("h1", 845f + Jit(24), "house_ruined_near", 330f, true, 0f);
-        AddHouse("h3", 1885f + Jit(30), "house_intact_near", 312f, true, 0f);
+        AddHouse("h3", 1885f, "house_intact_near", 312f, true, 0f);
         AddHouse("h4", 3180f + Jit(45), "house_posts", 320f, false, 0f);
         AddHouse("h2", 2760f, "house_burned_near", 360f, true, 0f);
     }
@@ -545,7 +547,8 @@ public partial class JiangqiaoLevel : Node2D
         AddChild(_game);
 
         // smoke and fire over the near houses: above the houses, below the fighters
-        _smokeWorld = new SmokeFx { ZIndex = -2 };
+        // v3.8: houses moved up to -1, smoke must ride above them again
+        _smokeWorld = new SmokeFx { ZIndex = 1 };
         _game.AddChild(_smokeWorld);
         if (DebugNoSmoke) _smokeWorld.Visible = false;
 
@@ -590,17 +593,22 @@ public partial class JiangqiaoLevel : Node2D
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
             new Vector2(1270, GroundY - 2), false, 0.08f));
 
-        // 2. 另一个弹坑（日军，朝向相反）
+        // 2. 弹坑旁（日军，朝向相反）
+        // v3.8: was 2090 — right inside the intact house h3 (1885-2197), body
+        // clipped into the wall. Now draped over the crater rim at 2290, on
+        // open snow between the house and the track.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(2090, GroundY - 2), true, -0.12f));
+            new Vector2(2290, GroundY - 2), true, 0.06f));
 
         // 3. 战壕边（东北军，头倒在战壕方向）
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
             new Vector2(1550, GroundY - 2), false, 0.22f));
 
         // 4. 碉堡前（日军，身体挡在碉堡入口前）
+        // v3.8: was 3000, inside burned house h2; bunker also moved out of
+        // that footprint to 3600, corpse follows and falls toward its door
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(3000, GroundY - 2), true, -0.18f));
+            new Vector2(3650, GroundY - 2), false, -0.10f));
 
         // 5. 桥头铁路旁（东北军，头朝冰面倒）
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
@@ -1677,8 +1685,12 @@ public partial class JiangqiaoLevel : Node2D
             // horizon. Now the haze uses the snow colour itself and stops
             // where the solid snow takes over, so no band can ever end up
             // brighter than the field it melts into.
-            var haze = VGradient(new Color(0.775f, 0.795f, 0.795f, 0f), new Color(0.775f, 0.795f, 0.795f, 0.55f));
-            DrawTextureRect(haze, Full(-1400, 505, 57), false);
+            // v3.8: the texture's snow-covered foot (rows ~440-530, mean 215-237)
+            // was STILL brighter than the plain (198) and popped as a thick
+            // white band in daylight. Texture is darkened in place now; this
+            // haze stays weak and long so it only softens, never bands.
+            var haze = VGradient(new Color(0.775f, 0.795f, 0.795f, 0f), new Color(0.775f, 0.795f, 0.795f, 0.42f));
+            DrawTextureRect(haze, Full(-1400, 482, 80), false);
         }
 
         private List<Vector2> Ridge(float baseY, float amp, Color color, float seed, float f1, float f2)
@@ -1785,6 +1797,8 @@ public partial class JiangqiaoLevel : Node2D
             // showed through the 74-86% fade as a thin bright line. Solid snow
             // now starts at 560 and the fade runs 500-560, so the strip is
             // buried under full-strength snow no matter the tint.
+            // v3.8: fade widened to 468-560 so the mountain foot blends over
+            // 90px instead of 60 — no leftover bright ledge above the plain.
             var fade = VGradient(new Color(snow, 0f), new Color(snow, 1f));
             DrawRect(Full(-1400, 560, 258), snow);
 
@@ -1817,7 +1831,7 @@ public partial class JiangqiaoLevel : Node2D
             // came out as a thin smear. Distance haze belongs behind the
             // village anyway — the fog is out on the plain, the houses stand
             // in front of it.
-            DrawTextureRect(fade, Full(-1400, 500, 60), false);
+            DrawTextureRect(fade, Full(-1400, 468, 92), false);
 
             // The distant village: war-torn farmhouses on the open snow.
             //
@@ -2352,11 +2366,14 @@ public partial class JiangqiaoLevel : Node2D
             // 弹坑位置 ±20、半径 ±6。
             // anchors picked so the rim never kisses a sandbag wall, bunker or
             // ammo crate - a shell hole right against the cover reads wrong.
-            // old 4060 slot was boxed in by the 4160 wall, bunker 4050 and
-            // crate 3960, dropped it instead of squeezing another one in.
+            // v3.8: dropped 2080/2890/3260 — all three sat inside near-house
+            // footprints (h3/h2/h4) and would vanish behind them now that the
+            // houses draw in front of the ground art. 2290 is the new hole in
+            // the open gap between h3 and the track; 2540/3780 stay to break
+            // the rails where they are visible.
             var craterListX = new List<float>();
             var craterListR = new List<float>();
-            foreach (float x in new[] { 1260f, 1640f, 2080f, 2540f, 2890f, 3260f, 3780f })
+            foreach (float x in new[] { 1260f, 1640f, 2290f, 2540f, 3780f })
             {
                 craterListX.Add(x + rng.RandfRange(-22f, 22f));
                 craterListR.Add(26f + rng.RandfRange(-6f, 15f));
@@ -2382,7 +2399,8 @@ public partial class JiangqiaoLevel : Node2D
             var bxList = new List<float>();
             var bwList = new List<float>();
             var fhList = new List<float>();
-            foreach (float bx in new[] { 1550f, 3050f, 4050f })
+            // v3.8: bunker 3050 was buried behind burned house h2, moved to 3600
+            foreach (float bx in new[] { 1550f, 3600f, 4050f })
             {
                 bxList.Add(bx + rng.RandfRange(-18f, 18f));
                 bwList.Add(56f + rng.RandfRange(-4f, 8f));
@@ -2392,10 +2410,10 @@ public partial class JiangqiaoLevel : Node2D
             _bunkerBW = bwList.ToArray();
             _bunkerFH = fhList.ToArray();
 
-            // 铁路：随机挑 8~12 根枕木去掉（每 60 根里去掉 1 根 = 稀疏破损）
+            // 铁路：随机挑约 30 根枕木去掉（画得到的就是 84 根，三成缺失 = 战时打烂的样子）
             var railSkip = new HashSet<int>();
-            int railCount = (int)(5200f / 34f);  // ≈ 152 根
-            for (int k = 0; k < 22; k++) railSkip.Add((int)rng.RandfRange(0, railCount));
+            int railCount = (int)((WorldW - 2400f) / 34f) + 2;
+            for (int k = 0; k < 30; k++) railSkip.Add((int)rng.RandfRange(0, railCount));
             _railSkipIdx = railSkip.ToArray();
 
             // 桥桁架：随机去掉 2~4 根斜腹杆
@@ -2439,6 +2457,7 @@ public partial class JiangqiaoLevel : Node2D
             DrawRiverIce();
             DrawRailway();
             DrawCraters();
+            DrawRailBlastDamage();
             DrawBridge();
             DrawTrenchLines();
         }
@@ -2509,6 +2528,61 @@ public partial class JiangqiaoLevel : Node2D
                 DrawTextureRect(SoftSnow.Blob(new Color(0.78f, 0.83f, 0.86f), 0.6f),
                     new Rect2(-20f, -20f, 40f, 40f), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+        }
+
+        /// <summary>
+        /// v3.8 dressing at every rail break: scorch on the ballast, twisted
+        /// rail stubs curling out of both cut ends, splinters and debris.
+        /// Without this the segmented rails just showed a naked gap in the
+        /// line - "why would the track stop mid-air for no reason".
+        /// Deterministic per crater index, stable between frames.
+        /// Drawn after the crater textures so the twisted steel stays visible.
+        /// </summary>
+        private void DrawRailBlastDamage()
+        {
+            float railY = GroundY - 1f;
+            for (int i = 0; i < _craterX.Length; i++)
+            {
+                float cx = _craterX[i];
+                if (cx <= 2420f || cx >= WorldW - 24f) continue;
+                float r = _craterR[i] * 0.82f;
+
+                var rng = new RandomNumberGenerator();
+                rng.Seed = (ulong)(i * 7919 + 13);
+
+                // scorched bed under the gap
+                DrawSetTransform(new Vector2(cx, railY + 9f), 0, new Vector2(r / 20f, 0.42f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.19f, 0.175f, 0.16f), 0.5f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                // twisted stubs curling up and out from both cut ends, one pair per rail line
+                foreach (float ry in new[] { railY, railY + 12 })
+                foreach (float sgn in new[] { -1f, 1f })
+                {
+                    float ex = cx + sgn * r;
+                    for (int s = 0; s < 2; s++)
+                    {
+                        float len = rng.RandfRange(8f, 15f);
+                        float tilt = 0.35f + 0.45f * s + rng.RandfRange(-0.12f, 0.12f);
+                        float dx = sgn * len * Mathf.Cos(tilt);
+                        float dy = -len * Mathf.Sin(tilt);
+                        DrawLine(new Vector2(ex, ry), new Vector2(ex + dx, ry + dy),
+                            InkStyle.InkColor, InkStyle.ThinStroke, true);
+                        // bright torn steel at the tip
+                        DrawCircle(new Vector2(ex + dx, ry + dy), 1.3f, new Color(0.85f, 0.86f, 0.84f));
+                    }
+                }
+
+                // splinters and kicked-up ballast around the hole
+                for (int s = 0; s < 6; s++)
+                {
+                    float px = cx + rng.RandfRange(-r, r) * 1.15f;
+                    float py = railY + rng.RandfRange(2f, 16f);
+                    DrawCircle(new Vector2(px, py), rng.RandfRange(0.8f, 1.7f),
+                        new Color(0.27f, 0.25f, 0.23f, 0.8f));
+                }
             }
         }
 
