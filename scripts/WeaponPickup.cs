@@ -18,6 +18,7 @@ public partial class WeaponPickup : Node2D
 
     private float _seed;
     private float _glintT;
+    private Texture2D _rifleTex;
 
     public WeaponPickup(Kind kind, int ammo)
     {
@@ -107,35 +108,31 @@ public partial class WeaponPickup : Node2D
         float sinkDy = buried * 2.5f;
 
         DrawSetTransform(new Vector2(ox, groundY + sinkDy), rot, new Vector2(sgn, sc));
-        var wood = Condition == Kind.Broken
-            ? new Color(0.28f, 0.21f, 0.15f, 0.96f)
-            : new Color(0.36f, 0.27f, 0.18f, 0.96f);
-        var metal = Condition == Kind.Broken
-            ? new Color(0.20f, 0.21f, 0.23f, 0.96f)
-            : new Color(0.26f, 0.28f, 0.31f, 0.96f);
 
-        // stock + barrel, same silhouette as the corpse rifle so it reads as one
-        var stock = new[]
+        // generated watercolor rifle texture - the old polygon gun (a brown
+        // slab + grey bar) stuck out like a stick figure among the hand-drawn
+        // props. World length still matches the old tip/butt span so the
+        // burial drift math below lines up the same.
+        _rifleTex ??= GD.Load<Texture2D>("res://assets/art/props/rifle.png");
+        var tsz = _rifleTex.GetSize();
+        float bodyLen = tipX - buttX;                       // 80 local px
+        float bodyH = bodyLen * tsz.Y / tsz.X;
+        // broken guns read darker and colder
+        var tint = Condition == Kind.Broken
+            ? new Color(0.70f, 0.69f, 0.74f, 0.97f)
+            : new Color(1f, 1f, 1f, 0.98f);
+        DrawTextureRect(_rifleTex, new Rect2(buttX, -bodyH * 0.55f, bodyLen, bodyH), false, tint);
+
+        // frost crust on broken guns, kena the cold hard
+        if (Condition == Kind.Broken)
         {
-            new Vector2(-38f, 0f), new Vector2(-15f, -5f), new Vector2(-8f, -1.2f),
-            new Vector2(-11f, 3.6f), new Vector2(-36f, 5f),
-        };
-        DrawColoredPolygon(stock, wood);
-        DrawRect(new Rect2(-8f, -3.6f, 50f, 4f), metal);
-        DrawRect(new Rect2(8f, -5.6f, 11f, 2.6f), metal);
-        DrawCircle(new Vector2(2f, 0.8f), 1.8f, metal);
+            DrawLine(new Vector2(-6f, -4.6f), new Vector2(14f, -3.4f),
+                new Color(0.88f, 0.92f, 0.95f, 0.7f), 2.0f, true);
+        }
 
-        // v2.8 root fix: the snow lying on the rifle used to be a plain
-        // DrawRect - a hard white bar 68px long and 3px wide. On the flat
-        // snow that read as a strip of paper taped to the rifle, and it was
-        // the bright tilted slab the player kept pointing at.
-        // It is now a soft falloff blob, squashed into a thin band, so it
-        // has no rim and fades out at both ends like settled snow.
-        //
-        // DrawSetTransform replaces the transform instead of adding to it,
-        // so the band has to be placed by hand: the offset is scaled and
-        // rotated the same way the rifle itself is, then the whole thing
-        // goes back through the rifle's own transform.
+        // thin settled-snow band along the body: soft falloff blob squashed
+        // into a line, placed by hand because DrawSetTransform replaces the
+        // whole transform, then back onto the rifle's own transform
         {
             var bandLocal = new Vector2(-2f, 3.2f);
             var bandScaled = new Vector2(bandLocal.X * sgn, bandLocal.Y * sc);
@@ -146,18 +143,9 @@ public partial class WeaponPickup : Node2D
                 new Vector2(sgn * 1.5f, sc * 0.16f));
             DrawTextureRect(SoftSnow.Blob(new Color(0.84f, 0.87f, 0.88f), 0.42f),
                 new Rect2(-20f, -20f, 40f, 40f), false);
-            // back to the rifle's own transform for the rest of the body
             DrawSetTransform(new Vector2(ox, groundY + sinkDy), rot, new Vector2(sgn, sc));
         }
 
-        // frost crust on broken guns, kena the cold hard
-        if (Condition == Kind.Broken)
-        {
-            DrawLine(new Vector2(-6f, -4.6f), new Vector2(14f, -3.4f),
-                new Color(0.88f, 0.92f, 0.95f, 0.8f), 2.2f, true);
-            DrawLine(new Vector2(24f, -3.2f), new Vector2(38f, -6.5f),
-                new Color(0.26f, 0.20f, 0.15f, 0.9f), 2.6f, true); // bent barrel tip
-        }
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
         // glint blink

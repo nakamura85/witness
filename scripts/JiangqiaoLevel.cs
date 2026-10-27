@@ -2587,44 +2587,31 @@ public partial class JiangqiaoLevel : Node2D
             }
         }
 
+        private Texture2D _craterTex;
+
         private void DrawCraters()
         {
-            // shell craters as snow depressions: a raised thrown-snow rim around
-            // a concave pit that deepens toward the centre - NOT a near-black
-            // pancake stamped flat on the ground (that read as a hole punched
-            // in the world). All squashed flat because we look down at the snow.
+            // craters are generated watercolor textures now. The old stacked
+            // ellipses read like a flat bullseye pancake, totally off from the
+            // hand-drawn style of everything else on the field.
+            _craterTex ??= GD.Load<Texture2D>("res://assets/art/props/crater.png");
+            if (_craterTex == null) return;
+            var tsz = _craterTex.GetSize();
             for (int i = 0; i < _craterX.Length; i++)
             {
                 float x = _craterX[i];
                 float r = _craterR[i];
-
-                // soft bluish contact shade just under the near rim
-                DrawSetTransform(new Vector2(x, GroundY + 4f), 0, new Vector2(1f, 0.30f));
-                DrawTextureRect(SoftSnow.Blob(new Color(0.55f, 0.60f, 0.64f), 0.22f),
-                    new Rect2(-r * 1.5f, -r * 1.5f, r * 3f, r * 3f), false);
+                // per-crater mirror + size jitter off its own x, stable between frames.
+                // bottom-anchored on the ground line: the texture is a top-down
+                // crater, squashed flat so it reads as a dent in the snow field
+                bool flip = (i % 2 == 1);
+                float jitter = 1f + Mathf.Sin(x * 0.37f) * 0.06f;
+                float w = r * 3.0f * jitter;
+                float hEff = w * tsz.Y / tsz.X * 0.45f;
+                float sx = flip ? -1f : 1f;
+                DrawSetTransform(new Vector2(x, GroundY + 3f), 0, new Vector2(sx, 1f));
+                DrawTextureRect(_craterTex, new Rect2(-w * 0.5f, -hEff, w, hEff), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-
-                // thrown-snow rim: bright pile ringing the pit
-                DrawSetTransform(new Vector2(x, GroundY + 1f), 0, new Vector2(1f, 0.34f));
-                DrawColoredPolygon(CircleVerts(r * 1.14f, 22), new Color(0.93f, 0.95f, 0.95f, 0.92f));
-                // pit: stacked darker ellipses give a soft concave read
-                DrawColoredPolygon(CircleVerts(r * 0.92f, 20), new Color(0.62f, 0.66f, 0.70f, 0.95f));
-                DrawColoredPolygon(CircleVerts(r * 0.60f, 18), new Color(0.47f, 0.51f, 0.56f, 0.95f));
-                DrawColoredPolygon(CircleVerts(r * 0.30f, 14), new Color(0.35f, 0.38f, 0.43f, 0.90f));
-                // upper rim catches the light; near rim drops a thin shadow lip
-                DrawPolyline(CircleVerts(r * 1.12f, 22, Mathf.Pi, Mathf.Tau), new Color(0.99f, 0.995f, 0.995f, 0.9f), 2.0f, false);
-                DrawPolyline(CircleVerts(r * 1.12f, 22, 0, Mathf.Pi), new Color(0.45f, 0.49f, 0.53f, 0.5f), 2.2f, false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-
-                // a few ejecta chips flung just outside the rim
-                for (int e = 0; e < 5; e++)
-                {
-                    float a = (float)e / 5 * Mathf.Tau + 0.6f;
-                    float d = r * (1.25f + (e * 7 % 5) * 0.06f);
-                    float ex = x + Mathf.Cos(a) * d;
-                    float ey = (GroundY + 1f) + Mathf.Sin(a) * d * 0.34f;
-                    DrawCircle(new Vector2(ex, ey), 1.5f + (e % 2), new Color(0.78f, 0.81f, 0.83f, 0.8f));
-                }
             }
         }
 
