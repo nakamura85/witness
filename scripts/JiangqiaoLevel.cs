@@ -1658,9 +1658,18 @@ public partial class JiangqiaoLevel : Node2D
                 CrestLine(r2, new Color(0.92f, 0.95f, 0.96f, 0.45f), 1.3f);
             }
 
-            // 山脚雾：一条窄带，只把山脚和雪原接起来
-            var haze = VGradient(new Color(0.82f, 0.86f, 0.87f, 0f), new Color(0.82f, 0.86f, 0.87f, 0.72f));
-            DrawTextureRect(haze, Full(-1400, 542, 62), false);
+            // 山脚雾：一条窄带，只把山脚和雪原接起来。
+            // v3.6: the old haze colour (0.82,0.86,0.87) is BRIGHTER than the
+            // snow field (0.775,...), and the panorama texture carries a near
+            // pure-white strip along its bottom edge (rows 526-538 avg 232/255
+            // vs 72 above). In day light all that read as a soft foot haze,
+            // but the pre-dawn CanvasModulate multiplies everything down and
+            // the band popped out as a hard white line across the whole
+            // horizon. Now the haze uses the snow colour itself and stops
+            // where the solid snow takes over, so no band can ever end up
+            // brighter than the field it melts into.
+            var haze = VGradient(new Color(0.775f, 0.795f, 0.795f, 0f), new Color(0.775f, 0.795f, 0.795f, 0.55f));
+            DrawTextureRect(haze, Full(-1400, 505, 57), false);
         }
 
         private List<Vector2> Ridge(float baseY, float amp, Color color, float seed, float f1, float f2)
@@ -1761,9 +1770,14 @@ public partial class JiangqiaoLevel : Node2D
         {
             var snow = new Color(0.775f, 0.795f, 0.795f);
 
-            // 雪原上缘：先渐变到实色，避免一条生硬的地平线
+            // 雪原上缘：先渐变到实色，避免一条生硬的地平线。
+            // v3.6: the gradient used to complete at y=578 while the mountain
+            // texture already ends at 570 - its white bottom strip (563-570)
+            // showed through the 74-86% fade as a thin bright line. Solid snow
+            // now starts at 560 and the fade runs 500-560, so the strip is
+            // buried under full-strength snow no matter the tint.
             var fade = VGradient(new Color(snow, 0f), new Color(snow, 1f));
-            DrawRect(Full(-1400, 578, 240), snow);
+            DrawRect(Full(-1400, 560, 258), snow);
 
             // 雪原起伏的亮边与投影
             // v2.9: tone it down. At 0.65 alpha this crest also ran as a
@@ -1794,7 +1808,7 @@ public partial class JiangqiaoLevel : Node2D
             // came out as a thin smear. Distance haze belongs behind the
             // village anyway — the fog is out on the plain, the houses stand
             // in front of it.
-            DrawTextureRect(fade, Full(-1400, 520, 58), false);
+            DrawTextureRect(fade, Full(-1400, 500, 60), false);
 
             // The distant village: war-torn farmhouses on the open snow.
             //

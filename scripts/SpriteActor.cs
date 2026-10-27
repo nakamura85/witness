@@ -77,6 +77,9 @@ public partial class SpriteActor : Node2D
     private Sprite2D _torso, _legBack, _legFront, _hip, _pose;
     /// <summary>hip strip top-left in texture coords, used to glue it to the torso.</summary>
     private Vector2 _hipOrigin;
+    /// <summary>hip pivot in texture coords (from top-left): the point that must
+    /// stay glued to the leg pieces whenever the torso rotates.</summary>
+    private Vector2 _hipPivot;
     private Texture2D _aimTex, _crouchTex, _proneTex;
     private float _aimS, _crouchS, _proneS;
     private ShaderMaterial _mat;
@@ -91,7 +94,7 @@ public partial class SpriteActor : Node2D
     private float _texH;
 
     // v2.7 recoil: rotation around the hip line + compensation + upper body push back
-    private float _recoilRot, _recoilCorrX, _recoilCorrY, _recoilBack;
+    private float _recoilRot, _recoilBack;
 
     public readonly float Height;
 
@@ -137,6 +140,7 @@ public partial class SpriteActor : Node2D
             _maskedLegs = true;
             _pivotX = parts.PivotX;
             _pivotY = parts.PivotY;
+            _hipPivot = new Vector2(_pivotX, _pivotY);
             _hipY = -(texH - parts.PivotY) * s;
 
             _legBack = MakeMaskedLeg(parts.LegBack, s, texH);
@@ -178,6 +182,7 @@ public partial class SpriteActor : Node2D
             // —— 老路：沿贴图中线竖切（立绘分不出腿缝时用）——
             float hipFromTop = texH * 0.58f;
             float overlap = texH * 0.05f;
+            _hipPivot = new Vector2(texW * 0.5f, hipFromTop);
             _overlapScreen = overlap * s;
             _hipY = -(texH - hipFromTop) * s;                 // 髋线（脚底原点）
             _legTopScreen = hipFromTop - overlap;             // 腿片区域顶部（纹理坐标）
@@ -442,40 +447,15 @@ public partial class SpriteActor : Node2D
         }
         if (Recoil > 0f)
         {
-            // v2.7 root fix for the upper/lower body split when firing.
-            //
-            // Sprite2D.Rotation always spins around the node origin, and the
-            // torso node origin sits on the top left of the texture (the head).
-            // So the moment the torso rotates, the upper body swings out around
-            // the head and the hips get left behind - the "body splits open
-            // when I shoot" the player sees.
-            //
-            // So we do not rotate the torso directly. Instead we take a rotation
-            // around the hip line (_hipY) and then move the result back to the
-            // right place with a vector compensation:
-            //   rotating around the head by theta is the same as rotating around
-            //   the hip by theta + translating by (P-T)(1-cos theta)
-            // where P = hip point, T = head point. After the compensation the
-            // upper body swings around the hip and the hips do not move at all.
-            float hipRot = -0.20f * Recoil * Facing;
-            float pivotY = _hipY;                       // hip line (screen Y, foot origin)
-            float headY = -Height;                      // head (screen Y)
-            float dy = pivotY - headY;                  // distance from head to hip
-            // where the hip point ends up after rotating around the head
-            float c = Mathf.Cos(hipRot), s2 = Mathf.Sin(hipRot);
-            // hip point relative to the head is v = (0, dy); after the rotation v' = R*v
-            float vx = -dy * s2, vy = dy * c;
-            // we want the hip point still at (0, dy), but it is at (vx, vy)
-            float corrX = -vx, corrY = dy - vy;
-            _recoilRot = hipRot;
-            _recoilCorrX = corrX;
-            _recoilCorrY = corrY;
-            // the upper body also kicks backwards (the stock digs into the shoulder)
+            // v2.7: the upper body kicks backwards when firing (the stock digs
+            // into the shoulder). The rotation part is handled by the general
+            // hip glue below, together with the walk and aim lean.
+            _recoilRot = -0.20f * Recoil * Facing;
             _recoilBack = Facing * 5f * Recoil;
         }
         else
         {
-            _recoilRot = 0f; _recoilCorrX = 0f; _recoilCorrY = 0f; _recoilBack = 0f;
+            _recoilRot = 0f; _recoilBack = 0f;
         }
         if (_landT > 0f && !Crouched)
             torsoScale = new Vector2(torsoScale.X * (1f + 0.04f * _landT),
@@ -486,10 +466,25 @@ public partial class SpriteActor : Node2D
         if (!low)
             torsoY += (1f - legK) * (-_hipY);
 
-        // v2.7: add the "rotate around the hip" compensation to the torso
+        // v3.6: general hip glue. ANY torso rotation (walk lean, aim lean,
+        // recoil) used to spin around the texture's top-left corner, so the
+        // cut-out hip hole swung sideways while the legs stayed put - the leg
+        // tops showed through as a bright waist seam, worst while strolling
+        // (0.085 rad lean ≈ 5-7 px of swing, very visible against snow).
+        // Rotating around the corner by theta is the same as rotating around
+        // the hip pixel by theta + translating, so we translate the result
+        // back onto the hip point. The hip (and the bridge patch glued to it)
+        // now stays pinned to the leg pivot for every pose.
         torsoRot += _recoilRot;
-        torsoX += _recoilCorrX - _recoilBack;
-        torsoY += _recoilCorrY;
+        torsoX -= _recoilBack;
+        {
+            float sx2 = _s * torsoScale.X, sy2 = _s * torsoScale.Y;
+            float vx2 = _hipPivot.X * sx2, vy2 = _hipPivot.Y * sy2;
+            float c2 = Mathf.Cos(torsoRot), s2 = Mathf.Sin(torsoRot);
+            float rx2 = vx2 * c2 - vy2 * s2, ry2 = vx2 * s2 + vy2 * c2;
+            torsoX += vx2 - rx2;
+            torsoY += vy2 - ry2;
+        }
 
         _torso.Position = new Vector2(torsoX, torsoY);
         _torso.Rotation = torsoRot;
