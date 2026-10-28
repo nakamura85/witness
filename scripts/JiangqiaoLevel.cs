@@ -2168,15 +2168,19 @@ public partial class JiangqiaoLevel : Node2D
             }
 
             // 废弃的辎重车（半埋进雪里）
+            // v3.17: the comment always said "half buried in the snow", but
+            // the wheels were 24px above the ground line - the whole cart
+            // floated and read as a sticker laid over the snow. Dropped it
+            // 30px so the wheels sink 6px into the drift.
             var cx = 1760f;
-            DrawRect(new Rect2(cx, 592, 74, 24), new Color(0.40f, 0.32f, 0.23f));
-            DrawRect(new Rect2(cx, 592, 74, 24), new Color(0.26f, 0.21f, 0.16f, 0.7f), false, 1.2f);
-            DrawRect(new Rect2(cx - 4, 584, 86, 8), new Color(0.92f, 0.94f, 0.94f, 0.9f));
-            DrawCircle(new Vector2(cx + 14, 620), 11f, new Color(0.24f, 0.22f, 0.20f));
-            DrawCircle(new Vector2(cx + 14, 620), 4f, new Color(0.48f, 0.42f, 0.34f));
-            DrawCircle(new Vector2(cx + 60, 620), 11f, new Color(0.24f, 0.22f, 0.20f));
-            DrawLine(new Vector2(cx + 70, 592), new Vector2(cx + 104, 570), new Color(0.36f, 0.29f, 0.20f), 4f, true);
-            DrawLine(new Vector2(cx + 68, 589), new Vector2(cx + 104, 567), new Color(0.90f, 0.92f, 0.92f, 0.7f), 2f, true);
+            DrawRect(new Rect2(cx, 622, 74, 24), new Color(0.40f, 0.32f, 0.23f));
+            DrawRect(new Rect2(cx, 622, 74, 24), new Color(0.26f, 0.21f, 0.16f, 0.7f), false, 1.2f);
+            DrawRect(new Rect2(cx - 4, 614, 86, 8), new Color(0.92f, 0.94f, 0.94f, 0.9f));
+            DrawCircle(new Vector2(cx + 14, 650), 11f, new Color(0.24f, 0.22f, 0.20f));
+            DrawCircle(new Vector2(cx + 14, 650), 4f, new Color(0.48f, 0.42f, 0.34f));
+            DrawCircle(new Vector2(cx + 60, 650), 11f, new Color(0.24f, 0.22f, 0.20f));
+            DrawLine(new Vector2(cx + 70, 622), new Vector2(cx + 104, 600), new Color(0.36f, 0.29f, 0.20f), 4f, true);
+            DrawLine(new Vector2(cx + 68, 619), new Vector2(cx + 104, 597), new Color(0.90f, 0.92f, 0.92f, 0.7f), 2f, true);
         }
 
         /// <summary>
@@ -2596,8 +2600,14 @@ public partial class JiangqiaoLevel : Node2D
             foreach (float bx in new[] { 1550f, 3835f })
             {
                 bxList.Add(bx + rng.RandfRange(-8f, 8f));
-                bwList.Add(56f + rng.RandfRange(-4f, 8f));
-                fhList.Add(38f + rng.RandfRange(-5f, 5f));
+                // v3.17: 56x38 was barely a third of the player's height, so
+                // the bunker read as a distant shed. Standing next to a body
+                // it made the corpse look oversized and left the player
+                // guessing which plane either object was on. A real earthwork
+                // emplacement is chest-high on a 108px soldier - 96 wide,
+                // 62 tall puts it exactly there.
+                bwList.Add(96f + rng.RandfRange(-6f, 10f));
+                fhList.Add(62f + rng.RandfRange(-6f, 6f));
             }
             _bunkerX = bxList.ToArray();
             _bunkerBW = bwList.ToArray();
@@ -2989,14 +2999,20 @@ public partial class JiangqiaoLevel : Node2D
                 float bh = 420f;
                 float bw = bh * bsz.X / bsz.Y;
                 float bx = start + (end - start - bw) * 0.5f;
-                // v3.0 seat fix: measured the texture with a pixel scan - the
-                // deck / bottom chord sits at 53% of the texture height, piers
-                // run down to ~87%. The old rect parked the texture bottom at
-                // GroundY+168, which left the chord floating 30px ABOVE the
-                // rail line - that gap was the "levitating bridge". Now the
-                // chord top lands exactly on railY so the rails run onto the
-                // deck and the pier feet bury below the ice.
-                DrawTextureRect(_bridgeTex, new Rect2(bx, GroundY - 2f - 0.53f * bh, bw, bh), false);
+                // v3.17 seat fix: the old note claimed the deck sits at 53% of
+                // the texture height and put row 430 on the rail line. A row
+                // scan of bridge.png says otherwise - the truss runs 0-340,
+                // the railing 340-365, the rail-bearing deck 365-400, the pier
+                // caps 400-440 and the piers 440-803. So the old factor parked
+                // the deck 40px ABOVE the rails: the track ran across the
+                // frozen river band under the bridge instead of along its
+                // deck, which is what made the two look like they had
+                // nothing to do with each other. Seat row 355 on the rail
+                // line instead and the rails run onto the bridge.
+                const float deckRow = 355f;
+                float scale = bh / bsz.Y;
+                float rectTop = (GroundY - 1f) - deckRow * scale;
+                DrawTextureRect(_bridgeTex, new Rect2(bx, rectTop, bw, bh), false);
 
                 // v3.15: the code-drawn west abutment is gone for good. It was
                 // a flat grey slab with no texture, parked about 100px left of
@@ -3200,55 +3216,73 @@ public partial class JiangqiaoLevel : Node2D
                 float bx = _bunkerX[bi];
                 float bw = _bunkerBW[bi];
                 float fh = _bunkerFH[bi];
+                float k = bw / 56f;   // the shape below was drawn against a 56 wide bunker
                 // 接触阴影（先画，在碉堡下面）
-                SnowShadow.Draw(this, new Vector2(bx + 24f, GroundY - 1f), 40f, 0.28f);
+                SnowShadow.Draw(this, new Vector2(bx + 24f * k, GroundY - 1f), 40f * k, 0.28f);
 
                 // 碉堡本体：梯形（前窄后宽）
                 var bunker = new[]
                 {
-                    new Vector2(bx + 28f, GroundY),
-                    new Vector2(bx + bw + 28f, GroundY),
-                    new Vector2(bx + bw + 10f, GroundY - fh),
-                    new Vector2(bx + 46f, GroundY - fh),
+                    new Vector2(bx + 28f * k, GroundY),
+                    new Vector2(bx + bw + 28f * k, GroundY),
+                    new Vector2(bx + bw + 10f * k, GroundY - fh),
+                    new Vector2(bx + 46f * k, GroundY - fh),
                 };
                 DrawColoredPolygon(bunker, new Color(0.48f, 0.46f, 0.42f));
+                // v3.17: it was one flat polygon with nothing on it, so the
+                // bunker read as a grey sticker dropped on the snow. Add the
+                // concrete joints and the weather stain so it reads as a
+                // poured earthwork instead.
+                for (int j = 1; j <= 2; j++)
+                {
+                    float jx = bx + (28f + bw * 0.26f * j) * k;
+                    DrawLine(new Vector2(jx, GroundY - 3f), new Vector2(jx + 4f * k, GroundY - fh + 2f),
+                        new Color(0.36f, 0.34f, 0.31f, 0.55f), 1.3f, true);
+                }
+                DrawColoredPolygon(new[]
+                {
+                    new Vector2(bx + 28f * k, GroundY),
+                    new Vector2(bx + bw + 28f * k, GroundY),
+                    new Vector2(bx + bw + 22f * k, GroundY - fh * 0.26f),
+                    new Vector2(bx + 34f * k, GroundY - fh * 0.26f),
+                }, new Color(0.40f, 0.38f, 0.35f, 0.55f));
                 // 侧面受光（高光条）
                 var hl = new[]
                 {
-                    new Vector2(bx + bw + 10f, GroundY - fh),
-                    new Vector2(bx + bw + 28f, GroundY),
-                    new Vector2(bx + bw + 34f, GroundY),
-                    new Vector2(bx + bw + 16f, GroundY - fh),
+                    new Vector2(bx + bw + 10f * k, GroundY - fh),
+                    new Vector2(bx + bw + 28f * k, GroundY),
+                    new Vector2(bx + bw + 34f * k, GroundY),
+                    new Vector2(bx + bw + 16f * k, GroundY - fh),
                 };
                 DrawColoredPolygon(hl, new Color(0.58f, 0.56f, 0.52f));
                 // 碉堡描边
                 DrawPolyline(new[]
                 {
-                    new Vector2(bx + 28f, GroundY), new Vector2(bx + 46f, GroundY - fh),
-                    new Vector2(bx + bw + 10f, GroundY - fh), new Vector2(bx + bw + 28f, GroundY),
+                    new Vector2(bx + 28f * k, GroundY), new Vector2(bx + 46f * k, GroundY - fh),
+                    new Vector2(bx + bw + 10f * k, GroundY - fh), new Vector2(bx + bw + 28f * k, GroundY),
                 }, new Color(0.20f, 0.19f, 0.17f, 0.85f), 1.6f, true);
 
                 // 射击孔（暗色长条 + 十字线表示射击位）
-                float spx = bx + 38f; float spy = GroundY - 22f;
-                DrawRect(new Rect2(spx, spy, 22, 10), new Color(0.08f, 0.09f, 0.10f, 0.95f));
-                DrawLine(new Vector2(spx + 11, spy), new Vector2(spx + 11, spy + 10),
+                float spx = bx + 38f * k; float spy = GroundY - fh * 0.58f;
+                DrawRect(new Rect2(spx, spy, 22f * k, 10f * (fh / 38f)), new Color(0.08f, 0.09f, 0.10f, 0.95f));
+                DrawLine(new Vector2(spx + 11f * k, spy), new Vector2(spx + 11f * k, spy + 10f * (fh / 38f)),
                     new Color(0.40f, 0.38f, 0.34f, 0.7f), 1.4f, true);
-                DrawLine(new Vector2(spx, spy + 5), new Vector2(spx + 22, spy + 5),
+                DrawLine(new Vector2(spx, spy + 5f * (fh / 38f)), new Vector2(spx + 22f * k, spy + 5f * (fh / 38f)),
                     new Color(0.40f, 0.38f, 0.34f, 0.7f), 1.4f, true);
 
                 // 碉堡顶上的积雪（梯形积雪帽）
                 var snow = new[]
                 {
-                    new Vector2(bx + 43f, GroundY - fh - 1),
-                    new Vector2(bx + bw + 12f, GroundY - fh - 1),
-                    new Vector2(bx + bw + 6f, GroundY - fh - 6),
-                    new Vector2(bx + 49f, GroundY - fh - 6),
+                    new Vector2(bx + 43f * k, GroundY - fh - 1),
+                    new Vector2(bx + bw + 12f * k, GroundY - fh - 1),
+                    new Vector2(bx + bw + 6f * k, GroundY - fh - 6),
+                    new Vector2(bx + 49f * k, GroundY - fh - 6),
                 };
                 DrawColoredPolygon(snow, new Color(0.92f, 0.94f, 0.94f, 0.9f));
                 DrawPolyline(new[]
                 {
-                    new Vector2(bx + 43f, GroundY - fh - 1),
-                    new Vector2(bx + bw + 12f, GroundY - fh - 1),
+                    new Vector2(bx + 43f * k, GroundY - fh - 1),
+                    new Vector2(bx + bw + 12f * k, GroundY - fh - 1),
                 }, new Color(0.98f, 0.99f, 0.99f), 2.2f, true);
 
                 // 碉堡旁边的铁丝网桩（一根木桩 + 一根铁丝连到远处）

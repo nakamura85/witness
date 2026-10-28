@@ -25,12 +25,15 @@ public partial class CorpseActor : Node2D
     private static readonly Dictionary<string, Texture2D> _texCache = new();
 
     // world body length per texture, hand-tuned so both factions read same scale
+    // v3.17: a body lying down should read about as long as the standing
+    // soldier is tall (108px), not longer. At 122-138 a body next to anything
+    // smaller than it read as a giant. Trimmed about 10%.
     private static readonly Dictionary<string, float> _texLen = new()
     {
-        ["corpse_na_prone"] = 128f,
-        ["corpse_na_supine"] = 122f,
-        ["corpse_ija_prone"] = 138f,
-        ["corpse_ija_supine"] = 122f,
+        ["corpse_na_prone"] = 116f,
+        ["corpse_na_supine"] = 110f,
+        ["corpse_ija_prone"] = 124f,
+        ["corpse_ija_supine"] = 112f,
     };
 
     public CorpseActor(Faction faction, Vector2 position, bool facingRight, float rotJitter = -1f,
