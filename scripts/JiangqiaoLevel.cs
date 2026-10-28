@@ -2968,29 +2968,12 @@ public partial class JiangqiaoLevel : Node2D
                 // deck and the pier feet bury below the ice.
                 DrawTextureRect(_bridgeTex, new Rect2(bx, GroundY - 2f - 0.53f * bh, bw, bh), false);
 
-                // v2.9 float fix, part 1: west abutment. The truss used to just
-                // stop in mid-air at the span start - no support, no ground
-                // contact, whole bridge read like it was levitating. A concrete
-                // abutment under the west end seats the truss into the ground.
-                var abut = new[]
-                {
-                    new Vector2(start - 14f, GroundY - 46f),
-                    new Vector2(start + 62f, GroundY - 46f),
-                    new Vector2(start + 70f, GroundY + 34f),
-                    new Vector2(start - 22f, GroundY + 34f),
-                };
-                DrawColoredPolygon(abut, new Color(0.40f, 0.42f, 0.44f));
-                DrawPolyline(abut, new Color(0.20f, 0.21f, 0.22f, 0.85f), 1.6f, true);
-                // abutment shading + snow cap, same manga treatment as the piers
-                DrawColoredPolygon(new[]
-                {
-                    new Vector2(start - 14f, GroundY - 46f),
-                    new Vector2(start - 4f, GroundY - 46f),
-                    new Vector2(start - 10f, GroundY + 34f),
-                    new Vector2(start - 22f, GroundY + 34f),
-                }, new Color(0.28f, 0.30f, 0.32f, 0.7f));
-                DrawLine(new Vector2(start - 18f, GroundY - 46f), new Vector2(start + 60f, GroundY - 46f),
-                    new Color(0.94f, 0.96f, 0.96f, 0.9f), 3f, true);
+                // v3.15: the code-drawn west abutment is gone for good. It was
+                // a flat grey slab with no texture, parked about 100px left of
+                // the pier bridge.png already draws - so it read as a stray
+                // grey box in front of the sandbag wall, and it sliced the
+                // truss leg off at deck level. The texture's own concrete
+                // pier carries the span, no need for a second support.
                 // fresh snow line on the deck edge, ties the texture into the scene
                 DrawLine(new Vector2(start + 6f, GroundY - 6f), new Vector2(end - 6f, GroundY - 6f),
                     new Color(0.92f, 0.94f, 0.94f, 0.75f), 3f, true);

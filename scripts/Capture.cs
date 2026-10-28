@@ -162,8 +162,14 @@ public partial class Capture : Node
             SaveShot("capture_10b_chimney_moved.png");
             _stage = 17;
         }
-        else if (_stage == 17 && (PlayerX() > 2760f || _t > 30f))
+        else if (_stage == 17 && (PlayerX() > 4300f || _t > 42f))
         {
+            // v3.15: was PlayerX() > 2760 - that fired while the runner was
+            // still halfway down the level, so the "burnt village" frame
+            // landed wherever the frame timing happened to stop him and the
+            // bridge often fell outside the shot. Wait until he reaches the
+            // bridge itself so the frame always shows the burnt village AND
+            // the span, and stops drifting from run to run.
             GD.Print("CAPTURE stage17 -> shot burnt village x="+PlayerX());
             SaveShot("capture_11_burnt.png");
             _stage = 18;
