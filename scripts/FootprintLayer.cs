@@ -138,7 +138,10 @@ public partial class FootprintLayer : Node2D
 
     public override void _Draw()
     {
-        _tex ??= GD.Load<Texture2D>("res://assets/art/props/footprint.png");
+        // v3.22: this was the whole snow patch, so a trail of them read as a row
+        // of blue puddles lying on the snow. The new asset is just the boot
+        // print, remapped to the colour of the snow it presses into.
+        _tex ??= GD.Load<Texture2D>("res://assets/art/props/bootprint.png");
         if (_tex == null) return;
         var tsz = _tex.GetSize();
 

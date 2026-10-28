@@ -3087,12 +3087,20 @@ public partial class JiangqiaoLevel : Node2D
 
         private Texture2D _craterTex;
 
+        private static Texture2D _bunkerSackTex;
+
+        private static Texture2D BunkerSackTex()
+        {
+            _bunkerSackTex ??= GD.Load<Texture2D>("res://assets/art/props/sandbags.png");
+            return _bunkerSackTex;
+        }
+
         private void DrawCraters()
         {
             // craters are generated watercolor textures now. The old stacked
             // ellipses read like a flat bullseye pancake, totally off from the
             // hand-drawn style of everything else on the field.
-            _craterTex ??= GD.Load<Texture2D>("res://assets/art/props/crater.png");
+            _craterTex ??= GD.Load<Texture2D>("res://assets/art/props/crater_painted.png");
             if (_craterTex == null) return;
             var tsz = _craterTex.GetSize();
             for (int i = 0; i < _craterX.Length; i++)
@@ -3105,7 +3113,12 @@ public partial class JiangqiaoLevel : Node2D
                 bool flip = (i % 2 == 1);
                 float jitter = 1f + Mathf.Sin(x * 0.37f) * 0.06f;
                 float w = r * 3.0f * jitter;
-                float hEff = w * tsz.Y / tsz.X * 0.45f;
+                // v3.22: squashed to 45% the dark interior of the hole became
+                // a thin navy band and the whole thing read as a puddle of
+                // water lying on the snow. The art is remapped now (dark
+                // earth in the bowl, cold snow on the rim) and the squash is
+                // eased off so the bowl keeps its depth.
+                float hEff = w * tsz.Y / tsz.X * 0.58f;
                 float sx = flip ? -1f : 1f;
                 DrawSetTransform(new Vector2(x, GroundY + 3f), 0, new Vector2(sx, 1f));
                 DrawTextureRect(_craterTex, new Rect2(-w * 0.5f, -hEff, w, hEff), false);
@@ -3358,82 +3371,55 @@ public partial class JiangqiaoLevel : Node2D
                 DrawLine(new Vector2(x + 18, GroundY - 1), new Vector2(x + 60, GroundY - 12), new Color(0.22f, 0.20f, 0.18f), 2f, true);
             }
 
-            // 碉堡（梯形混凝土 + 射击孔 + 积雪）：1931 江桥阵地的土木碉堡
+            // 碉堡（沙袋砌成的土木掩体 + 射击孔 + 积雪）：1931 江桥阵地的土木碉堡
+            // v3.22: this used to be one flat grey polygon with a hard black
+            // rectangle for the firing slot. It was the only untextured
+            // object on the whole field and the player read it as a grey
+            // pyramid dropped in the snow next to the burnt house.
+            //
+            // It is faced with the real sandbag texture now, cropped with
+            // DrawTextureRectRegion so the bags keep their natural size
+            // instead of being squashed, and the firing slot is a soft dark
+            // gouge rather than a rectangle of ink.
             for (int bi = 0; bi < _bunkerX.Length; bi++)
             {
                 float bx = _bunkerX[bi];
                 float bw = _bunkerBW[bi];
                 float fh = _bunkerFH[bi];
-                float k = bw / 56f;   // the shape below was drawn against a 56 wide bunker
+
                 // 接触阴影（先画，在碉堡下面）
-                SnowShadow.Draw(this, new Vector2(bx + 24f * k, GroundY - 1f), 40f * k, 0.28f);
+                SnowShadow.Draw(this, new Vector2(bx + bw * 0.5f, GroundY - 1f), bw * 0.55f, 0.26f);
 
-                // 碉堡本体：梯形（前窄后宽）
-                var bunker = new[]
+                // 碉堡本体：沙袋砌面
+                var bags = BunkerSackTex();
+                if (bags != null)
                 {
-                    new Vector2(bx + 28f * k, GroundY),
-                    new Vector2(bx + bw + 28f * k, GroundY),
-                    new Vector2(bx + bw + 10f * k, GroundY - fh),
-                    new Vector2(bx + 46f * k, GroundY - fh),
-                };
-                DrawColoredPolygon(bunker, new Color(0.48f, 0.46f, 0.42f));
-                // v3.17: it was one flat polygon with nothing on it, so the
-                // bunker read as a grey sticker dropped on the snow. Add the
-                // concrete joints and the weather stain so it reads as a
-                // poured earthwork instead.
-                for (int j = 1; j <= 2; j++)
-                {
-                    float jx = bx + (28f + bw * 0.26f * j) * k;
-                    DrawLine(new Vector2(jx, GroundY - 3f), new Vector2(jx + 4f * k, GroundY - fh + 2f),
-                        new Color(0.36f, 0.34f, 0.31f, 0.55f), 1.3f, true);
+                    var bsz = bags.GetSize();
+                    float k = fh / bsz.Y;                 // 沙袋保持原尺寸
+                    float srcW = Mathf.Min(bsz.X, bw / k);
+                    float srcX = (bsz.X - srcW) * 0.5f;
+                    DrawTextureRectRegion(bags, new Rect2(bx, GroundY - fh, bw, fh),
+                        new Rect2(srcX, 0f, srcW, bsz.Y));
                 }
-                DrawColoredPolygon(new[]
-                {
-                    new Vector2(bx + 28f * k, GroundY),
-                    new Vector2(bx + bw + 28f * k, GroundY),
-                    new Vector2(bx + bw + 22f * k, GroundY - fh * 0.26f),
-                    new Vector2(bx + 34f * k, GroundY - fh * 0.26f),
-                }, new Color(0.40f, 0.38f, 0.35f, 0.55f));
-                // 侧面受光（高光条）
-                var hl = new[]
-                {
-                    new Vector2(bx + bw + 10f * k, GroundY - fh),
-                    new Vector2(bx + bw + 28f * k, GroundY),
-                    new Vector2(bx + bw + 34f * k, GroundY),
-                    new Vector2(bx + bw + 16f * k, GroundY - fh),
-                };
-                DrawColoredPolygon(hl, new Color(0.58f, 0.56f, 0.52f));
-                // 碉堡描边
-                DrawPolyline(new[]
-                {
-                    new Vector2(bx + 28f * k, GroundY), new Vector2(bx + 46f * k, GroundY - fh),
-                    new Vector2(bx + bw + 10f * k, GroundY - fh), new Vector2(bx + bw + 28f * k, GroundY),
-                }, new Color(0.20f, 0.19f, 0.17f, 0.85f), 1.6f, true);
 
-                // 射击孔（暗色长条 + 十字线表示射击位）
-                float spx = bx + 38f * k; float spy = GroundY - fh * 0.58f;
-                DrawRect(new Rect2(spx, spy, 22f * k, 10f * (fh / 38f)), new Color(0.08f, 0.09f, 0.10f, 0.95f));
-                DrawLine(new Vector2(spx + 11f * k, spy), new Vector2(spx + 11f * k, spy + 10f * (fh / 38f)),
-                    new Color(0.40f, 0.38f, 0.34f, 0.7f), 1.4f, true);
-                DrawLine(new Vector2(spx, spy + 5f * (fh / 38f)), new Vector2(spx + 22f * k, spy + 5f * (fh / 38f)),
-                    new Color(0.40f, 0.38f, 0.34f, 0.7f), 1.4f, true);
+                // 射击孔：被熏黑的一道凹槽（软边，不是硬黑矩形）
+                // the blob sprite is a 40x40 unit square, so the scale here is
+                // the wanted size divided by 40 - get that wrong and the
+                // blob covers the whole emplacement in one white slab.
+                DrawSetTransform(new Vector2(bx + bw * 0.52f, GroundY - fh * 0.58f), 0,
+                    new Vector2(bw * 0.30f / 40f, fh * 0.10f / 40f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.13f, 0.12f, 0.11f), 0.92f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
-                // 碉堡顶上的积雪（梯形积雪帽）
-                var snow = new[]
-                {
-                    new Vector2(bx + 43f * k, GroundY - fh - 1),
-                    new Vector2(bx + bw + 12f * k, GroundY - fh - 1),
-                    new Vector2(bx + bw + 6f * k, GroundY - fh - 6),
-                    new Vector2(bx + 49f * k, GroundY - fh - 6),
-                };
-                DrawColoredPolygon(snow, new Color(0.92f, 0.94f, 0.94f, 0.9f));
-                DrawPolyline(new[]
-                {
-                    new Vector2(bx + 43f * k, GroundY - fh - 1),
-                    new Vector2(bx + bw + 12f * k, GroundY - fh - 1),
-                }, new Color(0.98f, 0.99f, 0.99f), 2.2f, true);
+                // 顶上的积雪
+                DrawSetTransform(new Vector2(bx + bw * 0.5f, GroundY - fh - 1f), 0,
+                    new Vector2(bw * 0.95f / 40f, fh * 0.10f / 40f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.94f, 0.96f, 0.97f), 0.88f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
-                // 碉堡旁边的铁丝网桩（一根木桩 + 一根铁丝连到远处）
+            // 碉堡旁边的铁丝网桩（一根木桩 + 一根铁丝连到远处）
                 float fx = bx - 30f;
                 DrawLine(new Vector2(fx, GroundY), new Vector2(fx - 2, GroundY - 52),
                     new Color(0.30f, 0.28f, 0.26f), 2.8f, true);
