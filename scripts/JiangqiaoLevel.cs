@@ -2660,7 +2660,13 @@ public partial class JiangqiaoLevel : Node2D
             // a stray block on the snow. 3600 now stands in the open between
             // the rail crater and the ammo crate; 4050 is dropped, two forts
             // keep the line without stacking junk behind the cover walls.
-            foreach (float bx in new[] { 1550f, 3835f })
+            // v3.23: the first bunker was at 1550, which is inside the footprint of
+                // the near house f2 (1294-1644) after the houses were enlarged
+                // in v3.19 - the emplacement was completely buried and all
+                // the player could see was a pale slab of nothing behind the
+                // body. It sits on open snow between the first house and the
+                // barbed wire now.
+                foreach (float bx in new[] { 800f, 3835f })
             {
                 bxList.Add(bx + rng.RandfRange(-8f, 8f));
                 // v3.17: 56x38 was barely a third of the player's height, so
@@ -3091,7 +3097,7 @@ public partial class JiangqiaoLevel : Node2D
 
         private static Texture2D BunkerSackTex()
         {
-            _bunkerSackTex ??= GD.Load<Texture2D>("res://assets/art/props/sandbags.png");
+            _bunkerSackTex ??= GD.Load<Texture2D>("res://assets/art/props/bunker_face.png");
             return _bunkerSackTex;
         }
 
@@ -3167,7 +3173,7 @@ public partial class JiangqiaoLevel : Node2D
                 // mountains behind it.
                 var bridgeRect = new Rect2(bx, rectTop, bw, bh);
                 DrawTextureRect(_bridgeTex, bridgeRect, false);
-                DrawRect(bridgeRect, new Color(0.80f, 0.84f, 0.90f, 0.07f), true);
+                DrawRect(bridgeRect, new Color(0.80f, 0.84f, 0.90f, 0.04f), true);
 
                 // v3.15: the code-drawn west abutment is gone for good. It was
                 // a flat grey slab with no texture, parked about 100px left of
@@ -3391,16 +3397,16 @@ public partial class JiangqiaoLevel : Node2D
                 SnowShadow.Draw(this, new Vector2(bx + bw * 0.5f, GroundY - 1f), bw * 0.55f, 0.26f);
 
                 // 碉堡本体：沙袋砌面
+                // v3.23: this used to crop a 700px wide piece of the sandbag
+                // sheet and squeeze it into 91 pixels. The gpu samples a
+                // very high mip level for a squeeze that steep, so the whole
+                // emplacement collapsed into one flat pale rectangle with a
+                // hard edge - the player could not tell what it was at all.
+                // The face is now pre-scaled to its own small sheet and drawn
+                // roughly one to one, so the bags stay legible.
                 var bags = BunkerSackTex();
                 if (bags != null)
-                {
-                    var bsz = bags.GetSize();
-                    float k = fh / bsz.Y;                 // 沙袋保持原尺寸
-                    float srcW = Mathf.Min(bsz.X, bw / k);
-                    float srcX = (bsz.X - srcW) * 0.5f;
-                    DrawTextureRectRegion(bags, new Rect2(bx, GroundY - fh, bw, fh),
-                        new Rect2(srcX, 0f, srcW, bsz.Y));
-                }
+                    DrawTextureRect(bags, new Rect2(bx, GroundY - fh, bw, fh), false);
 
                 // 射击孔：被熏黑的一道凹槽（软边，不是硬黑矩形）
                 // the blob sprite is a 40x40 unit square, so the scale here is
