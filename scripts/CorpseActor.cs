@@ -13,7 +13,7 @@ namespace Witness;
 public partial class CorpseActor : Node2D
 {
     public enum Faction { IJA, NortheastArmy, Refugee }
-    private enum Pose { Prone, Supine, SideLying }
+    public enum Pose { Prone, Supine, SideLying }
 
     private readonly Faction _faction;
     private readonly Pose _pose;
@@ -46,19 +46,27 @@ public partial class CorpseActor : Node2D
     /// of that the game added its own random tilt of up to 0.22 rad, so the
     /// two stacked and the body looked like it was sliding down a slope.
     ///
-    /// These values cancel the built-in angle. A body is then drawn level and
-    /// only the small random jitter is left.
+    /// v3.21: these are the measured body axis angles, and the rotation is
+    /// applied with the opposite sign (and flipped when the sprite is
+    /// mirrored, because mirroring swaps which end is the head).
+    ///
+    /// v3.19 tried to cancel this and got it wrong twice over: the numbers
+    /// came from a bottom contour scan instead of the body axis, and the
+    /// sign was inverted, so the compensation was ADDED to the angle the
+    /// painting already carries. The japanese army supine body is drawn at
+    /// 18 degrees and came out rendered at nearly 29 - a casualty propped
+    /// up on one elbow instead of lying in the snow.
     /// </summary>
     private static readonly Dictionary<string, float> _texTilt = new()
     {
-        ["corpse_na_supine"] = 4.14f,
-        ["corpse_na_prone"] = 1.70f,
-        ["corpse_ija_prone"] = -0.55f,
-        ["corpse_ija_supine"] = -10.66f,
+        ["corpse_na_supine"] = 1.07f,
+        ["corpse_na_prone"] = 1.04f,
+        ["corpse_ija_prone"] = 3.30f,
+        ["corpse_ija_supine"] = 18.10f,
     };
 
     public CorpseActor(Faction faction, Vector2 position, bool facingRight, float rotJitter = -1f,
-        bool withRifle = true)
+        bool withRifle = true, Pose? fixedPose = null)
     {
         _faction = faction;
         _headRight = facingRight;
@@ -67,10 +75,21 @@ public partial class CorpseActor : Node2D
         rng.Randomize();
         _seed = rng.Randf();
 
-        float r = rng.Randf();
-        if (r < 0.70f) _pose = Pose.Prone;
-        else if (r < 0.95f) _pose = Pose.Supine;
-        else _pose = Pose.SideLying;
+        // v3.21: a corpse placed by the level designer has to keep the pose
+        // it was placed in. Rolling it at random meant the same body showed
+        // up face up on one run and face down on the next, so a spot that
+        // looked right in one playthrough looked broken in the next.
+        if (fixedPose.HasValue)
+        {
+            _pose = fixedPose.Value;
+        }
+        else
+        {
+            float r = rng.Randf();
+            if (r < 0.70f) _pose = Pose.Prone;
+            else if (r < 0.95f) _pose = Pose.Supine;
+            else _pose = Pose.SideLying;
+        }
 
         // pre-placed corpses pass fixed jitter so level layout is stable, deaths roll random.
         // small tilt only + pivot at body center, else one end floats 30px above the snow
@@ -110,14 +129,18 @@ public partial class CorpseActor : Node2D
         float len = _texLen[tn];
         float h = len * sz.Y / sz.X;
         DrawContactShadow(len);
-        // rotate around body center, not the edge: keeps both ends on the ground line,
-        // no more floating corpse ends; sink 6px so the body sits IN the snowfield
-        // v3.19: cancel the tilt the painting itself carries, then add the
-        // small jitter on top, so the body ends up lying level on the snow.
-        float tilt = Mathf.DegToRad(_texTilt[tn]) + _rotJitter;
-        DrawSetTransform(new Vector2(HeadSign() * len * 0.5f, 0f), -tilt,
-            new Vector2(HeadSign(), 1f));
-        DrawTextureRect(t, new Rect2(-len * 0.5f, -h + 6f, len, h), false);
+        // v3.21: the pivot is the body centre. It used to sit at the head
+        // end, so every degree of tilt swung the whole body like a see-saw
+        // and lifted the feet clear of the snow.
+        //
+        // The rotation cancels the angle the painting itself carries: a
+        // positive Godot angle swings the right hand end down, so the
+        // measured axis angle goes in with the opposite sign, and it flips
+        // again when the sprite is mirrored because that swaps which end
+        // holds the head.
+        float rot = -Mathf.DegToRad(_texTilt[tn]) * HeadSign() + _rotJitter;
+        DrawSetTransform(new Vector2(0f, -h * 0.5f + 6f), rot, new Vector2(HeadSign(), 1f));
+        DrawTextureRect(t, new Rect2(-len * 0.5f, -h * 0.5f, len, h), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
         if (_withRifle) DrawDroppedRifle();

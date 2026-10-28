@@ -735,8 +735,12 @@ public partial class JiangqiaoLevel : Node2D
         // degrees), so the two stacked and the body read as sliding down a
         // slope. CorpseActor now cancels the painting's tilt, and these
         // values are only the small variation on top of it.
+        // v3.21: the pose is fixed. It used to be rolled at random, so the
+        // same body could show up face up on one run and face down on the
+        // next, and a spot that read well in one playthrough read broken in
+        // the next. Face down by the crater: he was shot going in.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(1270, GroundY - 2), false, 0.03f));
+            new Vector2(1270, GroundY - 2), false, 0.03f, true, CorpseActor.Pose.Prone));
 
         // 2. 弹坑旁（日军，朝向相反）
         // v3.8: was 2090 — right inside the intact house h3 (1885-2197), body
@@ -744,20 +748,25 @@ public partial class JiangqiaoLevel : Node2D
         // v3.11: was 2290 — that crater is gone (its rim sat inside the 2320
         // sandbag stack). The body now drapes the west rim of the blown rail
         // crater at 2540, clear of the stack and of burned house h2.
+        // v3.21: face up, arms out. This is the painting the illustrator
+        // drew at eighteen degrees, and with the tilt actually cancelled
+        // instead of added to, the body lies level on the snow.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(2505, GroundY - 2), true, -0.02f));
+            new Vector2(2505, GroundY - 2), true, -0.02f, true, CorpseActor.Pose.Supine));
 
         // 3. 战壕边（东北军，头倒在战壕方向）
+        // v3.21: face down, head into the trench.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
-            new Vector2(1550, GroundY - 2), false, 0.04f));
+            new Vector2(1550, GroundY - 2), false, 0.04f, true, CorpseActor.Pose.Prone));
 
         // 4. 碉堡前（日军，身体挡在碉堡入口前）
         // v3.8: was 3000, inside burned house h2; corpse followed the bunker.
         // v3.11: was 3650 — dead centre behind the sandbag stack, so the pile
         // hid the whole body and only a limb stuck out. Follows the bunker to
         // its new spot at 3835.
+        // v3.21: face up, in front of the bunker mouth.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(3870, GroundY - 2), false, -0.03f));
+            new Vector2(3870, GroundY - 2), false, -0.03f, true, CorpseActor.Pose.Supine));
 
         // 5. 桥头铁路旁（东北军，头朝冰面倒）
         // v3.11: was 4380 - dead centre behind the 4388 sandbag stack. Now at
@@ -770,8 +779,9 @@ public partial class JiangqiaoLevel : Node2D
         // bridge head. The sandbag wall that used to stand at 4388 is gone
         // now too - it sat on the bridge head itself - so the ground between
         // the last wall and the bridge is open snow.
+        // v3.21: face down on the verge by the bridge head.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
-            new Vector2(4300, GroundY + 9), true, 0.03f));
+            new Vector2(4300, GroundY + 9), true, 0.03f, true, CorpseActor.Pose.Prone));
     }
 
     private void BuildPlayer()
@@ -3114,7 +3124,7 @@ public partial class JiangqiaoLevel : Node2D
 
             // generated bridge art (truss + piers, burned mid-section) replaces the old
             // code-drawn one; keep the code path as fallback if the texture is missing
-            _bridgeTex ??= GD.Load<Texture2D>("res://assets/art/props/bridge.png");
+            _bridgeTex ??= GD.Load<Texture2D>("res://assets/art/props/bridge_painted.png");
             if (_bridgeTex != null)
             {
                 var bsz = _bridgeTex.GetSize();
@@ -3134,7 +3144,17 @@ public partial class JiangqiaoLevel : Node2D
                 const float deckRow = 355f;
                 float scale = bh / bsz.Y;
                 float rectTop = (GroundY - 1f) - deckRow * scale;
-                DrawTextureRect(_bridgeTex, new Rect2(bx, rectTop, bw, bh), false);
+                // v3.21: the bridge art is a photoreal render while the whole
+                // level is watercolour, and next to the painted houses it
+                // read as a different game - the player called it a pyramid
+                // dropped in the snow. Two passes push it back into the
+                // picture: a cool tint so the steel takes the colour of the
+                // air, then a pale blue haze over the whole span so the
+                // distance eats its contrast the way it eats the
+                // mountains behind it.
+                var bridgeRect = new Rect2(bx, rectTop, bw, bh);
+                DrawTextureRect(_bridgeTex, bridgeRect, false);
+                DrawRect(bridgeRect, new Color(0.80f, 0.84f, 0.90f, 0.07f), true);
 
                 // v3.15: the code-drawn west abutment is gone for good. It was
                 // a flat grey slab with no texture, parked about 100px left of
