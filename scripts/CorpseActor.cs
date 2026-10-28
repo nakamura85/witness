@@ -113,7 +113,12 @@ public partial class CorpseActor : Node2D
         float side = rng.Randf() > 0.30f ? 1f : 0.4f;
         float rx = HeadSign() * dropDist * side;
         float ry = rng.RandfRange(4f, 15f);
-        float ang = rng.RandfRange(-0.85f, 0.85f);
+        // v3.18: the tilt was up to 0.85 rad, almost 50 degrees. A dropped
+        // rifle lying in snow does not stand up like a stake - it lies flat
+        // or leans a little, and the steep angle made it read as a pole
+        // jammed into the ground. The angle is now a shallow 22 degrees at
+        // the most, so the weapon always reads as lying on the snow.
+        float ang = rng.RandfRange(-0.38f, 0.38f);
 
         // v2.9: the rifle next to a body gets the same three burial tiers
         // as a loose pickup, so the two kinds of dropped weapon read as

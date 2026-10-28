@@ -704,6 +704,13 @@ public partial class JiangqiaoLevel : Node2D
         // 经过时人从垛子后面过，而不是站在垛子顶上。
         _coverArt = new CoverArt { ZIndex = 5 };
         _game.AddChild(_coverArt);
+
+        // The abandoned supply cart. v3.18: it used to be painted into the
+        // parallax near band, so the ground-layer railway drew straight
+        // across it and the near houses chopped it into scraps. It is a
+        // world object now, sitting between the track and the player so the
+        // rails pass behind it the way they pass behind the sandbag walls.
+        _game.AddChild(new SupplyCart());
     }
 
     private void AddCorpses()
@@ -737,10 +744,20 @@ public partial class JiangqiaoLevel : Node2D
             new Vector2(3870, GroundY - 2), false, -0.10f));
 
         // 5. 桥头铁路旁（东北军，头朝冰面倒）
-        // v3.11: was 4380 — dead centre behind the 4388 sandbag stack. Now at
+        // v3.11: was 4380 - dead centre behind the 4388 sandbag stack. Now at
         // the west abutment of the bridge, on the ice side, clear of the stack.
+        // v3.18: 4520 was still wrong - the bridge span runs 4400-5200, so a
+        // body at 4520 lay under the truss with the steelwork running right
+        // through it. It read as a casualty tangled in the bridge rather than
+        // lying on the ground.
+        // The body now lies on the verge in front of the track, west of the
+        // bridge head. It used to sit at 4520, inside the span, where the
+        // truss ran straight through it and the body read as a casualty
+        // tangled in the bridge. The sandbag wall that used to stand at 4388
+        // is gone now too - it sat on the bridge head itself - so the ground
+        // between the last wall and the bridge is open snow.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
-            new Vector2(4520, GroundY - 2), true, 0.14f));
+            new Vector2(4300, GroundY + 9), true, 0.14f));
     }
 
     private void BuildPlayer()
@@ -1783,6 +1800,7 @@ public partial class JiangqiaoLevel : Node2D
         // —— 远山：三层山脊，越远越淡（空气透视），山脊线用值噪声做出真锯齿 ——
         private static Rect2 Full(float x, float y, float h) => new(x, y, WorldW + 3800f, h);
 
+
         private void DrawFar()
         {
             // far range: generated watercolor panorama, mirror-tiled so seams match
@@ -2149,12 +2167,22 @@ public partial class JiangqiaoLevel : Node2D
             }
 
             // 铁丝网：木桩 + 三道下垂铁丝（几处断口，不铺满整条路）
+            // v3.18: the stake spacing was fixed and the run at 3820 dropped
+            // three stakes through the sandbag wall at 4160 and two through
+            // the wall at 4388. A stake standing inside a sandbag stack reads
+            // as a bundle of rods jammed into the pile. Any stake that would
+            // land inside a wall is skipped now, and the wire run stops at
+            // the last valid stake so it never spans a gap either.
             foreach (float seg in new[] { -980f, 880f, 2540f, 3820f })
             for (float x0 = seg; x0 < seg + 600; x0 += 300)
             {
                 for (int p = 0; p < 6; p++)
                 {
                     float x = x0 + p * 50;
+                    // v3.18: no stake past the bridge head - the wire run at
+                    // 3820 reached 4420, straight into the span.
+                    if (x > 4360f) break;
+                    if (InsideSandbag(x)) continue;
                     DrawLine(new Vector2(x, 668), new Vector2(x - 3, 616), new Color(0.28f, 0.26f, 0.24f), 2.6f, true);
                     DrawCircle(new Vector2(x - 3, 616), 2f, new Color(0.90f, 0.92f, 0.92f, 0.7f));
                     if (p < 5)
@@ -2167,21 +2195,9 @@ public partial class JiangqiaoLevel : Node2D
                 }
             }
 
-            // 废弃的辎重车（半埋进雪里）
-            // v3.17: the comment always said "half buried in the snow", but
-            // the wheels were 24px above the ground line - the whole cart
-            // floated and read as a sticker laid over the snow. Dropped it
-            // 30px so the wheels sink 6px into the drift.
-            var cx = 1760f;
-            DrawRect(new Rect2(cx, 622, 74, 24), new Color(0.40f, 0.32f, 0.23f));
-            DrawRect(new Rect2(cx, 622, 74, 24), new Color(0.26f, 0.21f, 0.16f, 0.7f), false, 1.2f);
-            DrawRect(new Rect2(cx - 4, 614, 86, 8), new Color(0.92f, 0.94f, 0.94f, 0.9f));
-            DrawCircle(new Vector2(cx + 14, 650), 11f, new Color(0.24f, 0.22f, 0.20f));
-            DrawCircle(new Vector2(cx + 14, 650), 4f, new Color(0.48f, 0.42f, 0.34f));
-            DrawCircle(new Vector2(cx + 60, 650), 11f, new Color(0.24f, 0.22f, 0.20f));
-            DrawLine(new Vector2(cx + 70, 622), new Vector2(cx + 104, 600), new Color(0.36f, 0.29f, 0.20f), 4f, true);
-            DrawLine(new Vector2(cx + 68, 619), new Vector2(cx + 104, 597), new Color(0.90f, 0.92f, 0.92f, 0.7f), 2f, true);
+
         }
+
 
         /// <summary>
         /// A snow drift: pale rim, brighter core, soft edge.
@@ -2493,6 +2509,20 @@ public partial class JiangqiaoLevel : Node2D
             }
             return pts;
         }
+
+        /// <summary>
+        /// True when x falls inside one of the sandbag walls, so the barbed
+        /// wire stakes can be kept out of the piles. v3.18: the stakes used to
+        /// be dropped on a fixed grid and three of them stood inside the wall
+        /// at 4160 while two more stood inside the wall at 4388, which read
+        /// as rods jammed into the sandbags.
+        /// </summary>
+        private static bool InsideSandbag(float x)
+        {
+            foreach (float bx in CoverArt.SandbagBaseX)
+                if (Mathf.Abs(x - bx) < CoverArt.SandbagHalfWidth) return true;
+            return false;
+        }
     }
 
     /// <summary>贴在地面的角色影子：随腾空高度缩小、变淡，给跳跃一个重量参照。</summary>
@@ -2673,6 +2703,7 @@ public partial class JiangqiaoLevel : Node2D
 
             DrawRiverIce();
             DrawRailway();
+
             DrawCraters();
             DrawRailBlastDamage();
             DrawBridge();
@@ -2837,6 +2868,7 @@ public partial class JiangqiaoLevel : Node2D
                 }
             }
         }
+
 
         private void DrawRailway()
         {
@@ -3312,6 +3344,24 @@ public partial class JiangqiaoLevel : Node2D
             public float H;        // drawn wall height
         }
 
+        /// <summary>
+        /// v3.18: the sandbag walls live in this node but the barbed wire is
+        /// drawn in GroundArt, so the wire had no way to know where the walls
+        /// are. The stake positions were hardcoded, and the run at 3820 put
+        /// three stakes straight through the wall at 4160 and two through the
+        /// wall at 4388 - the stakes poked out of the sandbags like a bundle
+        /// of rods someone had stuck in them. The base positions are shared
+        /// here so the wire can skip any stake that would land inside a wall.
+        ///
+        /// The wall at 4388 is gone as well. It sat at 4319-4457, which is
+        /// right on top of the bridge head at 4400 and the abutment under it
+        /// - a sandbag wall parked in the gateway of the bridge blocked the
+        /// view of the span and sat across the structure. A bridge mouth is a
+        /// passage, not a place to stack cover.
+        /// </summary>
+        internal static readonly float[] SandbagBaseX = { 980f, 2320f, 3640f, 4160f };
+        internal static readonly float SandbagHalfWidth = 54f * 2.55f * 0.5f + 24f;
+
         private StackSpec[] _stacks = System.Array.Empty<StackSpec>();
         private Texture2D _sackTex;
 
@@ -3331,7 +3381,7 @@ public partial class JiangqiaoLevel : Node2D
             // the h4 footprint (3180-3545), so the house corner poked out
             // behind the stack like a random block. 3640 clears h4 fully and
             // still stops short of the rail crater at 3780.
-            float[] bases = { 980f, 2320f, 3640f, 4160f, 4388f };
+            float[] bases = SandbagBaseX;
             var list = new List<StackSpec>();
             for (int i = 0; i < bases.Length; i++)
             {
@@ -3372,6 +3422,100 @@ public partial class JiangqiaoLevel : Node2D
                     DrawTextureRect(_sackTex, new Rect2(cx - s.W * 0.5f, GroundY + 1f - s.H, s.W, s.H), false);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// The abandoned supply cart, standing in the snow.
+    ///
+    /// v3.18: it used to live in the parallax near band, which meant the
+    /// ground-layer railway drew straight across it and the near houses
+    /// chopped it into pieces - the cart looked like a few brown scraps
+    /// floating between the rails. It is a world object now, drawn in the
+    /// cover layer so the track passes behind it the way it passes behind
+    /// the sandbag walls.
+    ///
+    /// The drawing itself was the other half of the problem: one flat brown
+    /// rectangle with an outline and two plain discs for wheels, which read
+    /// as a cardboard box with two coins under it. It is a plank cart with
+    /// spoked wheels now, and it is scaled down to about a third of the
+    /// player's height instead of being wider than the player.
+    ///
+    /// It stands at 280, the stretch of open snow the player walks into at
+    /// the start of the level. Everywhere past that is occupied - a house, a
+    /// sandbag wall, a crater, a bunker or the railway - and the only other
+    /// gap on the whole map is the frozen river beyond the bridge.
+    /// </summary>
+    private partial class SupplyCart : Node2D
+    {
+        private const float CartX = 280f;
+        private const float Ground = GroundY + 3f;
+        private const float BedY = Ground - 19f;
+        private const float BedW = 36f;
+
+        public override void _Draw()
+        {
+            var wood = new Color(0.38f, 0.30f, 0.21f);
+            var woodDark = new Color(0.24f, 0.19f, 0.14f);
+            var woodLite = new Color(0.47f, 0.38f, 0.27f);
+
+            // shadow pooled in the snow under the cart
+            DrawSetTransform(new Vector2(CartX + BedW * 0.5f, Ground + 1f), 0, new Vector2(2.3f, 0.30f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.58f, 0.62f, 0.66f), 0.30f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
+
+            // plank bed: four boards with gaps so the bed reads as timber
+            for (int i = 0; i < 4; i++)
+            {
+                float bx = CartX + 3f + i * 8.2f;
+                DrawRect(new Rect2(bx, BedY, 6.6f, 14f), i % 2 == 0 ? wood : woodLite);
+                DrawLine(new Vector2(bx, BedY), new Vector2(bx, BedY + 14f), woodDark, 0.8f, true);
+                // grain: two darker strokes along each board
+                DrawLine(new Vector2(bx + 2.2f, BedY + 2f), new Vector2(bx + 2.2f, BedY + 11f),
+                    new Color(0.30f, 0.24f, 0.17f, 0.7f), 0.7f, true);
+                DrawLine(new Vector2(bx + 4.6f, BedY + 4f), new Vector2(bx + 4.6f, BedY + 12f),
+                    new Color(0.30f, 0.24f, 0.17f, 0.45f), 0.6f, true);
+            }
+            // side board and front board
+            DrawRect(new Rect2(CartX, BedY - 5f, BedW, 5f), wood);
+            DrawRect(new Rect2(CartX, BedY - 5f, BedW, 5f), woodDark, false, 1f);
+            DrawRect(new Rect2(CartX + BedW - 6f, BedY - 5f, 6f, 14f), wood);
+            DrawRect(new Rect2(CartX + BedW - 6f, BedY - 5f, 6f, 14f), woodDark, false, 1f);
+            // a couple of nail heads along the side board
+            DrawCircle(new Vector2(CartX + 6f, BedY - 2.5f), 0.9f, new Color(0.22f, 0.18f, 0.13f));
+            DrawCircle(new Vector2(CartX + BedW - 10f, BedY - 2.5f), 0.9f, new Color(0.22f, 0.18f, 0.13f));
+            // snow settled in the bed
+            DrawRect(new Rect2(CartX + 2f, BedY - 1f, BedW - 8f, 3f), new Color(0.90f, 0.93f, 0.94f, 0.85f));
+
+            // spoked wheels, about a quarter of the player's height across
+            foreach (float wx in new[] { CartX + 8f, CartX + BedW - 8f })
+            {
+                DrawCircle(new Vector2(wx, Ground - 5f), 6f, new Color(0.22f, 0.20f, 0.18f));
+                DrawCircle(new Vector2(wx, Ground - 5f), 4.2f, new Color(0.52f, 0.45f, 0.36f));
+                for (int s = 0; s < 6; s++)
+                {
+                    float a = s * Mathf.Pi / 3f + 0.3f;
+                    DrawLine(new Vector2(wx, Ground - 5f),
+                        new Vector2(wx + Mathf.Cos(a) * 4.1f, Ground - 5f + Mathf.Sin(a) * 4.1f),
+                        new Color(0.26f, 0.22f, 0.18f), 0.8f, true);
+                }
+                DrawCircle(new Vector2(wx, Ground - 5f), 1.4f, new Color(0.30f, 0.26f, 0.21f));
+                // snow crust on the upper rim of the tyre
+                DrawLine(new Vector2(wx - 4.6f, Ground - 8.6f), new Vector2(wx + 4.6f, Ground - 8.6f),
+                    new Color(0.92f, 0.94f, 0.94f, 0.85f), 1.3f, true);
+            }
+
+            // shaft propped up where the cart tipped, and a broken axle pole
+            // dropped in the snow beside it
+            DrawLine(new Vector2(CartX + BedW - 4f, BedY + 3f), new Vector2(CartX + BedW + 23f, BedY - 6f),
+                wood, 2.4f, true);
+            DrawLine(new Vector2(CartX + BedW - 5f, BedY + 2f), new Vector2(CartX + BedW + 22f, BedY - 7f),
+                new Color(0.90f, 0.92f, 0.92f, 0.6f), 1.1f, true);
+            DrawLine(new Vector2(CartX - 15f, Ground - 2f), new Vector2(CartX - 3f, Ground - 13f),
+                new Color(0.32f, 0.26f, 0.19f), 2f, true);
+            DrawLine(new Vector2(CartX - 15f, Ground - 2f), new Vector2(CartX - 3f, Ground - 13f),
+                new Color(0.90f, 0.92f, 0.92f, 0.55f), 0.9f, true);
         }
     }
 
