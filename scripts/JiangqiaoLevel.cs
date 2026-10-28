@@ -271,19 +271,30 @@ public partial class JiangqiaoLevel : Node2D
         // 1.6-2.0 person heights (user rule: 1.5-2), far row 1.0-1.6 so they
         // read as distant buildings, not dollhouse props.
         // far row: scenery ruins, cannot enter (lift > 0 = reads further away)
+        //
+        // v3.19: the v3.5 audit measured to the roof ridge. What the player
+        // actually compares against is the eave, and there the intact house
+        // measured 112px of wall against a 108px soldier - 1.03, so a man
+        // standing in front of it came out the same height as the building.
+        // A village wall is about one and a half times a person, so the
+        // full-wall houses are enlarged 1.25x and the soldiers come down to
+        // 0.87, which puts the wall at 1.49 person heights. The burnt stumps
+        // keep their size - a ruin with no wall has no wall to measure.
+        // The positions shift by 40-64px so the enlarged footprints still
+        // clear each other.
         AddHouse("f1", 460f + Jit(28), "house_posts", 250f, false, 14f);
-        AddHouse("f2", 1230f + Jit(42), "house_skeleton_near", 280f, false, 16f);
+        AddHouse("f2", 1294f + Jit(42), "house_skeleton_near", 350f, false, 16f);
         AddHouse("f4", 1680f + Jit(45), "house_posts", 210f, false, 19f);
-        AddHouse("f3", 3910f + Jit(35), "house_burned_near", 265f, false, 12f);
+        AddHouse("f3", 3910f + Jit(35), "house_burned_near", 331f, false, 12f);
 
         // near row: enterable loot spots, the intact one teaches players
         // "the house that still looks whole got the goods" lah.
-        // h3 sits fixed (no jitter) so the 2197-2380 gap stays open for the
+        // h3 sits fixed (no jitter) so the gap after it stays open for the
         // crater + fallen soldier vignette next to it.
-        AddHouse("h1", 845f + Jit(24), "house_ruined_near", 330f, true, 0f);
-        AddHouse("h3", 1885f, "house_intact_near", 312f, true, 0f);
-        AddHouse("h4", 3180f + Jit(45), "house_posts", 320f, false, 0f);
-        AddHouse("h2", 2760f, "house_burned_near", 360f, true, 0f);
+        AddHouse("h1", 845f + Jit(24), "house_ruined_near", 412f, true, 0f);
+        AddHouse("h3", 1925f, "house_intact_near", 390f, true, 0f);
+        AddHouse("h4", 3244f + Jit(45), "house_posts", 320f, false, 0f);
+        AddHouse("h2", 2760f, "house_burned_near", 450f, true, 0f);
     }
 
     /// <summary>
@@ -505,15 +516,21 @@ public partial class JiangqiaoLevel : Node2D
         new("house_ruined_near", -110f, 74f, true, 0, new Vector2(0.45f, 0.26f)),
 
         // —— village gate: the one house still standing, chimney still smoking ——
-        new("house_intact_near", 285f, 96f, false, 1, new Vector2(0.700f, 0.147f)),
-        new("village", 470f, 118f, true, 1, new Vector2(0.482f, 0.152f), true),
-        new("house_skeleton_near", 660f, 62f, false, 2, new Vector2(0.45f, 0.42f)),
-        new("house_posts", 760f, 40f, true, 0, new Vector2(0.50f, 0.50f)),
+        // v3.19: the intact house at 285 and the village panorama at 470 were
+        // one pixel apart - the roofs touched and the two read as a single
+        // wide building with a chimney in the middle. The panorama is 224
+        // wide, so the house has to sit clear of it.
+        new("house_intact_near", 250f, 96f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("village", 500f, 118f, true, 1, new Vector2(0.482f, 0.152f), true),
+        new("house_skeleton_near", 700f, 62f, false, 2, new Vector2(0.45f, 0.42f)),
+        new("house_posts", 810f, 40f, true, 0, new Vector2(0.50f, 0.50f)),
 
         // —— middle and back: keep them sparse, never a continuous row ——
+        // v3.19: the intact house at 2990 overlapped the stumps at 3040 by 30
+        // pixels. The stumps moved clear.
         new("house_ruined_near", 2480f, 70f, true, 0, new Vector2(0.45f, 0.26f)),
-        new("house_intact_near", 2990f, 58f, false, 1, new Vector2(0.700f, 0.147f)),
-        new("house_posts", 3040f, 38f, true, 0, new Vector2(0.50f, 0.50f)),
+        new("house_intact_near", 2960f, 58f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("house_posts", 3080f, 38f, true, 0, new Vector2(0.50f, 0.50f)),
         new("house_burned_near", 4180f, 78f, false, 2, new Vector2(0.545f, 0.615f)),
         new("village", 4580f, 88f, true, 1, new Vector2(0.482f, 0.152f), true),
     };
@@ -705,12 +722,6 @@ public partial class JiangqiaoLevel : Node2D
         _coverArt = new CoverArt { ZIndex = 5 };
         _game.AddChild(_coverArt);
 
-        // The abandoned supply cart. v3.18: it used to be painted into the
-        // parallax near band, so the ground-layer railway drew straight
-        // across it and the near houses chopped it into scraps. It is a
-        // world object now, sitting between the track and the player so the
-        // rails pass behind it the way they pass behind the sandbag walls.
-        _game.AddChild(new SupplyCart());
     }
 
     private void AddCorpses()
@@ -719,8 +730,13 @@ public partial class JiangqiaoLevel : Node2D
         // CorpseActor ZIndex = -5（GroundArt 之上、玩家 0 之下）
 
         // 1. 弹坑旁（日军，身体朝右倒向弹坑）
+        // v3.19: the fixed tilts here used to run up to 0.22 rad. The corpse
+        // paintings already carry their own angle (measured: -4.1 to +10.7
+        // degrees), so the two stacked and the body read as sliding down a
+        // slope. CorpseActor now cancels the painting's tilt, and these
+        // values are only the small variation on top of it.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(1270, GroundY - 2), false, 0.08f));
+            new Vector2(1270, GroundY - 2), false, 0.03f));
 
         // 2. 弹坑旁（日军，朝向相反）
         // v3.8: was 2090 — right inside the intact house h3 (1885-2197), body
@@ -729,11 +745,11 @@ public partial class JiangqiaoLevel : Node2D
         // sandbag stack). The body now drapes the west rim of the blown rail
         // crater at 2540, clear of the stack and of burned house h2.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(2505, GroundY - 2), true, 0.06f));
+            new Vector2(2505, GroundY - 2), true, -0.02f));
 
         // 3. 战壕边（东北军，头倒在战壕方向）
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
-            new Vector2(1550, GroundY - 2), false, 0.22f));
+            new Vector2(1550, GroundY - 2), false, 0.04f));
 
         // 4. 碉堡前（日军，身体挡在碉堡入口前）
         // v3.8: was 3000, inside burned house h2; corpse followed the bunker.
@@ -741,7 +757,7 @@ public partial class JiangqiaoLevel : Node2D
         // hid the whole body and only a limb stuck out. Follows the bunker to
         // its new spot at 3835.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(3870, GroundY - 2), false, -0.10f));
+            new Vector2(3870, GroundY - 2), false, -0.03f));
 
         // 5. 桥头铁路旁（东北军，头朝冰面倒）
         // v3.11: was 4380 - dead centre behind the 4388 sandbag stack. Now at
@@ -751,13 +767,11 @@ public partial class JiangqiaoLevel : Node2D
         // through it. It read as a casualty tangled in the bridge rather than
         // lying on the ground.
         // The body now lies on the verge in front of the track, west of the
-        // bridge head. It used to sit at 4520, inside the span, where the
-        // truss ran straight through it and the body read as a casualty
-        // tangled in the bridge. The sandbag wall that used to stand at 4388
-        // is gone now too - it sat on the bridge head itself - so the ground
-        // between the last wall and the bridge is open snow.
+        // bridge head. The sandbag wall that used to stand at 4388 is gone
+        // now too - it sat on the bridge head itself - so the ground between
+        // the last wall and the bridge is open snow.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
-            new Vector2(4300, GroundY + 9), true, 0.14f));
+            new Vector2(4300, GroundY + 9), true, 0.03f));
     }
 
     private void BuildPlayer()
@@ -766,7 +780,12 @@ public partial class JiangqiaoLevel : Node2D
         _game.AddChild(_playerShadow);
 
         _player = new FieldPlayer { Position = new Vector2(230, GroundY - 2) };
-        _player.Scale = new Vector2(1.22f, 1.22f);
+        // v3.19: 1.22 was the old scale. The soldier now reads 94px against
+        // a 108px before, which puts the eave of a village house - measured
+        // at 1.25x its old size - at 1.49 soldier heights instead of 1.03.
+        // A man standing in front of a house should be clearly shorter than
+        // the building, not the same height.
+        _player.Scale = new Vector2(1.06f, 1.06f);
         _player.Fired += OnPlayerFired;
         _player.Hit += OnPlayerHit;
         _player.Down += OnPlayerDown;
@@ -1300,8 +1319,12 @@ public partial class JiangqiaoLevel : Node2D
     {
         if (x > WorldW - 120f) x = WorldW - 120f;
         var e = new EnemySoldier(this, new Vector2(x, GroundY), lane);
-        // 敌人体型与玩家统一（玩家 1.22f），景深用 Modulate 淡化
-        e.Scale = new Vector2(1.22f, 1.22f);
+        // 敌人体型与玩家统一（玩家 1.06f），景深用 Modulate 淡化
+        // v3.19: was 1.22, matching the old player scale. The soldier is now
+        // 94px, which puts the eave of a village house at 1.49 soldier
+        // heights instead of the old 1.03 - a man in front of a house has to
+        // be visibly shorter than the building.
+        e.Scale = new Vector2(1.06f, 1.06f);
         e.Modulate = lane < 0f 
             ? new Color(0.86f, 0.87f, 0.88f, 1f) 
             : new Color(0.97f, 0.97f, 0.98f, 1f);
@@ -2634,10 +2657,12 @@ public partial class JiangqiaoLevel : Node2D
                 // the bunker read as a distant shed. Standing next to a body
                 // it made the corpse look oversized and left the player
                 // guessing which plane either object was on. A real earthwork
-                // emplacement is chest-high on a 108px soldier - 96 wide,
-                // 62 tall puts it exactly there.
-                bwList.Add(96f + rng.RandfRange(-6f, 10f));
-                fhList.Add(62f + rng.RandfRange(-6f, 6f));
+                // emplacement is chest-high on the soldier - 96 wide and
+                // 62 tall did that when the soldier was 108.
+                // v3.19: the soldier is 94px now, so the emplacement comes
+                // down to 84 wide and 54 tall to stay chest high.
+                bwList.Add(84f + rng.RandfRange(-6f, 10f));
+                fhList.Add(54f + rng.RandfRange(-6f, 6f));
             }
             _bunkerX = bxList.ToArray();
             _bunkerBW = bwList.ToArray();
@@ -2703,6 +2728,7 @@ public partial class JiangqiaoLevel : Node2D
 
             DrawRiverIce();
             DrawRailway();
+            DrawSupplyCart();
 
             DrawCraters();
             DrawRailBlastDamage();
@@ -2869,6 +2895,70 @@ public partial class JiangqiaoLevel : Node2D
             }
         }
 
+
+        /// <summary>
+        /// The abandoned supply cart at the head of the level: a plank crate
+        /// body on two wheels with a snapped shaft lying in the snow.
+        ///
+        /// v3.19: this was a separate node in the game layer, and it never
+        /// appeared on screen at all - the node drew, but the game layer put
+        /// it outside the camera and nothing showed. It is painted here in
+        /// the ground art now, the same place the craters and the ammo
+        /// crates live, so it sits in the snow with the track running behind
+        /// it.
+        ///
+        /// The body is the real crate texture, painted in the same hand as
+        /// every other prop. The player was right that the earlier version -
+        /// flat filled rectangles and circles - looked like a different art
+        /// style pasted next to the watercolour props. Only the wheels and
+        /// the snapped shaft are code, because a rectangle cannot fake them.
+        /// </summary>
+        private void DrawSupplyCart()
+        {
+            // v3.19: was 280, which is where the player starts - the soldier
+            // spawned right on top of it and hid the whole thing. 350 puts
+            // it a stride ahead, still the first thing the player walks past.
+            const float cartX = 350f;
+            const float boxW = 46f;
+            const float wheelR = 7f;
+
+            var crate = CrateTex();
+            if (crate == null) return;
+            var csz = crate.GetSize();
+
+            // drift behind and a soft contact shadow, same treatment the
+            // ammo crates get
+            DrawSetTransform(new Vector2(cartX + boxW * 0.5f, GroundY - 2f), 0, new Vector2(1.8f, 0.5f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.88f, 0.91f, 0.92f), 0.5f),
+                new Rect2(-boxW, -boxW, boxW * 2f, boxW * 2f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            SnowShadow.Draw(this, new Vector2(cartX + boxW * 0.5f, GroundY - 1f), boxW * 0.6f, 0.22f);
+
+            // the crate body, tipped over on its side with a slight tilt
+            float tw = boxW * 1.3f;
+            float th = tw * csz.Y / csz.X;
+            DrawSetTransform(new Vector2(cartX + boxW * 0.5f, GroundY - 1f - wheelR * 0.6f), -0.05f,
+                Vector2.One);
+            DrawTextureRect(crate, new Rect2(-tw * 0.5f, -th, tw, th), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+            // the two wheels, sunk into the drift
+            foreach (float wx in new[] { cartX + 9f, cartX + boxW - 9f })
+            {
+                DrawCircle(new Vector2(wx, GroundY - wheelR + 1.5f), wheelR, new Color(0.24f, 0.21f, 0.19f));
+                DrawCircle(new Vector2(wx, GroundY - wheelR + 1.5f), wheelR * 0.62f, new Color(0.50f, 0.43f, 0.35f));
+                DrawCircle(new Vector2(wx, GroundY - wheelR + 1.5f), wheelR * 0.22f, new Color(0.30f, 0.26f, 0.21f));
+                DrawLine(new Vector2(wx - wheelR * 0.8f, GroundY - wheelR * 1.7f),
+                    new Vector2(wx + wheelR * 0.8f, GroundY - wheelR * 1.7f),
+                    new Color(0.92f, 0.94f, 0.94f, 0.85f), 1.3f, true);
+            }
+
+            // the shaft, snapped off and lying in the snow beside the wreck
+            DrawLine(new Vector2(cartX - 24f, GroundY - 2f), new Vector2(cartX - 4f, GroundY - 12f),
+                new Color(0.34f, 0.27f, 0.19f), 2.4f, true);
+            DrawLine(new Vector2(cartX - 24f, GroundY - 3f), new Vector2(cartX - 4f, GroundY - 13f),
+                new Color(0.90f, 0.92f, 0.92f, 0.55f), 1f, true);
+        }
 
         private void DrawRailway()
         {
@@ -3052,9 +3142,15 @@ public partial class JiangqiaoLevel : Node2D
                 // grey box in front of the sandbag wall, and it sliced the
                 // truss leg off at deck level. The texture's own concrete
                 // pier carries the span, no need for a second support.
-                // fresh snow line on the deck edge, ties the texture into the scene
-                DrawLine(new Vector2(start + 6f, GroundY - 6f), new Vector2(end - 6f, GroundY - 6f),
-                    new Color(0.92f, 0.94f, 0.94f, 0.75f), 3f, true);
+                //
+                // v3.19: the "fresh snow line on the deck edge" is gone too.
+                // It was a straight 3px white DrawLine running 788px from
+                // 4406 to 5194 at a fixed height - the deck edge is not
+                // straight, the span is not that long above the snow, and
+                // the line floated over the truss and the far bank as a thin
+                // bright streak whose tone did not match the mountains
+                // behind it. That streak was the white line the player kept
+                // seeing. The texture already carries snow along the deck.
 
                 // v2.9 float fix, part 2: bury the texture bottom edge. The pier
                 // feet ended on a hard horizontal cut against the snow - every
@@ -3387,7 +3483,10 @@ public partial class JiangqiaoLevel : Node2D
             {
                 // waist-high cover: a standing rifleman must top the wall by half a torso,
                 // wall wide enough for one man prone behind it
-                float h = 54f + rng.RandfRange(-4f, 5f);
+                // v3.19: was 54. The soldier is 94px now instead of 108, so
+                // the wall has to come down with him or it reads as chest
+                // high cover.
+                float h = 47f + rng.RandfRange(-4f, 5f);
                 list.Add(new StackSpec
                 {
                     X = bases[i] + rng.RandfRange(-24f, 24f),
@@ -3435,89 +3534,19 @@ public partial class JiangqiaoLevel : Node2D
     /// cover layer so the track passes behind it the way it passes behind
     /// the sandbag walls.
     ///
-    /// The drawing itself was the other half of the problem: one flat brown
-    /// rectangle with an outline and two plain discs for wheels, which read
-    /// as a cardboard box with two coins under it. It is a plank cart with
-    /// spoked wheels now, and it is scaled down to about a third of the
-    /// player's height instead of being wider than the player.
+    /// v3.19: the drawing was still the weak part. Every rectangle and
+    /// circle in it was a flat fill, and the player was right that it looked
+    /// like a different art style pasted next to the watercolour props -
+    /// a flat brown box with two coins under it. The body is now the real
+    /// crate texture, painted in the same hand as everything else, and only
+    /// the wheels and the snapped shaft are code, because those are the two
+    /// shapes a rectangle cannot fake.
     ///
     /// It stands at 280, the stretch of open snow the player walks into at
     /// the start of the level. Everywhere past that is occupied - a house, a
     /// sandbag wall, a crater, a bunker or the railway - and the only other
     /// gap on the whole map is the frozen river beyond the bridge.
     /// </summary>
-    private partial class SupplyCart : Node2D
-    {
-        private const float CartX = 280f;
-        private const float Ground = GroundY + 3f;
-        private const float BedY = Ground - 19f;
-        private const float BedW = 36f;
-
-        public override void _Draw()
-        {
-            var wood = new Color(0.38f, 0.30f, 0.21f);
-            var woodDark = new Color(0.24f, 0.19f, 0.14f);
-            var woodLite = new Color(0.47f, 0.38f, 0.27f);
-
-            // shadow pooled in the snow under the cart
-            DrawSetTransform(new Vector2(CartX + BedW * 0.5f, Ground + 1f), 0, new Vector2(2.3f, 0.30f));
-            DrawTextureRect(SoftSnow.Blob(new Color(0.58f, 0.62f, 0.66f), 0.30f),
-                new Rect2(-20f, -20f, 40f, 40f), false);
-            DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
-
-            // plank bed: four boards with gaps so the bed reads as timber
-            for (int i = 0; i < 4; i++)
-            {
-                float bx = CartX + 3f + i * 8.2f;
-                DrawRect(new Rect2(bx, BedY, 6.6f, 14f), i % 2 == 0 ? wood : woodLite);
-                DrawLine(new Vector2(bx, BedY), new Vector2(bx, BedY + 14f), woodDark, 0.8f, true);
-                // grain: two darker strokes along each board
-                DrawLine(new Vector2(bx + 2.2f, BedY + 2f), new Vector2(bx + 2.2f, BedY + 11f),
-                    new Color(0.30f, 0.24f, 0.17f, 0.7f), 0.7f, true);
-                DrawLine(new Vector2(bx + 4.6f, BedY + 4f), new Vector2(bx + 4.6f, BedY + 12f),
-                    new Color(0.30f, 0.24f, 0.17f, 0.45f), 0.6f, true);
-            }
-            // side board and front board
-            DrawRect(new Rect2(CartX, BedY - 5f, BedW, 5f), wood);
-            DrawRect(new Rect2(CartX, BedY - 5f, BedW, 5f), woodDark, false, 1f);
-            DrawRect(new Rect2(CartX + BedW - 6f, BedY - 5f, 6f, 14f), wood);
-            DrawRect(new Rect2(CartX + BedW - 6f, BedY - 5f, 6f, 14f), woodDark, false, 1f);
-            // a couple of nail heads along the side board
-            DrawCircle(new Vector2(CartX + 6f, BedY - 2.5f), 0.9f, new Color(0.22f, 0.18f, 0.13f));
-            DrawCircle(new Vector2(CartX + BedW - 10f, BedY - 2.5f), 0.9f, new Color(0.22f, 0.18f, 0.13f));
-            // snow settled in the bed
-            DrawRect(new Rect2(CartX + 2f, BedY - 1f, BedW - 8f, 3f), new Color(0.90f, 0.93f, 0.94f, 0.85f));
-
-            // spoked wheels, about a quarter of the player's height across
-            foreach (float wx in new[] { CartX + 8f, CartX + BedW - 8f })
-            {
-                DrawCircle(new Vector2(wx, Ground - 5f), 6f, new Color(0.22f, 0.20f, 0.18f));
-                DrawCircle(new Vector2(wx, Ground - 5f), 4.2f, new Color(0.52f, 0.45f, 0.36f));
-                for (int s = 0; s < 6; s++)
-                {
-                    float a = s * Mathf.Pi / 3f + 0.3f;
-                    DrawLine(new Vector2(wx, Ground - 5f),
-                        new Vector2(wx + Mathf.Cos(a) * 4.1f, Ground - 5f + Mathf.Sin(a) * 4.1f),
-                        new Color(0.26f, 0.22f, 0.18f), 0.8f, true);
-                }
-                DrawCircle(new Vector2(wx, Ground - 5f), 1.4f, new Color(0.30f, 0.26f, 0.21f));
-                // snow crust on the upper rim of the tyre
-                DrawLine(new Vector2(wx - 4.6f, Ground - 8.6f), new Vector2(wx + 4.6f, Ground - 8.6f),
-                    new Color(0.92f, 0.94f, 0.94f, 0.85f), 1.3f, true);
-            }
-
-            // shaft propped up where the cart tipped, and a broken axle pole
-            // dropped in the snow beside it
-            DrawLine(new Vector2(CartX + BedW - 4f, BedY + 3f), new Vector2(CartX + BedW + 23f, BedY - 6f),
-                wood, 2.4f, true);
-            DrawLine(new Vector2(CartX + BedW - 5f, BedY + 2f), new Vector2(CartX + BedW + 22f, BedY - 7f),
-                new Color(0.90f, 0.92f, 0.92f, 0.6f), 1.1f, true);
-            DrawLine(new Vector2(CartX - 15f, Ground - 2f), new Vector2(CartX - 3f, Ground - 13f),
-                new Color(0.32f, 0.26f, 0.19f), 2f, true);
-            DrawLine(new Vector2(CartX - 15f, Ground - 2f), new Vector2(CartX - 3f, Ground - 13f),
-                new Color(0.90f, 0.92f, 0.92f, 0.55f), 0.9f, true);
-        }
-    }
 
     // ================= 特效 =================
 

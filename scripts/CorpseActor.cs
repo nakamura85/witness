@@ -28,12 +28,33 @@ public partial class CorpseActor : Node2D
     // v3.17: a body lying down should read about as long as the standing
     // soldier is tall (108px), not longer. At 122-138 a body next to anything
     // smaller than it read as a giant. Trimmed about 10%.
+    // v3.19: the soldier is 94px now, so the bodies come down with him.
     private static readonly Dictionary<string, float> _texLen = new()
     {
-        ["corpse_na_prone"] = 116f,
-        ["corpse_na_supine"] = 110f,
-        ["corpse_ija_prone"] = 124f,
-        ["corpse_ija_supine"] = 112f,
+        ["corpse_na_prone"] = 101f,
+        ["corpse_na_supine"] = 96f,
+        ["corpse_ija_prone"] = 108f,
+        ["corpse_ija_supine"] = 97f,
+    };
+
+    /// <summary>
+    /// v3.19: the body paintings are not horizontal. Measuring the bottom
+    /// contour of each texture gives -4.1 degrees for the northeast army
+    /// supine and +10.7 for the japanese army supine - the illustrator drew
+    /// them lying diagonally, which reads fine as a standalone picture but
+    /// wrong in the scene, where a body has to lie flat on the snow. On top
+    /// of that the game added its own random tilt of up to 0.22 rad, so the
+    /// two stacked and the body looked like it was sliding down a slope.
+    ///
+    /// These values cancel the built-in angle. A body is then drawn level and
+    /// only the small random jitter is left.
+    /// </summary>
+    private static readonly Dictionary<string, float> _texTilt = new()
+    {
+        ["corpse_na_supine"] = 4.14f,
+        ["corpse_na_prone"] = 1.70f,
+        ["corpse_ija_prone"] = -0.55f,
+        ["corpse_ija_supine"] = -10.66f,
     };
 
     public CorpseActor(Faction faction, Vector2 position, bool facingRight, float rotJitter = -1f,
@@ -53,7 +74,11 @@ public partial class CorpseActor : Node2D
 
         // pre-placed corpses pass fixed jitter so level layout is stable, deaths roll random.
         // small tilt only + pivot at body center, else one end floats 30px above the snow
-        _rotJitter = rotJitter >= 0f ? rotJitter : rng.RandfRange(-0.12f, 0.12f);
+        // v3.19: the jitter used to reach 0.22 rad on its own. On top of the
+        // angle the paintings already carry that was what made the bodies
+        // look like they were sliding downhill. It is now a gentle +-3.5
+        // degrees, enough to keep the field from looking stamped.
+        _rotJitter = rotJitter >= 0f ? rotJitter : rng.RandfRange(-0.06f, 0.06f);
 
         Position = position;
         ZIndex = 0;
@@ -81,12 +106,16 @@ public partial class CorpseActor : Node2D
         var t = Tex();
         if (t == null) return;
         var sz = t.GetSize();
-        float len = _texLen[TexName()];
+        string tn = TexName();
+        float len = _texLen[tn];
         float h = len * sz.Y / sz.X;
         DrawContactShadow(len);
         // rotate around body center, not the edge: keeps both ends on the ground line,
         // no more floating corpse ends; sink 6px so the body sits IN the snowfield
-        DrawSetTransform(new Vector2(HeadSign() * len * 0.5f, 0f), -_rotJitter,
+        // v3.19: cancel the tilt the painting itself carries, then add the
+        // small jitter on top, so the body ends up lying level on the snow.
+        float tilt = Mathf.DegToRad(_texTilt[tn]) + _rotJitter;
+        DrawSetTransform(new Vector2(HeadSign() * len * 0.5f, 0f), -tilt,
             new Vector2(HeadSign(), 1f));
         DrawTextureRect(t, new Rect2(-len * 0.5f, -h + 6f, len, h), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
