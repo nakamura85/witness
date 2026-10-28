@@ -726,7 +726,7 @@ public partial class JiangqiaoLevel : Node2D
 
     private void AddCorpses()
     {
-        // 尸体散布点：弹坑旁、战壕边、碉堡前、桥头、铁丝网附近
+        // 尸体散布点：弹坑旁、战壕边、烧毁房前、桥头、铁丝网附近
         // CorpseActor ZIndex = -5（GroundArt 之上、玩家 0 之下）
 
         // 1. 弹坑旁（日军，身体朝右倒向弹坑）
@@ -759,12 +759,14 @@ public partial class JiangqiaoLevel : Node2D
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
             new Vector2(1550, GroundY - 2), false, 0.04f, true, CorpseActor.Pose.Prone));
 
-        // 4. 碉堡前（日军，身体挡在碉堡入口前）
-        // v3.8: was 3000, inside burned house h2; corpse followed the bunker.
+        // 4. 烧毁的房子前（日军，仰卧）
+        // v3.8: was 3000, inside burned house h2.
         // v3.11: was 3650 — dead centre behind the sandbag stack, so the pile
-        // hid the whole body and only a limb stuck out. Follows the bunker to
-        // its new spot at 3835.
-        // v3.21: face up, in front of the bunker mouth.
+        // hid the whole body and only a limb stuck out.
+        // v3.21: face up.
+        // v3.24: the emplacement that used to sit here is gone, so the body
+        // is back on open snow. It had read as a mattress laid over a
+        // sandbag block because the bunker was underneath it.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
             new Vector2(3870, GroundY - 2), false, -0.03f, true, CorpseActor.Pose.Supine));
 
@@ -2593,9 +2595,6 @@ public partial class JiangqiaoLevel : Node2D
         private float[] _crateX = System.Array.Empty<float>();     // 弹药木箱：位置/高矮/歪斜每只不同
         private float[] _crateH = System.Array.Empty<float>();
         private float[] _crateRot = System.Array.Empty<float>();
-        private float[] _bunkerX = System.Array.Empty<float>();
-        private float[] _bunkerBW = System.Array.Empty<float>();
-        private float[] _bunkerFH = System.Array.Empty<float>();
         private int[] _railSkipIdx = System.Array.Empty<int>();       // 被去掉的枕木序号（破损感）
         private float[] _railDmgX = System.Array.Empty<float>();      // shell damage spots along the whole rail line
         private int[] _trussSkipDiags = System.Array.Empty<int>();    // 桥桁架被去掉的斜腹杆
@@ -2649,40 +2648,6 @@ public partial class JiangqiaoLevel : Node2D
             _crateX = crateListX.ToArray();
             _crateH = crateListH.ToArray();
             _crateRot = crateListRot.ToArray();
-
-            // 碉堡位置、宽、高
-            var bxList = new List<float>();
-            var bwList = new List<float>();
-            var fhList = new List<float>();
-            // v3.8: bunker 3050 was buried behind burned house h2, moved to 3600.
-            // v3.11: 3600 and 4050 both sat right behind sandbag stacks
-            // (3580 / 4160) — only a corner of concrete poked out and read as
-            // a stray block on the snow. 3600 now stands in the open between
-            // the rail crater and the ammo crate; 4050 is dropped, two forts
-            // keep the line without stacking junk behind the cover walls.
-            // v3.23: the first bunker was at 1550, which is inside the footprint of
-                // the near house f2 (1294-1644) after the houses were enlarged
-                // in v3.19 - the emplacement was completely buried and all
-                // the player could see was a pale slab of nothing behind the
-                // body. It sits on open snow between the first house and the
-                // barbed wire now.
-                foreach (float bx in new[] { 800f, 3835f })
-            {
-                bxList.Add(bx + rng.RandfRange(-8f, 8f));
-                // v3.17: 56x38 was barely a third of the player's height, so
-                // the bunker read as a distant shed. Standing next to a body
-                // it made the corpse look oversized and left the player
-                // guessing which plane either object was on. A real earthwork
-                // emplacement is chest-high on the soldier - 96 wide and
-                // 62 tall did that when the soldier was 108.
-                // v3.19: the soldier is 94px now, so the emplacement comes
-                // down to 84 wide and 54 tall to stay chest high.
-                bwList.Add(84f + rng.RandfRange(-6f, 10f));
-                fhList.Add(54f + rng.RandfRange(-6f, 6f));
-            }
-            _bunkerX = bxList.ToArray();
-            _bunkerBW = bwList.ToArray();
-            _bunkerFH = fhList.ToArray();
 
             // 铁路：随机挑约 30 根枕木去掉（画得到的就是 84 根，三成缺失 = 战时打烂的样子）
             var railSkip = new HashSet<int>();
@@ -3093,14 +3058,6 @@ public partial class JiangqiaoLevel : Node2D
 
         private Texture2D _craterTex;
 
-        private static Texture2D _bunkerSackTex;
-
-        private static Texture2D BunkerSackTex()
-        {
-            _bunkerSackTex ??= GD.Load<Texture2D>("res://assets/art/props/bunker_face.png");
-            return _bunkerSackTex;
-        }
-
         private void DrawCraters()
         {
             // craters are generated watercolor textures now. The old stacked
@@ -3143,7 +3100,7 @@ public partial class JiangqiaoLevel : Node2D
 
             // generated bridge art (truss + piers, burned mid-section) replaces the old
             // code-drawn one; keep the code path as fallback if the texture is missing
-            _bridgeTex ??= GD.Load<Texture2D>("res://assets/art/props/bridge_painted.png");
+            _bridgeTex ??= GD.Load<Texture2D>("res://assets/art/props/bridge.png");
             if (_bridgeTex != null)
             {
                 var bsz = _bridgeTex.GetSize();
@@ -3171,9 +3128,13 @@ public partial class JiangqiaoLevel : Node2D
                 // air, then a pale blue haze over the whole span so the
                 // distance eats its contrast the way it eats the
                 // mountains behind it.
-                var bridgeRect = new Rect2(bx, rectTop, bw, bh);
-                DrawTextureRect(_bridgeTex, bridgeRect, false);
-                DrawRect(bridgeRect, new Color(0.80f, 0.84f, 0.90f, 0.04f), true);
+                // v3.24: the original art was right all along. The rendered
+                // steel with its rivets and dark beams sits in the snowfield
+                // perfectly well next to the burnt timber houses, and every
+                // pass I made over it - desaturating it, flattening the
+                // shading, washing it in blue - only pushed it further from
+                // the level. It is back to the plain texture, untouched.
+                DrawTextureRect(_bridgeTex, new Rect2(bx, rectTop, bw, bh), false);
 
                 // v3.15: the code-drawn west abutment is gone for good. It was
                 // a flat grey slab with no texture, parked about 100px left of
@@ -3377,61 +3338,6 @@ public partial class JiangqiaoLevel : Node2D
                 DrawLine(new Vector2(x + 18, GroundY - 1), new Vector2(x + 60, GroundY - 12), new Color(0.22f, 0.20f, 0.18f), 2f, true);
             }
 
-            // 碉堡（沙袋砌成的土木掩体 + 射击孔 + 积雪）：1931 江桥阵地的土木碉堡
-            // v3.22: this used to be one flat grey polygon with a hard black
-            // rectangle for the firing slot. It was the only untextured
-            // object on the whole field and the player read it as a grey
-            // pyramid dropped in the snow next to the burnt house.
-            //
-            // It is faced with the real sandbag texture now, cropped with
-            // DrawTextureRectRegion so the bags keep their natural size
-            // instead of being squashed, and the firing slot is a soft dark
-            // gouge rather than a rectangle of ink.
-            for (int bi = 0; bi < _bunkerX.Length; bi++)
-            {
-                float bx = _bunkerX[bi];
-                float bw = _bunkerBW[bi];
-                float fh = _bunkerFH[bi];
-
-                // 接触阴影（先画，在碉堡下面）
-                SnowShadow.Draw(this, new Vector2(bx + bw * 0.5f, GroundY - 1f), bw * 0.55f, 0.26f);
-
-                // 碉堡本体：沙袋砌面
-                // v3.23: this used to crop a 700px wide piece of the sandbag
-                // sheet and squeeze it into 91 pixels. The gpu samples a
-                // very high mip level for a squeeze that steep, so the whole
-                // emplacement collapsed into one flat pale rectangle with a
-                // hard edge - the player could not tell what it was at all.
-                // The face is now pre-scaled to its own small sheet and drawn
-                // roughly one to one, so the bags stay legible.
-                var bags = BunkerSackTex();
-                if (bags != null)
-                    DrawTextureRect(bags, new Rect2(bx, GroundY - fh, bw, fh), false);
-
-                // 射击孔：被熏黑的一道凹槽（软边，不是硬黑矩形）
-                // the blob sprite is a 40x40 unit square, so the scale here is
-                // the wanted size divided by 40 - get that wrong and the
-                // blob covers the whole emplacement in one white slab.
-                DrawSetTransform(new Vector2(bx + bw * 0.52f, GroundY - fh * 0.58f), 0,
-                    new Vector2(bw * 0.30f / 40f, fh * 0.10f / 40f));
-                DrawTextureRect(SoftSnow.Blob(new Color(0.13f, 0.12f, 0.11f), 0.92f),
-                    new Rect2(-20f, -20f, 40f, 40f), false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-
-                // 顶上的积雪
-                DrawSetTransform(new Vector2(bx + bw * 0.5f, GroundY - fh - 1f), 0,
-                    new Vector2(bw * 0.95f / 40f, fh * 0.10f / 40f));
-                DrawTextureRect(SoftSnow.Blob(new Color(0.94f, 0.96f, 0.97f), 0.88f),
-                    new Rect2(-20f, -20f, 40f, 40f), false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-
-            // 碉堡旁边的铁丝网桩（一根木桩 + 一根铁丝连到远处）
-                float fx = bx - 30f;
-                DrawLine(new Vector2(fx, GroundY), new Vector2(fx - 2, GroundY - 52),
-                    new Color(0.30f, 0.28f, 0.26f), 2.8f, true);
-                DrawLine(new Vector2(fx - 2, GroundY - 44), new Vector2(fx + 4, GroundY - 44),
-                    new Color(0.30f, 0.28f, 0.26f), 1.6f, true);
-            }
         }
     }
 
