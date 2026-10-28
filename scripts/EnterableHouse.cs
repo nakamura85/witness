@@ -20,7 +20,52 @@ public partial class EnterableHouse : Node2D
 
     public string Id => _id;
     public bool Enterable => _enterable;
-    public float DoorX => Position.X + _w * 0.18f;
+
+    /// <summary>
+    /// Where the doorway of each enterable house is, as a fraction of the
+    /// house width, and how tall it stands as a fraction of the house height.
+    ///
+    /// v3.20: this used to be one hardcoded 0.18 for every house, and a flat
+    /// dark slab was painted over that spot to mark it. The slab was the
+    /// only flat fill anywhere in the scene, it sat about 35px below the
+    /// doorway the artist had already drawn, and it covered the plank door
+    /// of the intact house and the torn opening of the ruined one. Players
+    /// read it as a black board propped in front of the wall.
+    ///
+    /// Fx is the centre of the doorway in house-width fractions, Fh the
+    /// height in house-height fractions, and HangLeaf says the texture has
+    /// no door of its own and one has to be put back.
+    /// </summary>
+    private readonly record struct DoorSpec(float Fx, float Fh, bool HangLeaf);
+
+    private static readonly Dictionary<string, DoorSpec> _doorSpecs = new()
+    {
+        // intact house: a plank door with a round knob, painted between the
+        // two timber posts of the front wall
+        ["house_intact_near"] = new(0.492f, 0.36f, false),
+        // ruined house: the wall is torn open beside the door frame, snow
+        // drifted across the sill
+        ["house_ruined_near"] = new(0.200f, 0.50f, false),
+        // burnt shell: the roof burned off and nothing is left to find, so
+        // a door goes back into the frame
+        ["house_burned_near"] = new(0.260f, 0.42f, true),
+    };
+
+    private static Texture2D _leafTex;
+
+    private float _doorFx = -1f;
+
+    private float DoorFx
+    {
+        get
+        {
+            if (_doorFx < 0f)
+                _doorFx = _doorSpecs.TryGetValue(_texName, out var s) ? s.Fx : 0.18f;
+            return _doorFx;
+        }
+    }
+
+    public float DoorX => Position.X + _w * DoorFx;
     public float HalfW => _w * 0.5f;
 
     private static readonly Dictionary<string, Texture2D> _texCache = new();
@@ -77,23 +122,42 @@ public partial class EnterableHouse : Node2D
 
         if (!_enterable) return;   // scenery ruin: no door light, nothing to search
 
-        // v3.5 door overlay aligned to the painted doorway of each texture,
-        // height scales with the house (about one man tall, player is 108px)
-        (float fx, float fh) = _texName switch
+        // v3.20: the doorway is wherever the painting put it. Two of the
+        // three enterable houses already have one - a plank door on the
+        // intact house, a torn opening in the ruined one - so all that is
+        // left to draw is the trampled snow on the doorstep.
+        //
+        // v3.5 used to paint a flat near-black slab over the doorway here.
+        // It was the only flat fill in the whole scene, it did not line up
+        // with the painted opening, and it hid the artwork underneath, so
+        // it read as a black board leaning on the wall.
+        //
+        // The burnt shell has no door left to find, so one gets hung back
+        // into the frame - the plank leaf lifted straight out of the intact
+        // house texture, so it carries the same brush and the same ink
+        // outlines as everything else.
+        var spec = _doorSpecs.TryGetValue(_texName, out var ds)
+            ? ds : new DoorSpec(0.18f, 0.42f, false);
+        float dx = _w * spec.Fx;
+        float dh = h * spec.Fh;
+
+        if (spec.HangLeaf)
         {
-            "house_intact_near" => (0.48f, 0.45f),
-            "house_burned_near" => (0.25f, 0.50f),
-            _ => (0.18f, 0.40f),
-        };
-        float dx = _w * fx;
-        float dw = Mathf.Clamp(_w * 0.08f, 24f, 34f);
-        float dh = h * fh;
-        DrawRect(new Rect2(dx - dw * 0.5f, gl - dh, dw, dh), new Color(0.10f, 0.08f, 0.07f, 0.96f));
-        DrawRect(new Rect2(dx - dw * 0.5f, gl - dh, dw, 5f), new Color(0.30f, 0.24f, 0.18f, 0.9f));
-        DrawLine(new Vector2(dx - dw * 0.5f, gl - dh), new Vector2(dx - dw * 0.5f, gl),
-            new Color(0.22f, 0.18f, 0.14f, 0.9f), 2f, true);
-        DrawLine(new Vector2(dx + dw * 0.5f, gl - dh), new Vector2(dx + dw * 0.5f, gl),
-            new Color(0.22f, 0.18f, 0.14f, 0.9f), 2f, true);
+            _leafTex ??= GD.Load<Texture2D>("res://assets/art/props/door_leaf.png");
+            if (_leafTex != null)
+            {
+                var lsz = _leafTex.GetSize();
+                float lw = dh * lsz.X / lsz.Y;
+                // hung a little askew, the way a door swings after the
+                // shelling that burned the roof off around it. Only sooted
+                // down a little - any darker and it vanishes into the
+                // charred frame it stands in.
+                DrawSetTransform(new Vector2(dx, gl), -0.045f, Vector2.One);
+                DrawTextureRect(_leafTex, new Rect2(-lw * 0.5f, -dh, lw, dh), false,
+                    new Color(0.84f, 0.80f, 0.76f));
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+        }
 
         // doorstep snow disturbed
         // v2.8: radial falloff, so the trodden patch has no hard rim
