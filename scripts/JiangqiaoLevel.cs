@@ -68,6 +68,47 @@ public static class SoftSnow
         _cache[key] = tex;
         return tex;
     }
+
+    /// <summary>
+    /// v3.16: a "melt band" - the snow that swallows the foot of a house or
+    /// the bottom of a tree sprite.
+    ///
+    /// It used to be a GradientTexture2D stretched over a rectangle. That
+    /// looked fine in the vertical direction but the rectangle itself had hard
+    /// left and right edges, and a gradient texture also puts a hard step on
+    /// its very first row. Over the distant village that left a bright slab
+    /// with a ruler-straight edge lying on the snow under every far house -
+    /// the "white box" the player kept pointing at.
+    ///
+    /// This one fades out in every direction: alpha ramps up from the top,
+    /// and the left and right ends taper to nothing, so there is no edge
+    /// anywhere for the eye to catch.
+    /// </summary>
+    public static ImageTexture MeltBand(Color tint, float alpha)
+    {
+        int key = ((int)(tint.R * 255f) << 24) ^ ((int)(tint.G * 255f) << 16)
+            ^ ((int)(tint.B * 255f) << 8) ^ ((int)(tint.A * 255f))
+            ^ ((int)(alpha * 1000f) * 7919) ^ 0x5E17;
+        if (_cache.TryGetValue(key, out var cached)) return cached;
+
+        const int w = 128, hgt = 64;
+        var img = Image.CreateEmpty(w, hgt, false, Image.Format.Rgba8);
+        for (int y = 0; y < hgt; y++)
+        for (int x = 0; x < w; x++)
+        {
+            float u = (x + 0.5f) / w;
+            float v = (y + 0.5f) / hgt;
+            float up = v * v * (3f - 2f * v);
+            float side = Mathf.Sin(Mathf.Pi * u);
+            side = Mathf.Pow(side, 0.6f);
+            float a = up * side;
+            img.SetPixel(x, y, new Color(tint.R, tint.G, tint.B, tint.A * alpha * a));
+        }
+
+        var tex = ImageTexture.CreateFromImage(img);
+        _cache[key] = tex;
+        return tex;
+    }
 }
 
 /// <summary>
@@ -1731,8 +1772,11 @@ public partial class JiangqiaoLevel : Node2D
             // the texture's own hard bottom edge
             if (fade > 0f)
             {
-                var g = VGradient(new Color(0f, 0f, 0f, 0f), new Color(0.775f, 0.795f, 0.795f, fade));
-                DrawTextureRect(g, new Rect2(baseCenter.X - w * 0.5f, baseCenter.Y - h * fade * 1.6f, w, h * fade * 1.6f), false);
+                // v3.16: was a GradientTexture2D over a rectangle - the
+                // rectangle's left and right edges stayed hard, so every tree
+                // wore a straight-edged pale slab around its feet.
+                DrawTextureRect(SoftSnow.MeltBand(new Color(0.775f, 0.795f, 0.795f), fade),
+                    new Rect2(baseCenter.X - w * 0.5f, baseCenter.Y - h * fade * 1.6f, w, h * fade * 1.6f), false);
             }
         }
 
@@ -1877,21 +1921,6 @@ public partial class JiangqiaoLevel : Node2D
         private static float Ridged(float t, float seed)
             => 1f - Mathf.Abs(Noise1(t, seed) * 2f - 1f);
 
-        private static GradientTexture2D VGradient(Color from, Color to)
-        {
-            var g = new Gradient();
-            g.SetColor(0, from);
-            g.SetColor(1, to);
-            return new GradientTexture2D
-            {
-                Gradient = g,
-                Width = 8,
-                Height = 256,
-                FillFrom = new Vector2(0.5f, 0f),
-                FillTo = new Vector2(0.5f, 1f),
-            };
-        }
-
         // 雪山下缘溶解：不用整块渐变矩形，改成很多细条、每条自己算 alpha。
         // 整块渐变贴图在顶端会留一条硬边，横贯整屏就是一条白线；
         // 细条没有边，只有渐变，所以山脚是"化进去"而不是"切下去"。
@@ -2031,9 +2060,10 @@ public partial class JiangqiaoLevel : Node2D
                 // gradient would leave a hard white box where the texture is
                 // transparent, so the snow is laid on as a soft ellipse that
                 // only touches the bottom of the building.
-                var melt = VGradient(new Color(0.775f, 0.795f, 0.795f, 0f),
-                    new Color(0.775f, 0.795f, 0.795f, 0.95f));
-                DrawTextureRect(melt,
+                // v3.16: the "rectangular gradient" was the white slab the
+                // player kept pointing at - the rectangle's left and right
+                // edges were ruler-straight. MeltBand tapers on every side.
+                DrawTextureRect(SoftSnow.MeltBand(new Color(0.775f, 0.795f, 0.795f), 0.95f),
                     new Rect2(vh.X - wid * 0.5f, VillageBaseY - vh.H * 0.22f, wid, vh.H * 0.22f), false);
                 DrawSetTransform(new Vector2(vh.X, VillageBaseY), 0, new Vector2(wid * 0.30f, 0.13f));
                 DrawTextureRect(SoftBlob(new Color(0.80f, 0.82f, 0.83f), 0.80f),
