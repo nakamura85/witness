@@ -64,9 +64,17 @@ public partial class CaptureMap : Node
         // shots and scene-changing actions live in separate stages: SaveShot
         // grabs the texture a frame later, so pressing a note in the same
         // stage would leak into the "clean map" frame (it did - first run).
+        // v3.13: the title shot had the same bug - the swap to AsiaMap ran in
+        // the very same stage, so the "title" picture was really the map and
+        // v00_title.png was a byte-for-byte copy of v01_map.png. The swap now
+        // waits for its own stage.
         if (_stage == 0 && _t > 1.6f)
         {
             SaveShot("map_00_title.png");
+            _stage = 10;
+        }
+        else if (_stage == 10 && _t > 2.6f)
+        {
             SwapTo(new AsiaMap(new Main()));
             _stage = 1;
         }

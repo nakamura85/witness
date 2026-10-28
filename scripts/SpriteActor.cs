@@ -314,16 +314,38 @@ public partial class SpriteActor : Node2D
         // 优先级最高的状态用整张专项立绘替换纸娃娃，动作是按军事条令画的，
         // 不再靠刚性贴图变形硬凑。腾空/翻越时不进入专姿。
         var (ptex, ps, pox, muzY) = PoseInfo();
-        // 趴/蹲"静止"用整张专姿图（姿势标准）；但"趴着前进/蹲着前进"必须让纸娃娃接手
-        // （下面的腿部摆动），否则专姿图被冻结、整张图原地滑动（用户反馈的"纸片人滑过去"）。
-        if (ptex != null && !proneWalk && !crouchWalk)
+        // 趴/蹲：无论静止还是前进，一律用整张专项立绘（姿势按军事条令画、解剖正确）。
+        // 之前 v3.12 为了让"前进"有腿部摆动，把移动中的趴/蹲退回纸娃娃——结果把站立的
+        // 上半身立绘竖直压扁到 48% 再配横过来的腿，横板下像人折坏/压扁，观感很怪；
+        // 又或者整张专姿图被冻结、原地滑动（"纸片人滑过去"）。
+        // 现在改为：移动时仍用正确的专姿图，只在图上叠加轻微爬行错动（上下浮动 + 前后微摆），
+        // 既保留正确姿势，又明确读出"正在匍匐 / 正在蹲行"，不再出现压扁或冻结滑动。
+        if (ptex != null)
         {
             var sz = ptex.GetSize();
             _torso.Visible = false; _legBack.Visible = false; _legFront.Visible = false;
             if (_hip != null) _hip.Visible = false;
             _pose.Texture = ptex;
             _pose.Scale = new Vector2(ps, ps);
-            _pose.Position = new Vector2(pox - Facing * 6f * Recoil, -sz.Y * ps);
+
+            float bob = 0f, sway = 0f;
+            if (proneWalk)
+            {
+                // 匍匐前进：身体随爬行上下小幅起伏 + 前后微摆，像手肘交替撑地拖动
+                bob = Mathf.Sin(Phase) * 2.4f;
+                sway = Mathf.Cos(Phase) * 1.8f;
+            }
+            else if (crouchWalk)
+            {
+                // 蹲行：重心随步频轻沉 + 左右微摆，保留跪姿轮廓的同时给出移动感
+                bob = Mathf.Abs(Mathf.Cos(Phase)) * 1.8f - 0.9f;
+                sway = Mathf.Sin(Phase) * 1.2f;
+            }
+            // v3.13: 落地缓冲也接到专姿立绘上——着地那一瞬间整个人往下沉一下
+            // 再弹回来。以前只有纸娃娃分支有，蹲/趴/站专姿图落地是硬接地的。
+            bob -= _landT * 3.4f;
+
+            _pose.Position = new Vector2(pox - Facing * 6f * Recoil + sway, -sz.Y * ps + bob);
             _pose.Visible = true;
             // 枪口锚点（flip 空间，x 朝前），_Draw 里乘 Facing 转回画面空间
             _poseMuzzle = new Vector2(pox + sz.X * ps * 0.97f, -sz.Y * ps * (1f - muzY));

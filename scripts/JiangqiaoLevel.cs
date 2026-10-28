@@ -249,6 +249,14 @@ public partial class JiangqiaoLevel : Node2D
     /// Smoke + fire for every house. A house that still stands puffs thin
     /// domestic smoke from the chimney, a burnt one chokes out a thick black
     /// column and still has embers crawling in the ashes.
+    ///
+    /// v3.13: every house used to get the SAME size for its texture type, so
+    /// all the fires in the village looked cloned - the user pointed at two
+    /// screenshots of the same kind of house and said the flames and the smoke
+    /// must not be one size. Now each house rolls its own: the damage state
+    /// decides the range, the building width scales it up, and a random pick
+    /// inside the range settles the final look. A house that is nearly burnt
+    /// out rolls a tiny flame and only a thread of smoke left.
     /// </summary>
     private void AddHouseSmoke(EnterableHouse h, string tex, float x, float w, float lift)
     {
@@ -259,33 +267,71 @@ public partial class JiangqiaoLevel : Node2D
         float hgt = w * sz.Y / sz.X;
 
         // source point in texture space (normalised), then mapped to world
-        float u = 0.5f, v = 0.4f, size = 0.9f, strength = 0.6f, fire = 0f, rise = 80f;
+        float u = 0.5f, v = 0.4f;
+        float sizeLo = 0.8f, sizeHi = 1.0f;
+        float strLo = 0.5f, strHi = 0.7f;
+        float fireLo = 0f, fireHi = 0f;
+        float riseLo = 70f, riseHi = 90f;
         var tint = new Color(0.72f, 0.73f, 0.75f);
         switch (tex)
         {
             case "house_intact_near":
                 // the painted smoke that used to sit over this chimney is gone
                 // now, so the anchor goes right onto the chimney mouth itself
-                u = 0.700f; v = 0.147f; size = 0.85f; strength = 0.70f; fire = 0f; rise = 74f;
+                u = 0.700f; v = 0.147f;
+                sizeLo = 0.52f; sizeHi = 0.92f;
+                strLo = 0.42f; strHi = 0.78f;
+                fireLo = 0f; fireHi = 0f;
+                riseLo = 52f; riseHi = 96f;
                 tint = new Color(0.82f, 0.85f, 0.89f);
                 break;
             case "house_burned_near":
-                u = 0.545f; v = 0.615f; size = 1.50f; strength = 1.0f; fire = 0.75f; rise = 145f;
+                // still going strong: big flame, fat black column
+                u = 0.545f; v = 0.615f;
+                sizeLo = 1.05f; sizeHi = 1.85f;
+                strLo = 0.72f; strHi = 1.00f;
+                fireLo = 0.42f; fireHi = 0.95f;
+                riseLo = 108f; riseHi = 178f;
                 tint = new Color(0.33f, 0.32f, 0.34f);
                 break;
             case "house_skeleton_near":
-                u = 0.45f; v = 0.42f; size = 1.60f; strength = 0.88f; fire = 0.42f; rise = 160f;
+                // frame still standing, burning hard
+                u = 0.45f; v = 0.42f;
+                sizeLo = 1.08f; sizeHi = 1.95f;
+                strLo = 0.66f; strHi = 1.00f;
+                fireLo = 0.28f; fireHi = 0.80f;
+                riseLo = 118f; riseHi = 190f;
                 tint = new Color(0.38f, 0.38f, 0.41f);
                 break;
             case "house_ruined_near":
-                u = 0.45f; v = 0.26f; size = 1.05f; strength = 0.62f; fire = 0.22f; rise = 96f;
+                // mostly done, only embers left in the shell
+                u = 0.45f; v = 0.26f;
+                sizeLo = 0.58f; sizeHi = 1.08f;
+                strLo = 0.30f; strHi = 0.60f;
+                fireLo = 0.06f; fireHi = 0.30f;
+                riseLo = 62f; riseHi = 108f;
                 tint = new Color(0.58f, 0.59f, 0.62f);
                 break;
             default:  // house_posts: nothing left but charred stumps
-                u = 0.50f; v = 0.50f; size = 0.90f; strength = 0.55f; fire = 0.30f; rise = 68f;
+                // nearly burnt out -> tiny flame, only a thin wisp of smoke
+                u = 0.50f; v = 0.50f;
+                sizeLo = 0.26f; sizeHi = 0.54f;
+                strLo = 0.14f; strHi = 0.32f;
+                fireLo = 0.05f; fireHi = 0.20f;
+                riseLo = 32f; riseHi = 62f;
                 tint = new Color(0.46f, 0.46f, 0.49f);
                 break;
         }
+
+        float size = Mathf.Lerp(sizeLo, sizeHi, GD.Randf());
+        float strength = Mathf.Lerp(strLo, strHi, GD.Randf());
+        float fire = Mathf.Lerp(fireLo, fireHi, GD.Randf());
+        float rise = Mathf.Lerp(riseLo, riseHi, GD.Randf());
+
+        // a bigger building burns bigger: 250px -> 0.72x, 360px -> 1.15x
+        float wScale = 0.72f + Mathf.Clamp((w - 250f) / 110f, 0f, 1f) * 0.43f;
+        size *= wScale;
+        fire *= wScale;
 
         float px = x + u * w;
         float py = GroundY - hgt + v * hgt;
@@ -304,13 +350,35 @@ public partial class JiangqiaoLevel : Node2D
             Tint = tint,
         });
 
+        // a big fire gets a second, thinner column beside the main one, so
+        // the plume is not one symmetric sausage
+        if (size > 1.15f)
+        {
+            float side = Jit(26f) + (GD.Randf() < 0.5f ? -1f : 1f) * 26f;
+            _smokeWorld.Add(new SmokeFx.Source
+            {
+                Pos = new Vector2(px + side, py - GD.Randf() * 14f),
+                Size = size * 0.52f,
+                Strength = strength * 0.55f * dim,
+                Fire = 0f,
+                Rise = rise * 0.72f * (lift > 0f ? 0.7f : 1f),
+                Drift = 0.5f + Jit(0.3f),
+                Phase = GD.Randf(),
+                Tint = tint,
+            });
+        }
+
         // the fire itself sits on the ground under the smoke column
         if (fire > 0.01f)
         {
+        // v3.13: the flame gets its own size, not the smoke column's.
+        // They used to share one number, so a house that rolled a thin
+        // wisp of smoke also got a flame too small to see.
+        float fireSize = 0.45f + fire * 1.35f;
             _smokeWorld.Add(new SmokeFx.Source
             {
-                Pos = new Vector2(px, GroundY - 3f),
-                Size = size * 0.55f,
+                Pos = new Vector2(px + Jit(10f), GroundY - 3f),
+                Size = fireSize,
                 Strength = 0f,
                 Fire = fire * dim,
                 Rise = 0f,
@@ -448,6 +516,13 @@ public partial class JiangqiaoLevel : Node2D
     {
         if (_smokeMid == null) return;
 
+        // v3.13: the distant row used the same size for every house of the same
+        // kind, so the whole village smoked in lockstep. Each one rolls its own
+        // now - a fixed seed keeps the backdrop stable between reloads, but no
+        // two chimneys share a size any more.
+        var rng = new RandomNumberGenerator();
+        rng.Seed = 19311104;
+
         for (int i = 0; i < VillageHouses.Length; i++)
         {
             var h = VillageHouses[i];
@@ -465,12 +540,12 @@ public partial class JiangqiaoLevel : Node2D
                 _smokeMid.Add(new SmokeFx.Source
                 {
                     Pos = new Vector2(ax, ay),
-                    Size = 0.58f,
-                    Strength = 0.72f,
+                    Size = Mathf.Lerp(0.40f, 0.82f, rng.Randf()),
+                    Strength = Mathf.Lerp(0.54f, 0.86f, rng.Randf()),
                     Fire = 0f,
-                    Rise = 44f,
-                    Drift = 0.6f,
-                    Phase = i * 0.37f,
+                    Rise = Mathf.Lerp(32f, 64f, rng.Randf()),
+                    Drift = 0.4f + rng.Randf() * 0.4f,
+                    Phase = i * 0.37f + rng.Randf() * 0.2f,
                     Tint = new Color(0.40f, 0.40f, 0.44f),
                 });
             }
@@ -480,11 +555,11 @@ public partial class JiangqiaoLevel : Node2D
                 _smokeMid.Add(new SmokeFx.Source
                 {
                     Pos = new Vector2(ax, ay),
-                    Size = 0.36f,
-                    Strength = 0.48f,
+                    Size = Mathf.Lerp(0.22f, 0.48f, rng.Randf()),
+                    Strength = Mathf.Lerp(0.28f, 0.58f, rng.Randf()),
                     Fire = 0f,
-                    Rise = 30f,
-                    Drift = 0.4f,
+                    Rise = Mathf.Lerp(20f, 44f, rng.Randf()),
+                    Drift = 0.3f + rng.Randf() * 0.3f,
                     Phase = i * 0.71f + 0.4f,
                     Tint = new Color(0.84f, 0.86f, 0.90f),
                 });
@@ -547,9 +622,14 @@ public partial class JiangqiaoLevel : Node2D
         _game = new Node2D { ZIndex = 0 };
         AddChild(_game);
 
-        // smoke and fire over the near houses: above the houses, below the fighters
-        // v3.8: houses moved up to -1, smoke must ride above them again
-        _smokeWorld = new SmokeFx { ZIndex = 1 };
+        // smoke and fire sit BEHIND the fighters but IN FRONT of the houses.
+        // v3.13: this used to sit at z=1, i.e. above the player (0) and the
+        // enemy (2/3), so the burnt-village black column swallowed anyone
+        // walking past it. The whole stack was pushed down instead:
+        // ground art -5, footprints -4, far houses -3, near houses -2,
+        // smoke -1, player 0. Smoke now reads as a backdrop the characters
+        // walk in front of.
+        _smokeWorld = new SmokeFx { ZIndex = -1 };
         _game.AddChild(_smokeWorld);
         if (DebugNoSmoke) _smokeWorld.Visible = false;
 
@@ -569,15 +649,15 @@ public partial class JiangqiaoLevel : Node2D
             AddChild(wall);
         }
 
-        var art = new GroundArt(this) { ZIndex = -1 };
+        var art = new GroundArt(this) { ZIndex = -5 };
         _game.AddChild(art);
 
         // 尸体（GroundArt 之上、玩家之下）：每场战役都有阵亡者
         AddCorpses();
 
-        // footprint layer at z -1: above the ground art but below corpse/player,
+        // footprint layer: above the ground art but below corpse/player,
         // prints kena stepped on by the body, not covering it
-        _game.AddChild(new FootprintLayer(this) { ZIndex = -1 });
+        _game.AddChild(new FootprintLayer(this) { ZIndex = -4 });
 
         // 掩体沙袋在人之前（ZIndex 5，高于玩家 0 与敌兵 2），
         // 经过时人从垛子后面过，而不是站在垛子顶上。
@@ -1371,8 +1451,23 @@ public partial class JiangqiaoLevel : Node2D
             /// </summary>
             public override void _Process(double delta)
             {
-                QueueRedraw();
+                // v3.13: this used to redraw the sky every single frame. The
+                // sky only depends on DayT, which creeps along at ClockRate, so
+                // most frames painted the exact same pixels. Now it redraws
+                // only when the clock actually moved (or when the window was
+                // resized, which changes the band layout).
+                float t = DayT;
+                var vp = GetViewportRect().Size;
+                if (_drawnT < 0f || Mathf.Abs(t - _drawnT) > 0.0015f || vp != _drawnSize)
+                {
+                    _drawnT = t;
+                    _drawnSize = vp;
+                    QueueRedraw();
+                }
             }
+
+            private float _drawnT = -1f;
+            private Vector2 _drawnSize = new(-1f, -1f);
 
             private static readonly Vector4 NightTop = new(0.05f, 0.07f, 0.13f, 1f);
             private static readonly Vector4 PreDawnTop = new(0.07f, 0.10f, 0.18f, 1f);
@@ -1696,8 +1791,12 @@ public partial class JiangqiaoLevel : Node2D
             // was STILL brighter than the plain (198) and popped as a thick
             // white band in daylight. Texture is darkened in place now; this
             // haze stays weak and long so it only softens, never bands.
-            var haze = VGradient(new Color(0.775f, 0.795f, 0.795f, 0f), new Color(0.775f, 0.795f, 0.795f, 0.42f));
-            DrawTextureRect(haze, Full(-1400, 482, 80), false);
+            // v3.13: the foot is melted by MeltFoot() in the mid layer now.
+            // This far haze is drawn with BandFade instead of one gradient
+            // rect - a gradient rect puts a hard edge on its first row, and
+            // across the whole screen that edge reads as a white line.
+            BandFade(472f, 88f, new Color(0.775f, 0.795f, 0.795f, 0f),
+                                new Color(0.775f, 0.795f, 0.795f, 0.24f));
         }
 
         private List<Vector2> Ridge(float baseY, float amp, Color color, float seed, float f1, float f2)
@@ -1793,6 +1892,38 @@ public partial class JiangqiaoLevel : Node2D
             };
         }
 
+        // 雪山下缘溶解：不用整块渐变矩形，改成很多细条、每条自己算 alpha。
+        // 整块渐变贴图在顶端会留一条硬边，横贯整屏就是一条白线；
+        // 细条没有边，只有渐变，所以山脚是"化进去"而不是"切下去"。
+        private void MeltFoot(Color snow)
+        {
+            const int bands = 64;
+            const float top = 430f;
+            const float bandH = 2.25f;
+            for (int i = 0; i < bands; i++)
+            {
+                float t = (i + 0.5f) / bands;
+                float a = Mathf.SmoothStep(0f, 1f, t) * 0.97f;
+                if (a <= 0.004f) continue;
+                DrawRect(new Rect2(-1400f, top + i * bandH, WorldW + 3800f, bandH + 0.7f),
+                    new Color(snow, a));
+            }
+        }
+
+        // 全宽的渐变带：一样切成细条，每条自己算 alpha。
+        // GradientTexture2D 铺出来的带子，第一行就是硬边 ——
+        // 一条横贯 1280px 的硬边，看着就是"白线"。
+        private void BandFade(float y, float h, Color from, Color to, int bands = 28)
+        {
+            float bh = h / bands;
+            for (int i = 0; i < bands; i++)
+            {
+                float t = (i + 0.5f) / bands;
+                DrawRect(new Rect2(-1400f, y + i * bh, WorldW + 3800f, bh + 0.7f),
+                    from.Lerp(to, t));
+            }
+        }
+
         // —— 中景：雪原、村落、电报杆、树线、烟 ——
         private void DrawMid()
         {
@@ -1806,7 +1937,8 @@ public partial class JiangqiaoLevel : Node2D
             // buried under full-strength snow no matter the tint.
             // v3.8: fade widened to 468-560 so the mountain foot blends over
             // 90px instead of 60 — no leftover bright ledge above the plain.
-            var fade = VGradient(new Color(snow, 0f), new Color(snow, 1f));
+            // v3.13: that single gradient rect is gone (see MeltFoot below) —
+            // its top edge was the hard line across the screen.
             DrawRect(Full(-1400, 560, 258), snow);
 
             // 雪原起伏的亮边与投影
@@ -1818,8 +1950,15 @@ public partial class JiangqiaoLevel : Node2D
                 crest.Add(new Vector2(x, 574 + Mathf.Sin(x * 0.0031f) * 6f + Mathf.Sin(x * 0.011f) * 3f));
             DrawPolyline(crest.ToArray(), new Color(0.88f, 0.91f, 0.92f, 0.26f), 1.6f, true);
             // 只留一条极淡的投影带，别做成一排平行线（会像贴纸）
-            var under = VGradient(new Color(0.60f, 0.67f, 0.71f, 0.18f), new Color(0.60f, 0.67f, 0.71f, 0f));
-            DrawTextureRect(under, Full(-1400, 578, 26), false);
+            // v3.13: 用细条画，两端都是 0，中间才到最深 ——
+            // 整块渐变矩形的首行是硬边，横贯全屏又是一条线。
+            for (int i = 0; i < 26; i++)
+            {
+                float t = i / 25f;
+                float a = Mathf.Sin(t * Mathf.Pi) * 0.18f;
+                DrawRect(new Rect2(-1400f, 578f + i, WorldW + 3800f, 1.8f),
+                    new Color(0.60f, 0.67f, 0.71f, a));
+            }
 
             // 风蚀纹：长而软的灰度条，让雪原不是一整片死白
             for (int i = 0; i < 52; i++)
@@ -1838,7 +1977,16 @@ public partial class JiangqiaoLevel : Node2D
             // came out as a thin smear. Distance haze belongs behind the
             // village anyway — the fog is out on the plain, the houses stand
             // in front of it.
-            DrawTextureRect(fade, Full(-1400, 468, 92), false);
+            //
+            // v3.13: this used to be ONE rect carrying a vertical gradient
+            // (468..560). The panorama still had dark ridge strokes right at
+            // the top of that band, so the moment the overlay stepped in it
+            // cut across the whole screen as one straight bright line right
+            // under the snow range — the "white line" the player pointed at.
+            // Now the foot is dissolved strip by strip: 64 thin bands, each
+            // with its own alpha on a smoothstep. No edge anywhere, only a
+            // gradient, and the range melts into the plain.
+            MeltFoot(snow);
 
             // The distant village: war-torn farmhouses on the open snow.
             //

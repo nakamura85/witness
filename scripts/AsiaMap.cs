@@ -217,12 +217,20 @@ public partial class AsiaMap : Control
     /// <summary>档案栏右列：后面几章要经过的地方（现在只登记，不开放）。</summary>
     private void BuildChapters()
     {
+        // same structured spacing as the header: one VBox owns the column,
+        // separation is guaranteed by the container, not guessed Y offsets
+        var col = new VBoxContainer();
+        col.Position = new Vector2(980, 138);
+        col.CustomMinimumSize = new Vector2(224, 0);
+        col.AddThemeConstantOverride("separation", 12);
+        col.MouseFilter = MouseFilterEnum.Ignore;
+        AddChild(col);
+
         var head = new Label { Text = "章节顺序 · 时间线" };
         head.AddThemeFontSizeOverride("font_size", 13);
         head.AddThemeColorOverride("font_color", new Color(0.30f, 0.26f, 0.21f, 0.60f));
-        head.Position = new Vector2(980, 138);
         head.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(head);
+        col.AddChild(head);
 
         // v2.9: full chronological timeline. The old list started at 1932
         // (731 predecessor), so the column read "731 first, Jiangqiao later".
@@ -248,10 +256,13 @@ public partial class AsiaMap : Control
             var l = new Label { Text = rows[i].Item1 };
             l.AddThemeFontSizeOverride("font_size", 11);
             l.AddThemeColorOverride("font_color", rows[i].Item2 ?? new Color(0.26f, 0.22f, 0.18f, 0.52f));
-            l.Position = new Vector2(980, 162 + i * 24);
             l.MouseFilter = MouseFilterEnum.Ignore;
-            AddChild(l);
+            col.AddChild(l);
         }
+
+        // breathing gap between the list and the footnote
+        var gap = new Control { CustomMinimumSize = new Vector2(0, 10), MouseFilter = MouseFilterEnum.Ignore };
+        col.AddChild(gap);
 
         var note = new Label
         {
@@ -261,9 +272,9 @@ public partial class AsiaMap : Control
         };
         note.AddThemeFontSizeOverride("font_size", 11);
         note.AddThemeColorOverride("font_color", new Color(0.32f, 0.27f, 0.22f, 0.40f));
-        note.Position = new Vector2(980, 414);
+        note.AddThemeConstantOverride("line_spacing", 5);
         note.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(note);
+        col.AddChild(note);
     }
 
     private Button MakeSlip(string text, Vector2 pos, float rotDeg)
@@ -271,12 +282,13 @@ public partial class AsiaMap : Control
         var b = new Button
         {
             Text = text,
-            CustomMinimumSize = new Vector2(212, 104),
-            PivotOffset = new Vector2(106, 52),
+            CustomMinimumSize = new Vector2(212, 108),
+            PivotOffset = new Vector2(106, 54),
             Rotation = Mathf.DegToRad(rotDeg),
             Position = pos,
         };
         b.AddThemeFontSizeOverride("font_size", 15);
+        b.AddThemeConstantOverride("line_spacing", 6);
         var paper = new StyleBoxFlat
         {
             BgColor = new Color(0.92f, 0.87f, 0.74f),
@@ -330,7 +342,9 @@ public partial class AsiaMap : Control
         };
         _toast.AddThemeFontSizeOverride("font_size", 13);
         _toast.AddThemeColorOverride("font_color", new Color(0.55f, 0.20f, 0.16f));
-        _toast.Position = new Vector2(280, 618);
+        // v3.13: slid down with the map block so the toast still clears the
+        // frame bottom edge (611 -> 620) instead of landing on it.
+        _toast.Position = new Vector2(280, 627);
         _toast.MouseFilter = MouseFilterEnum.Ignore;
         _toast.Modulate = new Color(1, 1, 1, 0);
         AddChild(_toast);
@@ -563,10 +577,12 @@ public partial class AsiaMap : Control
         // 不是全球地图，而是一张作战档案图 —— 1931 的北上路线要看得清。
         private const float Lon0 = 113.4f, Lat0 = 19.6f;
         private const float SX = 15.8f, SY = 16.42f;
-        private const float X0 = 58f, Y0 = 608f;
+        private const float X0 = 58f, Y0 = 617f;
 
         // 图框（世界坐标）
-        private static readonly Rect2 Frame = new(57, 97, 534, 514);
+        // v3.13: slid down together with the projection origin so the whole
+        // map block dropped 9px and the header finally has air above it.
+        private static readonly Rect2 Frame = new(57, 106, 534, 514);
 
         public static Vector2 P(float lon, float lat)
             => new(X0 + (lon - Lon0) * SX, Y0 - (lat - Lat0) * SY);
@@ -629,14 +645,22 @@ public partial class AsiaMap : Control
         // —— 第 1 层：纸（桌面木纹由底下的 ColorRect 负责）——
         private void DrawPaper()
         {
-            var sheet = new Rect2(30, 74, 1220, 566);
+                // v3.13: the subtitle used to sit ON the paper - the sheet top edge
+            // was y=74 and the subtitle glyphs ran y=61..73, so the descenders were
+            // literally swallowed by the sheet and the text looked glued to the
+            // grid underneath. The whole map now sits lower: the sheet top moved
+            // 74->90 and the projection origin Y0 moved 608->617, which slides
+            // every drawn element (land, grid, labels, frame) down by the same 9px.
+            // Relative composition inside the map is therefore untouched - only the
+            // block of page above it grew.
+            var sheet = new Rect2(30, 90, 1220, 559);
             DrawRect(new Rect2(sheet.Position + new Vector2(7, 9), sheet.Size), new Color(0, 0, 0, 0.34f));
             DrawRect(sheet, Paper);
 
             // 纸纤维与污渍
             for (int i = 0; i < 240; i++)
             {
-                var p = new Vector2(34 + Hash(i, 1.3f) * 1212, 78 + Hash(i, 9.7f) * 558);
+                var p = new Vector2(34 + Hash(i, 1.3f) * 1212, 94 + Hash(i, 9.7f) * 551);
                 DrawCircle(p, 0.7f + Hash(i, 4.1f) * 1.3f,
                     new Color(0.42f, 0.34f, 0.22f, 0.03f + 0.045f * Hash(i, 2.2f)));
             }

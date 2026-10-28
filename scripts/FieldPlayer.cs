@@ -50,11 +50,19 @@ public partial class FieldPlayer : CharacterBody2D
     private float _invuln;
     private bool _wasOnFloor = true;
 
+    // v3.13 手感：移动速度不再硬切。站着→蹲下→趴下之间用一个 0.14 秒的
+    // 过渡量把速度接起来，先慢下来再压低，读起来像"沉下去"，
+    // 而不是一按键速度从 232 直接掉到 96/55（立绘本身仍是即时切换）。
+    private float _poseBlend;
+
     private const float RunSpeed = 232f;
     private const float CrouchSpeed = 96f;
     private const float ProneSpeed = 55f;
     private const float Gravity = 1980f;
     private const float JumpVel = -610f;
+    // 顶点悬停：接近最高点时重力变轻，跳跃高度与滞空更好控
+    private const float ApexBand = 120f;
+    private const float ApexGravity = 0.62f;
 
     public override void _Ready()
     {
@@ -103,10 +111,20 @@ public partial class FieldPlayer : CharacterBody2D
             if (Mathf.Abs(mx) > 24f) _facing = Mathf.Sign(mx);
         }
 
-        float target = input * (wantProne ? ProneSpeed : crouch ? CrouchSpeed : RunSpeed);
+        // 姿势过渡：速度先跟着姿势慢慢变，不要一按键就"啪"地换速度
+        float poseTarget = wantProne ? 2f : (crouch ? 1f : 0f);
+        _poseBlend = Mathf.MoveToward(_poseBlend, poseTarget, f * 7.2f);
+        float poseSpeed = Mathf.Lerp(RunSpeed, CrouchSpeed, Mathf.Clamp(_poseBlend, 0f, 1f));
+        poseSpeed = Mathf.Lerp(poseSpeed, ProneSpeed, Mathf.Clamp(_poseBlend - 1f, 0f, 1f));
+
+        float target = input * poseSpeed;
         float accel = onFloor ? 1900f : 1100f;
         if (Mathf.Abs(input) < 0.05f || crouch)
             accel = onFloor ? 2600f : 700f;
+        // 转身时脚下要"刹"一下，不然反向输入像滑冰
+        if (Mathf.Abs(input) > 0.05f && Mathf.Abs(Velocity.X) > 40f
+            && Mathf.Sign(input) != Mathf.Sign(Velocity.X))
+            accel *= 0.62f;
         Velocity = new Vector2(Mathf.MoveToward(Velocity.X, target, accel * f), Velocity.Y);
 
         // 跳跃（带 coyote 与输入缓冲，落地/起跳都实在）
@@ -118,10 +136,14 @@ public partial class FieldPlayer : CharacterBody2D
             _jumpBuffer = 0f;
             _coyote = 0f;
         }
-        if (!Input.IsActionPressed("advance") && Velocity.Y < -180f)
-            Velocity = new Vector2(Velocity.X, Velocity.Y * 0.90f); // 松键短跳，重力仍全程生效
+        // 松键短跳：以前乘 0.90，轻点一下也几乎跳满，等于没有"小跳"
+        if (!Input.IsActionPressed("advance") && Velocity.Y < -140f)
+            Velocity = new Vector2(Velocity.X, Velocity.Y * 0.55f);
 
-        Velocity += new Vector2(0, Gravity * f);
+        // 顶点悬停：快到最高点时重力减一档，跳起来更"飘"也更好控高度
+        float g = Gravity;
+        if (Velocity.Y < 0f && Velocity.Y > -ApexBand) g *= ApexGravity;
+        Velocity += new Vector2(0, g * f);
         MoveAndSlide();
 
         if (GlobalPosition.Y > 900f)
