@@ -43,6 +43,10 @@ public partial class CaptureMap : Node
         if (_screen != null) _screen.QueueFree();
         _screen = next;
         _sub.AddChild(next);
+        // same call Main.Swap makes - without it the screen keeps zero size,
+        // the bg photo never fills the frame and the whole menu ends up
+        // squashed into the top-left corner
+        next.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
     }
 
     private Button FindButton(Node root, string prefix)
