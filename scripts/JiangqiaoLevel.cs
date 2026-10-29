@@ -167,9 +167,38 @@ public partial class JiangqiaoLevel : Node2D
     private readonly List<GrenadeProj> _grenades = new();
     private TracerFx _fx;
     private SnowScreen _snow;
-    private SmokeFx _smokeWorld;    // smoke + fire over the near houses (world layer)
+    private SmokeFx _smokeWorld;    // smoke columns, in front of every house
     private SmokeFx _smokeMid;      // chimney smoke over the distant village (parallax mid)
+    private SmokeFx _fireFarIn;     // fire burning INSIDE the far row houses (behind them)
+    private SmokeFx _fireFarOut;    // fire burning outside the far row houses (in front of them)
+    private SmokeFx _fireNearIn;    // fire burning INSIDE the near row houses (behind them)
+    private SmokeFx _fireNearOut;   // fire burning outside the near row houses (in front of them)
     private const float MidFactor = 0.24f;
+
+    /// <summary>
+    /// A person is 114px tall. The soldier art is 108px and both the player
+    /// and the enemy walk around at scale 1.06, so 108 x 1.06 = 114.5.
+    /// Everything in the level that has to sit next to a human - a house
+    /// wall, a bridge - is measured against this number.
+    /// </summary>
+    public const float PersonH = 114.5f;
+
+    /// <summary>
+    /// v3.25: the house rule the user set again - a house that is not burnt
+    /// down stands one and a half man-heights at the eave. Burnt shells and
+    /// charred stumps keep the size they have: a ruin with no wall has no
+    /// wall to measure, and the village only reads as a village while the
+    /// standing houses are the big ones.
+    /// </summary>
+    public const float WallH = PersonH * 1.5f;
+
+    /// <summary>
+    /// v3.25: the bridge is two and a half man-heights tall. Measured from
+    /// the snow line it stands on up to the top of the truss - that is the
+    /// height the eye reads, and it is what puts the span over the person's
+    /// head instead of at his shoulder.
+    /// </summary>
+    public const float BridgeH = PersonH * 2.5f;
 
     // viewport 1280x720 -> half width 640 / half height 360.
     // used when the camera clamps itself: the lens must not cross the left
@@ -267,21 +296,23 @@ public partial class JiangqiaoLevel : Node2D
     /// </summary>
     private void BuildHouses()
     {
-        // v3.5 person-scale audit: player stands 108px. near-row houses land
-        // 1.6-2.0 person heights (user rule: 1.5-2), far row 1.0-1.6 so they
-        // read as distant buildings, not dollhouse props.
-        // far row: scenery ruins, cannot enter (lift > 0 = reads further away)
+        // v3.25 person-scale audit. The user set the house rule again:
+        // a house that is not burnt down stands 1.5 man-heights at the eave.
         //
-        // v3.19: the v3.5 audit measured to the roof ridge. What the player
-        // actually compares against is the eave, and there the intact house
-        // measured 112px of wall against a 108px soldier - 1.03, so a man
-        // standing in front of it came out the same height as the building.
-        // A village wall is about one and a half times a person, so the
-        // full-wall houses are enlarged 1.25x and the soldiers come down to
-        // 0.87, which puts the wall at 1.49 person heights. The burnt stumps
-        // keep their size - a ruin with no wall has no wall to measure.
-        // The positions shift by 40-64px so the enlarged footprints still
-        // clear each other.
+        // v3.19 did the same arithmetic but the soldier was on 0.87 back
+        // then, so "1.49 heights" meant a 140px wall against a 94px man.
+        // The soldier is 1.06 now (114px) and the wall had stayed at 140px,
+        // so the house had quietly shrunk to 1.02 man-heights - in the
+        // capture the man in front of the farmhouse was exactly as tall as
+        // the farmhouse.
+        //
+        // The rule is measured at the eave, not at the ridge: the eave is
+        // the line the eye actually compares a person against, and a ridge
+        // at 1.5 man-heights would be a doghouse.
+        //
+        // The burnt ones keep the size they have. A shell with no roof and
+        // a stump field have no wall to measure, and the standing houses
+        // have to stay the big ones or the village reads flat.
         AddHouse("f1", 460f + Jit(28), "house_posts", 250f, false, 14f);
         AddHouse("f2", 1294f + Jit(42), "house_skeleton_near", 350f, false, 16f);
         AddHouse("f4", 1680f + Jit(45), "house_posts", 210f, false, 19f);
@@ -291,10 +322,42 @@ public partial class JiangqiaoLevel : Node2D
         // "the house that still looks whole got the goods" lah.
         // h3 sits fixed (no jitter) so the gap after it stays open for the
         // crater + fallen soldier vignette next to it.
-        AddHouse("h1", 845f + Jit(24), "house_ruined_near", 412f, true, 0f);
-        AddHouse("h3", 1925f, "house_intact_near", 390f, true, 0f);
+        AddHouse("h1", 845f + Jit(24), "house_ruined_near", HouseWidthForWall("house_ruined_near", WallH), true, 0f);
+        AddHouse("h3", 1925f, "house_intact_near", HouseWidthForWall("house_intact_near", WallH), true, 0f);
         AddHouse("h4", 3244f + Jit(45), "house_posts", 320f, false, 0f);
         AddHouse("h2", 2760f, "house_burned_near", 450f, true, 0f);
+    }
+
+    /// <summary>
+    /// Which row of the house texture the eave sits on - the line where the
+    /// roof closes and the wall starts. Measured off the paintings with a
+    /// row scan (the roof silhouette keeps widening until that row, then
+    /// snaps back to the wall width).
+    ///
+    /// intact 1531x995 -> eave row 495, ruined 1467x918 -> eave row 460.
+    /// </summary>
+    private static readonly Dictionary<string, float> HouseEaveRow = new()
+    {
+        ["house_intact_near"] = 495f,
+        ["house_ruined_near"] = 460f,
+    };
+
+    /// <summary>
+    /// How wide the house has to be drawn so its wall stands <paramref name="wallPx"/>
+    /// tall between the eave and the snow line.
+    ///
+    /// The house node sits 8px sunk into the snow and the feet line is 2px
+    /// above the snow, so the wall measures (h * (1 - eave/texH)) - 10. The
+    /// texture is drawn straight, so w = h * texW / texH.
+    /// </summary>
+    private static float HouseWidthForWall(string tex, float wallPx)
+    {
+        if (!HouseEaveRow.TryGetValue(tex, out float eave)) return 400f;
+        var t = GD.Load<Texture2D>($"res://assets/art/props/{tex}.png");
+        if (t == null) return 400f;
+        var sz = t.GetSize();
+        float h = (wallPx + 10f) / (1f - eave / sz.Y);
+        return h * sz.X / sz.Y;
     }
 
     /// <summary>
@@ -309,6 +372,23 @@ public partial class JiangqiaoLevel : Node2D
     /// decides the range, the building width scales it up, and a random pick
     /// inside the range settles the final look. A house that is nearly burnt
     /// out rolls a tiny flame and only a thread of smoke left.
+    ///
+    /// v3.25: the fire is split in two, because a flame has to sit either in
+    /// front of a wall or behind it - never in the same layer as the house.
+    /// The user spelled it out: fire burning inside the house has to be
+    /// drawn UNDER the house layer, fire burning outside has to be drawn
+    /// OVER it. Before this every flame shared the single smoke layer, which
+    /// sat in front of the houses, so a fire that was supposed to be inside
+    /// a burnt shell was pasted on top of the wall.
+    ///
+    /// So the fire goes into its own layers:
+    ///   - the fire anchored on the house itself is drawn BEHIND the house,
+    ///     so the wall and the charred beams cross in front of the flame
+    ///     and the house reads as burning from the inside;
+    ///   - the fire on the ground in front of the house is drawn IN FRONT of
+    ///     the house, so it licks up over the wall.
+    /// The smoke column is neither - it climbs into the air, so it stays in
+    /// front of everything and drifts over the roof.
     /// </summary>
     private void AddHouseSmoke(EnterableHouse h, string tex, float x, float w, float lift)
     {
@@ -324,6 +404,10 @@ public partial class JiangqiaoLevel : Node2D
         float strLo = 0.5f, strHi = 0.7f;
         float fireLo = 0f, fireHi = 0f;
         float riseLo = 70f, riseHi = 90f;
+        // where the fire burns inside the house, in texture fractions. The
+        // points are the real openings cut into the paintings, so the wall
+        // frame crosses in front of the flame instead of hiding it.
+        Vector2[] inner = System.Array.Empty<Vector2>();
         var tint = new Color(0.72f, 0.73f, 0.75f);
         switch (tex)
         {
@@ -345,6 +429,8 @@ public partial class JiangqiaoLevel : Node2D
                 fireLo = 0.42f; fireHi = 0.95f;
                 riseLo = 108f; riseHi = 178f;
                 tint = new Color(0.33f, 0.32f, 0.34f);
+                // the two big burnt-out window holes on the left bay
+                inner = new[] { new Vector2(0.251f, 0.585f), new Vector2(0.315f, 0.580f) };
                 break;
             case "house_skeleton_near":
                 // frame still standing, burning hard
@@ -354,6 +440,8 @@ public partial class JiangqiaoLevel : Node2D
                 fireLo = 0.28f; fireHi = 0.80f;
                 riseLo = 118f; riseHi = 190f;
                 tint = new Color(0.38f, 0.38f, 0.41f);
+                // the two big gaps between the standing posts
+                inner = new[] { new Vector2(0.157f, 0.585f), new Vector2(0.251f, 0.575f) };
                 break;
             case "house_ruined_near":
                 // mostly done, only embers left in the shell
@@ -363,6 +451,9 @@ public partial class JiangqiaoLevel : Node2D
                 fireLo = 0.06f; fireHi = 0.30f;
                 riseLo = 62f; riseHi = 108f;
                 tint = new Color(0.58f, 0.59f, 0.62f);
+                // the wall of this one has no opening cut into it at all, so
+                // there is nothing for an inside fire to show through - it
+                // burns on the snow in front of the ruin instead
                 break;
             default:  // house_posts: nothing left but charred stumps
                 // nearly burnt out -> tiny flame, only a thin wisp of smoke
@@ -390,12 +481,13 @@ public partial class JiangqiaoLevel : Node2D
         // far row sits deeper in the haze: smaller, dimmer
         float dim = lift > 0f ? 0.6f : 1f;
 
+        // the column is pure smoke now - the fire lives in its own layers
         _smokeWorld.Add(new SmokeFx.Source
         {
             Pos = new Vector2(px, py),
             Size = size * (lift > 0f ? 0.7f : 1f),
             Strength = strength * dim,
-            Fire = fire * dim,
+            Fire = 0f,
             Rise = rise * (lift > 0f ? 0.7f : 1f),
             Drift = 0.5f + Jit(0.25f),
             Phase = GD.Randf(),
@@ -420,24 +512,53 @@ public partial class JiangqiaoLevel : Node2D
             });
         }
 
-        // the fire itself sits on the ground under the smoke column
-        if (fire > 0.01f)
-        {
         // v3.13: the flame gets its own size, not the smoke column's.
         // They used to share one number, so a house that rolled a thin
         // wisp of smoke also got a flame too small to see.
         float fireSize = 0.45f + fire * 1.35f;
-            _smokeWorld.Add(new SmokeFx.Source
+
+        // the fire inside the house: drawn BEHIND the house layer, so the
+        // wall and the charred beams cross in front of the flame
+        if (fire > 0.01f && inner.Length > 0)
+        {
+            var inLayer = lift > 0f ? _fireFarIn : _fireNearIn;
+            if (inLayer != null)
             {
-                Pos = new Vector2(px + Jit(10f), GroundY - 3f),
-                Size = fireSize,
-                Strength = 0f,
-                Fire = fire * dim,
-                Rise = 0f,
-                Drift = 0f,
-                Phase = GD.Randf(),
-                Tint = tint,
-            });
+                foreach (var ip in inner)
+                {
+                    inLayer.Add(new SmokeFx.Source
+                    {
+                        Pos = new Vector2(x + ip.X * w, GroundY - hgt + ip.Y * hgt),
+                        Size = fireSize * 0.85f,
+                        Strength = 0f,
+                        Fire = fire * dim,
+                        Rise = 0f,
+                        Drift = 0f,
+                        Phase = GD.Randf(),
+                        Tint = tint,
+                    });
+                }
+            }
+        }
+
+        // the fire itself sits on the ground under the smoke column
+        if (fire > 0.01f)
+        {
+            // drawn IN FRONT of the house layer - this flame is on the snow
+            // outside the building, so it has to lick up over the wall
+            var outLayer = lift > 0f ? _fireFarOut : _fireNearOut;
+            if (outLayer != null)
+                outLayer.Add(new SmokeFx.Source
+                {
+                    Pos = new Vector2(px + Jit(10f), GroundY - 3f),
+                    Size = fireSize,
+                    Strength = 0f,
+                    Fire = fire * dim,
+                    Rise = 0f,
+                    Drift = 0f,
+                    Phase = GD.Randf(),
+                    Tint = tint,
+                });
         }
     }
 
@@ -680,16 +801,40 @@ public partial class JiangqiaoLevel : Node2D
         _game = new Node2D { ZIndex = 0 };
         AddChild(_game);
 
-        // smoke and fire sit BEHIND the fighters but IN FRONT of the houses.
-        // v3.13: this used to sit at z=1, i.e. above the player (0) and the
-        // enemy (2/3), so the burnt-village black column swallowed anyone
-        // walking past it. The whole stack was pushed down instead:
-        // ground art -5, footprints -4, far houses -3, near houses -2,
-        // smoke -1, player 0. Smoke now reads as a backdrop the characters
-        // walk in front of.
+        // v3.25: the stack got two more rungs, because a flame has to sit
+        // either behind a house or in front of it and the old single smoke
+        // layer could not do both at once.
+        //
+        //   ground art   -10   snow, rails, craters, the bridge
+        //   footprints    -8   prints on the snow
+        //   fire in far   -7   burning INSIDE the far row houses
+        //   far houses    -6   the scenery ruins, further away
+        //   fire out far  -5   burning outside the far row houses
+        //   fire in near  -4   burning INSIDE the near row houses
+        //   near houses   -3   the ones the player can walk into
+        //   fire out near -2   burning outside the near row houses
+        //   smoke         -1   columns, they climb over the roofs
+        //   people         0   player, enemies, corpses
+        //
+        // Smoke still reads as a backdrop the characters walk in front of.
+        _fireFarIn = new SmokeFx { ZIndex = -7 };
+        _game.AddChild(_fireFarIn);
+        _fireFarOut = new SmokeFx { ZIndex = -5 };
+        _game.AddChild(_fireFarOut);
+        _fireNearIn = new SmokeFx { ZIndex = -4 };
+        _game.AddChild(_fireNearIn);
+        _fireNearOut = new SmokeFx { ZIndex = -2 };
+        _game.AddChild(_fireNearOut);
         _smokeWorld = new SmokeFx { ZIndex = -1 };
         _game.AddChild(_smokeWorld);
-        if (DebugNoSmoke) _smokeWorld.Visible = false;
+        if (DebugNoSmoke)
+        {
+            _fireFarIn.Visible = false;
+            _fireFarOut.Visible = false;
+            _fireNearIn.Visible = false;
+            _fireNearOut.Visible = false;
+            _smokeWorld.Visible = false;
+        }
 
         var floor = new StaticBody2D { Position = new Vector2(WorldW * 0.5f, GroundY + 120f) };
         var fs = new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(WorldW + 800f, 240f) } };
@@ -707,7 +852,7 @@ public partial class JiangqiaoLevel : Node2D
             AddChild(wall);
         }
 
-        var art = new GroundArt(this) { ZIndex = -5 };
+        var art = new GroundArt(this) { ZIndex = -10 };
         _game.AddChild(art);
 
         // 尸体（GroundArt 之上、玩家之下）：每场战役都有阵亡者
@@ -715,7 +860,7 @@ public partial class JiangqiaoLevel : Node2D
 
         // footprint layer: above the ground art but below corpse/player,
         // prints kena stepped on by the body, not covering it
-        _game.AddChild(new FootprintLayer(this) { ZIndex = -4 });
+        _game.AddChild(new FootprintLayer(this) { ZIndex = -8 });
 
         // 掩体沙袋在人之前（ZIndex 5，高于玩家 0 与敌兵 2），
         // 经过时人从垛子后面过，而不是站在垛子顶上。
@@ -727,7 +872,7 @@ public partial class JiangqiaoLevel : Node2D
     private void AddCorpses()
     {
         // 尸体散布点：弹坑旁、战壕边、烧毁房前、桥头、铁丝网附近
-        // CorpseActor ZIndex = -5（GroundArt 之上、玩家 0 之下）
+        // CorpseActor ZIndex = 0（跟玩家同层，站在房子和雪地前面）
 
         // 1. 弹坑旁（日军，身体朝右倒向弹坑）
         // v3.19: the fixed tilts here used to run up to 0.22 rad. The corpse
@@ -1327,18 +1472,30 @@ public partial class JiangqiaoLevel : Node2D
         _hud.Toast("前方雪梁后出现关东军尖兵");
     }
 
+    /// <summary>
+    /// 敌人的景深比例。同一个波次里三个人站三条 lane，lane 越小站得越远，
+    /// 越远的人要明显小一号 —— 不然三个人站一排像三胞胎，一眼假。
+    /// 玩家站在最前面那一层（1.0），远一排 0.82，更远一排 0.92。
+    /// </summary>
+    private static float EnemyScaleForLane(float lane)
+    {
+        if (lane < -1f) return 1.06f * 0.82f;   // 最远的一排
+        if (lane > 1f) return 1.06f * 1.00f;    // 最近的一排，跟玩家同层
+        return 1.06f * 0.92f;                   // 中间
+    }
+
     private void SpawnEnemy(float x, float lane)
     {
         if (x > WorldW - 120f) x = WorldW - 120f;
         var e = new EnemySoldier(this, new Vector2(x, GroundY), lane);
-        // 敌人体型与玩家统一（玩家 1.06f），景深用 Modulate 淡化
-        // v3.19: was 1.22, matching the old player scale. The soldier is now
-        // 94px, which puts the eave of a village house at 1.49 soldier
-        // heights instead of the old 1.03 - a man in front of a house has to
-        // be visibly shorter than the building.
-        e.Scale = new Vector2(1.06f, 1.06f);
-        e.Modulate = lane < 0f 
-            ? new Color(0.86f, 0.87f, 0.88f, 1f) 
+        // v3.25: the far lane used to be the same size as the near one and
+        // only a little paler, so three men of the same height stood in a
+        // row at three different depths and the whole depth read collapsed.
+        // Now the lane decides the size as well as the tint: the further
+        // back a man stands the smaller he is, the closer the bigger.
+        e.Scale = new Vector2(EnemyScaleForLane(lane), EnemyScaleForLane(lane));
+        e.Modulate = lane < 0f
+            ? new Color(0.86f, 0.87f, 0.88f, 1f)
             : new Color(0.97f, 0.97f, 0.98f, 1f);
         _game.AddChild(e);
         _enemies.Add(e);
@@ -3104,9 +3261,41 @@ public partial class JiangqiaoLevel : Node2D
             if (_bridgeTex != null)
             {
                 var bsz = _bridgeTex.GetSize();
-                float bh = 420f;
+                // v3.25: the user set the size rule - the bridge is 2.5 man
+                // heights tall. Measured from the snow line it stands on up
+                // to the top of the truss, because that is the height the
+                // eye reads; the piers go down into the river ice and are
+                // not part of the silhouette.
+                //
+                // Before this the truss top stood 179px over the snow - 1.57
+                // man heights - so the span came up to the shoulder of the
+                // man walking towards it.
+                //
+                // The texture cannot simply be scaled up: it is 1530x812 and
+                // the span only has 800px of world to sit in, so a uniform
+                // 1.55x would push the burnt-out middle of the truss off the
+                // right edge of the level. Instead the truss is drawn DEEPER
+                // (stretched vertically) and the piers keep their own
+                // proportions - a deeper truss is what a big railway bridge
+                // looks like anyway, and the concrete stays a squat pier
+                // instead of turning into a stick.
+                const float bh = 420f;               // whole texture, unchanged scale
                 float bw = bh * bsz.X / bsz.Y;
-                float bx = start + (end - start - bw) * 0.5f;
+                // v3.25: the span moved 48px east. The painting already
+                // carries a concrete pier for the west end, but the deck of
+                // the texture runs on past it - the girder under the last
+                // 45px of the deck had nothing under it and the span read
+                // as a piece of bridge dropped in the field and stopping
+                // in mid air over the snow.
+                //
+                // Instead of bolting a grey slab onto the side (the v3.15
+                // abutment, which the player called a stray box), the span
+                // is simply set down on the pier that is already in the
+                // painting. The west end of the deck now lands on the
+                // concrete, and the bank edge of the frozen river sits just
+                // under it - so the bridge is standing on the ground
+                // instead of hovering over it.
+                float bx = start + (end - start - bw) * 0.5f + 48f;
                 // v3.17 seat fix: the old note claimed the deck sits at 53% of
                 // the texture height and put row 430 on the rail line. A row
                 // scan of bridge.png says otherwise - the truss runs 0-340,
@@ -3118,8 +3307,15 @@ public partial class JiangqiaoLevel : Node2D
                 // nothing to do with each other. Seat row 355 on the rail
                 // line instead and the rails run onto the bridge.
                 const float deckRow = 355f;
+                const float apexRow = 10f;          // where the truss reaches its top
                 float scale = bh / bsz.Y;
-                float rectTop = (GroundY - 1f) - deckRow * scale;
+
+                // how deep the truss has to be so its top stands BridgeH
+                // above the snow line
+                float trussScale = (BridgeH - 1f) / (deckRow - apexRow);
+                float trussH = deckRow * trussScale;
+                float trussTop = (GroundY - 1f) - deckRow * trussScale;
+
                 // v3.21: the bridge art is a photoreal render while the whole
                 // level is watercolour, and next to the painted houses it
                 // read as a different game - the player called it a pyramid
@@ -3134,15 +3330,30 @@ public partial class JiangqiaoLevel : Node2D
                 // pass I made over it - desaturating it, flattening the
                 // shading, washing it in blue - only pushed it further from
                 // the level. It is back to the plain texture, untouched.
-                DrawTextureRect(_bridgeTex, new Rect2(bx, rectTop, bw, bh), false);
+                // The two halves meet exactly on the deck row, so there is no
+                // seam where the deeper truss hands over to the piers.
+                DrawTextureRectRegion(_bridgeTex,
+                    new Rect2(bx, trussTop, bw, trussH),
+                    new Rect2(0f, 0f, bsz.X, deckRow));
+                // the deck and the piers keep the original scale, so the
+                // concrete does not turn into a tall thin post
+                float pierH = (bsz.Y - deckRow) * scale;
+                DrawTextureRectRegion(_bridgeTex,
+                    new Rect2(bx, GroundY - 1f, bw, pierH),
+                    new Rect2(0f, deckRow, bsz.X, bsz.Y - deckRow));
 
-                // v3.15: the code-drawn west abutment is gone for good. It was
-                // a flat grey slab with no texture, parked about 100px left of
-                // the pier bridge.png already draws - so it read as a stray
-                // grey box in front of the sandbag wall, and it sliced the
-                // truss leg off at deck level. The texture's own concrete
-                // pier carries the span, no need for a second support.
+                // v3.25: the west end of the span used to die in mid air.
+                // The first concrete pier of the texture stands 46px in
+                // from the end of the deck, and there is nothing under that
+                // 46px - the river ice only starts further east - so the
+                // deck stopped over open snow with its underside showing.
+                // The user said the bridge has to sit ON the snow.
                 //
+                // An abutment carries the end of the deck down into the
+                // bank now: a concrete block in the same tone the piers
+                // use, a snow cap on top of it and a couple of ink lines
+                // for the edges, so it belongs to the level and does not
+                // read as a second art style dropped next to the render.
                 // v3.19: the "fresh snow line on the deck edge" is gone too.
                 // It was a straight 3px white DrawLine running 788px from
                 // 4406 to 5194 at a fixed height - the deck edge is not
@@ -3171,6 +3382,7 @@ public partial class JiangqiaoLevel : Node2D
                     new Rect2(-20f, -20f, 40f, 40f), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 return;
+                            return;
             }
 
             // 远端桁架（偏后，颜色淡 + 墨边更细）——完好

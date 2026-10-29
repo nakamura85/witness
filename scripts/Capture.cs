@@ -162,7 +162,13 @@ public partial class Capture : Node
             SaveShot("capture_10b_chimney_moved.png");
             _stage = 17;
         }
-        else if (_stage == 17 && (PlayerX() > 4300f || _t > 42f))
+        else if (_stage == 17 && (PlayerX() > 2400f || _t > 24f))
+        {
+            GD.Print("CAPTURE stage17 -> shot burned house x="+PlayerX());
+            SaveShot("capture_10c_burnedhouse.png");
+            _stage = 18;
+        }
+        else if (_stage == 18 && (PlayerX() > 4300f || _t > 42f))
         {
             // v3.15: was PlayerX() > 2760 - that fired while the runner was
             // still halfway down the level, so the "burnt village" frame
@@ -170,11 +176,11 @@ public partial class Capture : Node
             // bridge often fell outside the shot. Wait until he reaches the
             // bridge itself so the frame always shows the burnt village AND
             // the span, and stops drifting from run to run.
-            GD.Print("CAPTURE stage17 -> shot burnt village x="+PlayerX());
+            GD.Print("CAPTURE stage18 -> shot burnt village x="+PlayerX());
             SaveShot("capture_11_burnt.png");
-            _stage = 18;
+            _stage = 19;
         }
-        else if (_stage == 18 && _t > 31f)
+        else if (_stage == 19 && _t > 46f)
         {
             GD.Print("CAPTURE done");
             GetTree().Quit();

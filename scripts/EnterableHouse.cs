@@ -84,10 +84,12 @@ public partial class EnterableHouse : Node2D
         // v3.8: near row now draws IN FRONT of the ground art (the railway
         // band is part of it), so the track passes behind the village houses
         // instead of slicing through their front walls.
-        // v3.13: near houses were -1 and far ones -2; the whole stack moved
-        // down one notch so the smoke layer (-1) can sit in front of the
-        // houses while still staying behind the characters (0).
-        ZIndex = lift > 0f ? -3 : -2;
+        // v3.25: the whole stack was renumbered, because a flame has to be
+        // able to sit behind a wall AND in front of one. The row reads
+        // ground art -10, footprints -8, fire inside the far row -7, far
+        // houses -6, fire outside the far row -5, fire inside the near row
+        // -4, near houses -3, fire outside the near row -2, smoke -1.
+        ZIndex = lift > 0f ? -6 : -3;
     }
 
     private static Texture2D LoadTex(string name)
