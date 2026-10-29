@@ -3239,33 +3239,88 @@ public partial class JiangqiaoLevel : Node2D
                         new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
             }
 
-            // v3.25: the track on the bridge deck. The painting shows a bare
-            // steel plate with snow along its edge, so there is no ballast
-            // there - but the track has to keep its rhythm across the joint
-            // or the line looks like it stops at the bridge. The same ties
-            // carry on over the deck, just shallower, because on a steel
-            // deck the ties are laid flat instead of sunk in ballast.
-            // They go in BEFORE the rails, so the rails stay on top of them
-            // exactly like they are on the open field.
-            for (float x = 2400f; x < trackEnd; x += 34f)
+            // v3.26: the deck plate.
+            //
+            // The span used to get a flat band of tan sleepers laid straight
+            // onto the texture's riveted girder web. Two full-width bands of
+            // contrasting tone with nothing between them - a tan strip lying
+            // on a dark strip - and the eye read the bridge as having TWO
+            // roads on it. The user called it "one of them is a texture and
+            // the rail is painted on, so it looks like the bridge has two
+            // paths".
+            //
+            // A railway bridge carries its track on a steel deck plate, and
+            // the plate is part of the structure: rail on sleeper, sleeper
+            // on plate, plate on main girder. Drawing that plate here - in
+            // the level's own InkStyle - slots a third, clearly structural
+            // layer between the track and the girder, so the track reads as
+            // ONE continuous line running from the field onto the span.
+            //
+            // The plate's top edge IS the rail line, so the two sit exactly
+            // on each other and the joint with the field track is seamless.
+            const float plateH = 13f;
+            var plate = new[]
             {
-                if (x < fieldEnd) continue;
-                // the same tone as the field's sleepers, so the two halves
-                // of the track are one line and not two kinds of wood
-                int tk = Mathf.RoundToInt((x - 2400f) / 34f);
-                float shade = 0.40f + 0.06f * Mathf.Sin(tk * 3.7f);
-                InkStyle.InkRect(this, new Rect2(x, railY + 3f, 22, 9),
-                    new Color(shade, shade * 0.80f, shade * 0.60f), InkStyle.InkColor, InkStyle.ThinStroke);
-            }
-            // a dark seat under the rails, and the last stretch of ballast
-            // tapering into it
+                new Vector2(fieldEnd - 30f, railY + 1f),
+                new Vector2(trackEnd, railY + 1f),
+                new Vector2(trackEnd, railY + 1f + plateH),
+                new Vector2(fieldEnd - 30f, railY + 1f + plateH),
+            };
+            // steel base - a step darker than the snow, a step lighter than
+            // the girder web below it, so the three layers separate
+            DrawColoredPolygon(plate, new Color(0.31f, 0.34f, 0.37f));
+            // the top flange catches the flat winter light
             DrawColoredPolygon(new[]
             {
+                new Vector2(fieldEnd - 30f, railY + 1f),
+                new Vector2(trackEnd, railY + 1f),
+                new Vector2(trackEnd, railY + 4f),
+                new Vector2(fieldEnd - 30f, railY + 4f),
+            }, new Color(0.47f, 0.51f, 0.54f));
+            // closed ink outline - the plate is a cut steel edge, it reads as
+            // one plate and not as a loose stripe
+            var plateEdge = new List<Vector2>(plate) { plate[0] };
+            DrawPolyline(plateEdge.ToArray(), InkStyle.InkColor, 2.2f, true);
+            // the last stretch of ballast tapers into the plate instead of
+            // stopping dead at it
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(fieldEnd - 104f, railY + 2f),
                 new Vector2(fieldEnd - 26f, railY + 2f),
-                new Vector2(trackEnd, railY + 2f),
-                new Vector2(trackEnd, railY + 9f),
-                new Vector2(fieldEnd - 26f, railY + 11f),
-            }, new Color(0.30f, 0.28f, 0.25f, 0.55f));
+                new Vector2(fieldEnd - 26f, railY + 12f),
+                new Vector2(fieldEnd - 104f, railY + 22f),
+            }, new Color(0.73f, 0.755f, 0.765f, 0.5f));
+
+            // v3.26: the sleepers on the span go through the SAME routine as
+            // the sleepers on the field - same wood tone, same height
+            // jitter, same shadow strip, same snow on top. The old bridge
+            // sleepers were a flat un-jittered 9px tan bar, and a perfect
+            // repeating row of flat bars reads as a painted stripe rather
+            // than as track. One rhythm, one material, field to span.
+            for (float x = fieldEnd; x < trackEnd; x += 34f)
+            {
+                int tk = Mathf.RoundToInt((x - 2400f) / 34f);
+                float jy = Mathf.Sin(tk * 12.9898f) * 2.2f;
+                float shade = 0.40f + 0.06f * Mathf.Sin(tk * 3.7f);
+                bool charred = NearRailDmg(x + 11f, 30f);
+                var wood = charred
+                    ? new Color(0.17f, 0.14f, 0.12f)
+                    : new Color(shade, shade * 0.80f, shade * 0.60f);
+                // laid flat on the steel plate: thinner than the field ties,
+                // which are sunk in ballast
+                var r = new Rect2(x, railY + 3f + jy, 22, 10f);
+                InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
+                // shadow edge, lower-left away from the light
+                InkStyle.InkRect(this, new Rect2(x - 2, r.Position.Y + 5f, 22, 4f),
+                    new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                // thin snow on the sleeper top, phase-shifted exactly like the
+                // field ties, so the two halves of the line carry the same
+                // hand-placed rhythm
+                if (!charred && Mathf.Sin(tk * 7.31f) > -0.2f)
+                    DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
+                        new Vector2(x + 20, r.Position.Y + 1.2f),
+                        new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
+            }
 
             // two parallel rails: broken at the craters, drawn as short intact
             // segments with steel sheen. snow caps sit on top in short patches.
@@ -3307,12 +3362,23 @@ public partial class JiangqiaoLevel : Node2D
             DrawTornTrackEnd(trackEnd, railY);
 
             // 轨顶积雪：短促的亮段（不是通条白线，雪是被风一段段吹积的），避开被炸断处
+            //
+            // v3.26: on the span these segments used to be exactly as bright
+            // and as long as the ones on the field. Against the flat dark
+            // deck plate that reads as DASHED LANE MARKINGS on a road - and
+            // that is half of what made the bridge look like it carried two
+            // roads. Over the span they are shorter, thinner and half as
+            // opaque: snow lying on a rail in the open, not paint on a
+            // carriageway.
             for (float sx = 2420; sx < trackEnd; sx += 88)
             {
                 if (OnRailCrater(sx) || NearRailDmg(sx, 20f)) continue;
-                float seg = 14f + Mathf.Sin(sx * 0.07f) * 8f;
+                bool onSpan = sx >= fieldEnd;
+                float seg = onSpan ? 8f + Mathf.Sin(sx * 0.07f) * 4f : 14f + Mathf.Sin(sx * 0.07f) * 8f;
+                float wid = onSpan ? 1.6f : 2.4f;
+                float alp = onSpan ? 0.42f : 0.85f;
                 DrawLine(new Vector2(sx, railY - 1.2f), new Vector2(sx + seg, railY - 1.2f),
-                    new Color(0.96f, 0.97f, 0.97f, 0.85f), 2.4f, true);
+                    new Color(0.96f, 0.97f, 0.97f, alp), wid, true);
             }
 
             // scattered gravel / ice specks on the ballast so it isn't a flat wash
