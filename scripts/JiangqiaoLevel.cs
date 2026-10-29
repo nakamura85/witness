@@ -2754,6 +2754,20 @@ public partial class JiangqiaoLevel : Node2D
         private float[] _crateRot = System.Array.Empty<float>();
         private int[] _railSkipIdx = System.Array.Empty<int>();       // 被去掉的枕木序号（破损感）
         private float[] _railDmgX = System.Array.Empty<float>();      // shell damage spots along the whole rail line
+
+        /// <summary>
+        /// Where the span stands in world coordinates, measured off
+        /// bridge.png (1530x812, drawn with a vertical scale of 420/812 and
+        /// shifted 48px east): the deck starts at source column 9 and the
+        /// collapsed span begins at source column 870.
+        ///
+        /// v3.25: the railway needs both numbers. The track has to run
+        /// onto the deck and stop at the wreck - otherwise the line is cut
+        /// off in front of the bridge and the two read as two pictures
+        /// laid side by side with nothing joining them.
+        /// </summary>
+        private const float BridgeDeckX = 4457f;
+        private const float BridgeWreckX = 4902f;
         private int[] _trussSkipDiags = System.Array.Empty<int>();    // 桥桁架被去掉的斜腹杆
         private int[] _pierDamageIdx = System.Array.Empty<int>();     // 被炮弹蹭过的桥墩（画烧黑斑）
 
@@ -2814,9 +2828,12 @@ public partial class JiangqiaoLevel : Node2D
 
             // shell damage strung out along the whole run of track, not only
             // where the big craters sit - shelling never lands in one spot
+            // v3.25: it stops before the bridge. The track on the span has
+            // no sleepers to twist, and the twisted stubs would have been
+            // painted over the deck.
             var railDmg = new List<float>();
             float dmgX = 2620f;
-            while (dmgX < WorldW - 120f)
+            while (dmgX < BridgeDeckX - 90f)
             {
                 bool nearCrater = false;
                 for (int i = 0; i < _craterX.Length; i++)
@@ -2865,12 +2882,18 @@ public partial class JiangqiaoLevel : Node2D
             }
 
             DrawRiverIce();
+            // v3.25: the span is laid down BEFORE the track now. It used to
+            // be painted over the rails, which cut the line dead in front
+            // of the bridge - the user called it "the bridge and the rails
+            // do not connect, a texture just stuck on top with nothing
+            // linking them". With the bridge down first the railway can
+            // run onto the deck and stop where the span is blown apart.
+            DrawBridge();
             DrawRailway();
             DrawSupplyCart();
 
             DrawCraters();
             DrawRailBlastDamage();
-            DrawBridge();
             DrawTrenchLines();
         }
 
@@ -3103,6 +3126,23 @@ public partial class JiangqiaoLevel : Node2D
             var skip = new HashSet<int>(_railSkipIdx);
             float railY = GroundY - 1f;
 
+            // v3.25: the track now runs ONTO the bridge.
+            //
+            //   fieldEnd - the open field's ballast bed and its sleepers
+            //              stop at the west end of the deck. A railway
+            //              bridge carries its track on a steel plate, it
+            //              has no ballast and no sleepers.
+            //   trackEnd - the rails carry on across the deck and stop
+            //              where the span is blown apart. Past that there
+            //              is no bridge left to run on.
+            //
+            // Before this the whole line was drawn first and the bridge
+            // was painted over the end of it, so the track stopped in
+            // mid snow and the bridge stood next to it like a separate
+            // picture - no joint, no rails running onto the deck.
+            float fieldEnd = BridgeDeckX;
+            float trackEnd = BridgeWreckX;
+
             // a crater sitting on the rail line means the shelling broke the
             // track - skip sleepers and leave a gap in the rails there, so the
             // pits read as battlefield damage instead of holes punched through
@@ -3125,21 +3165,25 @@ public partial class JiangqiaoLevel : Node2D
             // ballast bed: packed darker snow with a gently wavy top edge so
             // it doesn't read as a ruler-straight line drawn on white paper
             var ballast = new List<Vector2>();
-            for (float x = 2380f; x <= WorldW + 60f; x += 38f)
+            for (float x = 2380f; x <= fieldEnd; x += 38f)
                 ballast.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
-            ballast.Add(new Vector2(WorldW + 60f, railY + 22f));
+            ballast.Add(new Vector2(fieldEnd, railY + 22f));
             ballast.Add(new Vector2(2380f, railY + 22f));
             DrawColoredPolygon(ballast.ToArray(), new Color(0.73f, 0.755f, 0.765f, 0.5f));
             // soft top-edge highlight following the same wave
             var topEdge = new List<Vector2>();
-            for (float x = 2380f; x <= WorldW + 60f; x += 38f)
+            for (float x = 2380f; x <= fieldEnd; x += 38f)
                 topEdge.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
             DrawPolyline(topEdge.ToArray(), new Color(0.90f, 0.925f, 0.93f, 0.7f), 2.6f, false);
 
             int k = 0;
-            for (float x = 2400; x < WorldW; x += 34, k++)
+            for (float x = 2400; x < fieldEnd; x += 34, k++)
             {
-                if (skip.Contains(k) || OnRailCrater(x + 11f)) continue;
+                // v3.25: the last stretch before the deck is never skipped.
+                // One missing tie right at the joint leaves a bare strip of
+                // ballast between the field and the bridge and the line
+                // reads as cut off again.
+                if ((skip.Contains(k) && x < fieldEnd - 150f) || OnRailCrater(x + 11f)) continue;
                 // each sleeper got own height/brightness jitter (deterministic,
                 // picture stays stable between frames)
                 float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
@@ -3162,13 +3206,43 @@ public partial class JiangqiaoLevel : Node2D
                         new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
             }
 
+            // v3.25: the track on the bridge deck. The painting shows a bare
+            // steel plate with snow along its edge, so there is no ballast
+            // there - but the track has to keep its rhythm across the joint
+            // or the line looks like it stops at the bridge. The same ties
+            // carry on over the deck, just shallower, because on a steel
+            // deck the ties are laid flat instead of sunk in ballast.
+            // They go in BEFORE the rails, so the rails stay on top of them
+            // exactly like they are on the open field.
+            for (float x = 2400f; x < trackEnd; x += 34f)
+            {
+                if (x < fieldEnd) continue;
+                // the same tone as the field's sleepers, so the two halves
+                // of the track are one line and not two kinds of wood
+                int tk = Mathf.RoundToInt((x - 2400f) / 34f);
+                float shade = 0.40f + 0.06f * Mathf.Sin(tk * 3.7f);
+                InkStyle.InkRect(this, new Rect2(x, railY + 3f, 22, 9),
+                    new Color(shade, shade * 0.80f, shade * 0.60f), InkStyle.InkColor, InkStyle.ThinStroke);
+            }
+            // a dark seat under the rails, and the last stretch of ballast
+            // tapering into it
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(fieldEnd - 26f, railY + 2f),
+                new Vector2(trackEnd, railY + 2f),
+                new Vector2(trackEnd, railY + 9f),
+                new Vector2(fieldEnd - 26f, railY + 11f),
+            }, new Color(0.30f, 0.28f, 0.25f, 0.55f));
+
             // two parallel rails: broken at the craters, drawn as short intact
             // segments with steel sheen. snow caps sit on top in short patches.
+            // v3.25: they carry on across the bridge deck and stop at the
+            // wrecked span, so the line and the bridge are one thing.
             foreach (float ry in new[] { railY, railY + 12 })
             {
                 // ink base, segmented around the blast gaps
                 float segStart = 2400f;
-                for (float x = 2400f; x <= WorldW; x += 10f)
+                for (float x = 2400f; x <= trackEnd; x += 10f)
                 {
                     if (OnRailCrater(x) || NearRailDmg(x, 9f))
                     {
@@ -3177,12 +3251,12 @@ public partial class JiangqiaoLevel : Node2D
                         segStart = x + 10f;
                     }
                 }
-                if (WorldW - segStart > 4f)
-                    DrawLine(new Vector2(segStart, ry), new Vector2(WorldW, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
+                if (trackEnd - segStart > 4f)
+                    DrawLine(new Vector2(segStart, ry), new Vector2(trackEnd, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
 
                 // steel sheen only on the intact lengths
                 segStart = 2400f;
-                for (float x = 2400f; x <= WorldW; x += 10f)
+                for (float x = 2400f; x <= trackEnd; x += 10f)
                 {
                     if (OnRailCrater(x) || NearRailDmg(x, 9f))
                     {
@@ -3191,12 +3265,16 @@ public partial class JiangqiaoLevel : Node2D
                         segStart = x + 10f;
                     }
                 }
-                if (WorldW - segStart > 4f)
-                    DrawLine(new Vector2(segStart, ry), new Vector2(WorldW, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
+                if (trackEnd - segStart > 4f)
+                    DrawLine(new Vector2(segStart, ry), new Vector2(trackEnd, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
             }
 
+            // the track is torn apart where the span is blown out: the rails
+            // do not just stop, they end in twisted steel
+            DrawTornTrackEnd(trackEnd, railY);
+
             // 轨顶积雪：短促的亮段（不是通条白线，雪是被风一段段吹积的），避开被炸断处
-            for (float sx = 2420; sx < WorldW; sx += 88)
+            for (float sx = 2420; sx < trackEnd; sx += 88)
             {
                 if (OnRailCrater(sx) || NearRailDmg(sx, 20f)) continue;
                 float seg = 14f + Mathf.Sin(sx * 0.07f) * 8f;
@@ -3205,11 +3283,45 @@ public partial class JiangqiaoLevel : Node2D
             }
 
             // scattered gravel / ice specks on the ballast so it isn't a flat wash
-            for (float gx = 2410; gx < WorldW; gx += 57f)
+            for (float gx = 2410; gx < fieldEnd; gx += 57f)
             {
                 if (OnRailCrater(gx) || NearRailDmg(gx, 12f)) continue;
                 float gy = railY + 8f + Mathf.Sin(gx * 0.13f) * 4f;
                 DrawCircle(new Vector2(gx, gy), 1.4f, new Color(0.62f, 0.64f, 0.66f, 0.7f));
+            }
+        }
+
+        /// <summary>
+        /// The end of the track on the bridge. The rails do not simply stop
+        /// where the span is blown apart - they end in twisted steel, the
+        /// way a rail tears when the structure under it goes. Without this
+        /// the line stopped in a clean cut and read as a rendering seam
+        /// rather than as a destroyed bridge.
+        /// </summary>
+        private void DrawTornTrackEnd(float x, float railY)
+        {
+            var rng = new RandomNumberGenerator();
+            rng.Seed = 19311104u;
+            foreach (float ry in new[] { railY, railY + 12 })
+            {
+                for (int s = 0; s < 3; s++)
+                {
+                    float len = rng.RandfRange(7f, 15f);
+                    float tilt = 0.30f + 0.42f * s + rng.RandfRange(-0.12f, 0.12f);
+                    float dx = len * Mathf.Cos(tilt);
+                    float dy = -len * Mathf.Sin(tilt);
+                    DrawLine(new Vector2(x, ry), new Vector2(x + dx, ry + dy),
+                        InkStyle.InkColor, InkStyle.ThinStroke, true);
+                    DrawCircle(new Vector2(x + dx, ry + dy), 1.2f, new Color(0.85f, 0.86f, 0.84f));
+                }
+            }
+            // splintered ties and kicked up snow around the break
+            for (int s = 0; s < 7; s++)
+            {
+                float px = x + rng.RandfRange(-18f, 14f);
+                float py = railY + rng.RandfRange(3f, 14f);
+                DrawLine(new Vector2(px, py), new Vector2(px + rng.RandfRange(-5f, 5f), py + rng.RandfRange(-2f, 3f)),
+                    new Color(0.30f, 0.26f, 0.22f, 0.85f), 1.6f, true);
             }
         }
 
@@ -3295,7 +3407,11 @@ public partial class JiangqiaoLevel : Node2D
                 // concrete, and the bank edge of the frozen river sits just
                 // under it - so the bridge is standing on the ground
                 // instead of hovering over it.
-                float bx = start + (end - start - bw) * 0.5f + 48f;
+                //
+                // BridgeDeckX is the deck's west end in world coordinates
+                // and the railway is laid along it - both come from the
+                // same two measurements off the painting.
+                float bx = BridgeDeckX - 9f * (bh / bsz.Y);
                 // v3.17 seat fix: the old note claimed the deck sits at 53% of
                 // the texture height and put row 430 on the rail line. A row
                 // scan of bridge.png says otherwise - the truss runs 0-340,

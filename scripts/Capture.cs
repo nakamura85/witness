@@ -168,7 +168,18 @@ public partial class Capture : Node
             SaveShot("capture_10c_burnedhouse.png");
             _stage = 18;
         }
-        else if (_stage == 18 && (PlayerX() > 4300f || _t > 42f))
+        else if (_stage == 18 && PlayerX() > 4290f)
+        {
+            // v3.25: freeze the runner at a fixed spot so the bridge frame
+            // lands the same way every time - the shot used to depend on
+            // where the run happened to be when the frame fired, and the
+            // span drifted in and out of the picture.
+            Input.ActionRelease("move_right");
+            _lvl._player.Position = new Vector2(4350f, JiangqiaoLevel.GroundY - 2f);
+            GD.Print("CAPTURE stage18 -> frozen at the bridge");
+            _stage = 19;
+        }
+        else if (_stage == 19 && _t > 46f)
         {
             // v3.15: was PlayerX() > 2760 - that fired while the runner was
             // still halfway down the level, so the "burnt village" frame
@@ -176,11 +187,11 @@ public partial class Capture : Node
             // bridge often fell outside the shot. Wait until he reaches the
             // bridge itself so the frame always shows the burnt village AND
             // the span, and stops drifting from run to run.
-            GD.Print("CAPTURE stage18 -> shot burnt village x="+PlayerX());
+            GD.Print("CAPTURE stage19 -> shot burnt village x="+PlayerX());
             SaveShot("capture_11_burnt.png");
-            _stage = 19;
+            _stage = 20;
         }
-        else if (_stage == 19 && _t > 46f)
+        else if (_stage == 20 && _t > 48f)
         {
             GD.Print("CAPTURE done");
             GetTree().Quit();
