@@ -2882,14 +2882,19 @@ public partial class JiangqiaoLevel : Node2D
             }
 
             DrawRiverIce();
-            // v3.25: the span is laid down BEFORE the track now. It used to
-            // be painted over the rails, which cut the line dead in front
-            // of the bridge - the user called it "the bridge and the rails
-            // do not connect, a texture just stuck on top with nothing
-            // linking them". With the bridge down first the railway can
-            // run onto the deck and stop where the span is blown apart.
-            DrawBridge();
-            DrawRailway();
+                // v3.25: the span is laid down BEFORE the track now. It used to
+                // be painted over the rails, which cut the line dead in front
+                // of the bridge - the user called it "the bridge and the rails
+                // do not connect, a texture just stuck on top with nothing
+                // linking them". With the bridge down first the railway can
+                // run onto the deck and stop where the span is blown apart.
+                DrawBridge();
+                // the snow band that swallows the foot of the piers. Every
+                // tree and every house in this level already gets one, and
+                // the bridge without it is the one object standing in the
+                // scene with a hard cut at its base - that is the "pasted
+                // on" the player kept seeing.
+                DrawRailway();
             DrawSupplyCart();
 
             DrawCraters();
@@ -2900,18 +2905,46 @@ public partial class JiangqiaoLevel : Node2D
         private void DrawRiverIce()
         {
             // 桥下的江面（冰封）
-            var ice = new[]
-            {
-                new Vector2(4460, GroundY), new Vector2(5220, GroundY), new Vector2(5220, 780),
-                new Vector2(4460, 780),
-            };
-            DrawColoredPolygon(ice, new Color(0.72f, 0.79f, 0.82f));
+            //
+            // v3.25: this used to be a plain rectangle - four hard corners, a
+            // ruler-straight near edge running the whole width of the screen
+            // and a vertical cut at the west end. It read as a grey slab
+            // lying on the snow, not as a frozen river, and the bridge
+            // piers stood on top of it like blocks set on a table.
+            //
+            // The banks are irregular now and snow has drifted over the
+            // near edge, so there is no straight line anywhere for the eye
+            // to catch.
+            const float iceL = 4436f, iceR = 5244f;
+            const float bot = 792f;
+            var ice = new List<Vector2>();
+            // far edge, hidden under the bridge deck
+            for (float x = iceL; x <= iceR; x += 34f)
+                ice.Add(new Vector2(x, GroundY));
+            // east bank slants in
+            ice.Add(new Vector2(iceR + 30f, bot - 44f));
+            // near edge: wind-blown snow over the ice, so it is a wave
+            for (float x = iceR + 30f; x >= iceL - 30f; x -= 34f)
+                ice.Add(new Vector2(x, bot - 44f + Mathf.Sin(x * 0.019f) * 15f));
+            // west bank slants out
+            ice.Add(new Vector2(iceL - 30f, GroundY + 16f));
+            DrawColoredPolygon(ice.ToArray(), new Color(0.685f, 0.755f, 0.79f));
             // 冰面上层：更亮的冰壳（半透明白）
             DrawColoredPolygon(new[]
             {
-                new Vector2(4460, GroundY), new Vector2(5220, GroundY),
-                new Vector2(5220, GroundY + 28), new Vector2(4460, GroundY + 28),
-            }, new Color(0.88f, 0.92f, 0.93f, 0.5f));
+                new Vector2(iceL, GroundY), new Vector2(iceR, GroundY),
+                new Vector2(iceR, GroundY + 34), new Vector2(iceL, GroundY + 34),
+            }, new Color(0.90f, 0.935f, 0.945f, 0.62f));
+
+            // v3.25: the span's own shadow on the ice. Everything else in
+            // this level casts a shadow - the houses, the trees, the sandbag
+            // walls, the bodies - and the bridge was the one thing standing
+            // on the ground without one, so it hovered over the river
+            // instead of standing on it.
+            DrawSetTransform(new Vector2((iceL + iceR) * 0.5f, GroundY + 46f), 0, new Vector2(13f, 0.85f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.40f, 0.45f, 0.50f), 0.32f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
             // 冰裂缝：不规则折线（用噪声偏移中间点，不是直竖线）
             for (int i = 0; i < 14; i++)
@@ -3457,6 +3490,17 @@ public partial class JiangqiaoLevel : Node2D
                 DrawTextureRectRegion(_bridgeTex,
                     new Rect2(bx, GroundY - 1f, bw, pierH),
                     new Rect2(0f, deckRow, bsz.X, bsz.Y - deckRow));
+
+                // v3.25: snow drifted against the west end of the deck.
+                // The painting ends in a straight vertical cut of the steel
+                // and that cut is the clearest "this is a texture" tell in
+                // the whole shot - the deck looked like a strip of picture
+                // hanging in the air. A drift piled against the end is what
+                // a real bridge head looks like in a northern winter.
+                DrawSetTransform(new Vector2(bx + 24f, GroundY + 18f), 0, new Vector2(2.2f, 0.95f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.95f, 0.965f, 0.975f), 0.95f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
                 // v3.25: the west end of the span used to die in mid air.
                 // The first concrete pier of the texture stands 46px in
