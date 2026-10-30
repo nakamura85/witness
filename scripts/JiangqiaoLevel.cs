@@ -4325,7 +4325,14 @@ public partial class GrenadeProj : Node2D
         float f = (float)delta;
         _vel += new Vector2(0, 1500f * f);
         Position += _vel * f;
-        _spin += f * 2.4f;   // 缓慢翻滚，不再像快速"转圈圈"的观感（#5）
+
+        // 投掷的木柄手榴弹：空中随弹道缓慢翻滚（约 1.1 rad/s，整段飞行不到半圈，
+        // 不再像"转圈圈"的轮子），落雪后立直静置、引信火花在顶端闪——去掉原先
+        // 全程 2.4 rad/s 的连续自旋（#5 已降速仍被读成"转圈圈爆炸"）。
+        if (Position.Y > JiangqiaoLevel.GroundY - 8f)
+            _spin = Mathf.Lerp(_spin, 0f, f * 8f);
+        else
+            _spin += f * 1.1f;
 
         // bounce once on snow, roll a little
         if (Position.Y > JiangqiaoLevel.GroundY - 6f && _vel.Y > 0f)
