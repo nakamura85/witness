@@ -654,11 +654,11 @@
 
 **嫩江江桥 · 轨道铺上桥面（v3.26：钢桥板 + 拆掉检修走道栏杆 + 贴图重绘成手绘风）**
 
-![嫩江江桥](docs/screenshots/v52_jq_bridge.png?v=3.35)
+![嫩江江桥](docs/screenshots/v52_jq_bridge.png?v=3.26)
 
 **桥面特写 · 枕木一排排连续铺过整座桥，不再有「第二条路」**
 
-![桥面特写](docs/screenshots/v52b_jq_bridge_deck.png?v=3.35)
+![桥面特写](docs/screenshots/v52b_jq_bridge_deck.png?v=3.26)
 
 ## 如何运行（小白版，3 步）
 

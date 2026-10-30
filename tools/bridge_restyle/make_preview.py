@@ -12,7 +12,8 @@ make_preview.py —— 生成江桥「桥 + 铁轨」离线风格预览图（无
              桥面段 = 钢桥板 + 双轨，无枕木、无道砟。
   * 士兵   = 真实士兵贴图（soldier_ija.jpg），按游戏归一化身高缩放，仅作标尺。
 
-输出（均写入 docs/screenshots/，覆盖用户一直在看的文件）：
+输出（写入 tools/bridge_restyle/previews/，仅开发风格核对用，
+  绝不进 docs/screenshots/ 公开截图目录——公开目录只放真实游戏截图）：
   v55_jq_bridge_rework.png  : 全场景（雪原 + 桥 + 铁轨 + 士兵标尺）
   v55_jq_track_rework.png   : 铁轨特写（枕木/钢轨/钢桥板 + 士兵标尺）
 """
@@ -161,7 +162,7 @@ def build_track():
 
 
 if __name__ == "__main__":
-    out_dir = ROOT + "docs/screenshots/"
+    out_dir = ROOT + "tools/bridge_restyle/previews/"
     full = build_full()
     full.save(out_dir + "v55_jq_bridge_rework.png")
     track = build_track()
