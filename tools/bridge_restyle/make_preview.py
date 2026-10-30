@@ -6,7 +6,7 @@ make_preview.py —— 生成江桥「桥 + 铁轨」离线风格预览图（无
 原则（吸取教训，绝不再犯）：
   * 不画假的低多边形山、不画黑块假小人、不放混乱中英标注。
   * 背景 = 游戏同款冷灰雪原渐变 + 平涂雪山剪影（深棕描边），只作衬托。
-  * 桥     = 真实 assets/art/props/bridge.png（已重描为暖灰漫画风）。
+  * 桥     = 真实 assets/art/props/bridge.png（v3.26 原版漫画桥，本次已回退还原）。
   * 铁轨   = 严格照 DrawRailway 的配色与规格用 PIL 近似绘制：
              野外段 = 道砟床 + 8x16 竖条枕木 + 双轨；
              桥面段 = 钢桥板 + 双轨，无枕木、无道砟。
@@ -30,10 +30,10 @@ MTN = (150, 160, 172)           # 雪山剪影（冷灰）
 MTN_EDGE = (40, 30, 24)         # 深棕描边
 INK = (36, 26, 20)              # InkStyle.InkColor 深暖棕
 
-# ---- 铁轨（照 DrawRailway 当前配色）----
-BALLAST = (191, 189, 184)       # 道砟床 (0.75,0.74,0.72)
-SLEEPER = (115, 107, 97)        # 枕木 (0.45,0.42,0.38)
-STEEL = (115, 117, 112)         # 钢桥板 (0.45,0.46,0.44)
+# ---- 铁轨（照 v3.26 DrawRailway 原版配色，已随 bridge.png 一并回退）----
+BALLAST = (186, 193, 195)       # 道砟床 (0.73,0.755,0.765)
+SLEEPER = (108, 84, 60)         # 枕木 褐木 (shade, shade*0.80, shade*0.60)
+STEEL = (79, 87, 94)            # 钢桥板 (0.31,0.34,0.37)
 RAIL = INK                      # 钢轨 = 深墨色
 
 
@@ -125,7 +125,7 @@ def build_full():
     draw_soldier(canvas, 980, ground + 4, h=150)
 
     # 极简说明（避免中文乱码，只用英文/数字标签）
-    d.text((14, 12), "Jiangqiao bridge + railway  v3.32  (warm-gray ink, matches soldiers/houses)", fill=(60, 50, 42))
+    d.text((14, 12), "Jiangqiao bridge + railway  v3.26 REVERTED (original comic bridge + original railway)", fill=(60, 50, 42))
     d.text((14, H - 22), "left soldier = 108px reference sprite (untouched)", fill=(60, 50, 42))
     return canvas
 
