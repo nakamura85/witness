@@ -2,8 +2,8 @@
 """
 restyle_bridge_ink.py —— 写实数字绘桥 → InkStyle 钢笔线稿+平涂水彩
 对齐 witness 全局 InkStyle：InkColor=(0.14,0.10,0.08) 深暖棕描边，
-平涂硬边、冷调中性灰色阶梯（中性深灰钢构件，在冷白雪山前立得住），
-低饱和、轻微水彩颗粒、抗锯齿剪影。
+平涂硬边、暖色低饱和灰阶（对齐 house_intact_near 的暖灰/米色调，
+与士兵、房子同一套手绘漫画风），低饱和、轻微水彩颗粒、抗锯齿剪影。
 
 硬约束（JiangqiaoLevel.DrawBridge 的几何假设）：
   * 输出保持 1530x812（桁架/桥面/桥墩行号对齐）。
@@ -20,15 +20,15 @@ from PIL import Image, ImageFilter
 # 严格对齐 scripts/InkStyle.cs 的 InkColor（深暖棕）
 INK_COL = np.array([0.14, 0.10, 0.08])
 
-# 冷调中性灰色阶梯：桥是钢构件、立在冷白雪山前，必须是「中性深灰」而非暖灰。
-# 每档 R≈G≈B（中性，B 略高一点点带冷意）、极低饱和，value 拉开明暗表现钢的体积。
-# 参考：用户给的江桥参考图「中性深灰的构件在冷白雪山前立得住，X 形腹杆一根数得清」。
-NEUTRAL_RAMP = [
-    (0.24, 0.25, 0.27),   # 暗部（冷中性深灰，区别于近黑墨线）
-    (0.38, 0.39, 0.41),   # 暗中调
-    (0.52, 0.53, 0.55),   # 中调
-    (0.66, 0.67, 0.69),   # 亮中调
-    (0.80, 0.81, 0.83),   # 高光冷灰
+# 暖色低饱和灰阶：直接映射到 house_intact_near 同款「暖灰」基调（R≥G≥B、sat≈0.10、
+# value 拉开明暗）。这样桥的色阶分布与士兵/房子落在同一区间，风格才统一——这是用户
+# 指定的参照物（"士兵和背景才是准确的参照物"）。
+WARM_RAMP = [
+    (0.28, 0.266, 0.252),   # 暗部（暖灰，区别于近黑墨线）
+    (0.42, 0.399, 0.378),   # 暗中调
+    (0.56, 0.532, 0.504),   # 中调
+    (0.70, 0.665, 0.630),   # 亮中调
+    (0.84, 0.798, 0.756),   # 高光暖灰
 ]
 
 
@@ -58,11 +58,11 @@ def main():
     amask = ablur > 0.5
     amask_f = amask.astype(np.float64)
 
-    # ---- 2. 中性灰阶梯平涂（按源亮度映射到中性灰 ramp，冷调钢构件）----
+    # ---- 2. 暖色灰阶平涂（按源亮度映射到暖灰 ramp，对齐房子/士兵同款手绘风）----
     lum = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
     lq = posterize_channel(lum, levels)
     lq = vfloor + (1.0 - vfloor) * lq                  # 抬升暗部
-    ramp = np.array(NEUTRAL_RAMP, dtype=np.float64)
+    ramp = np.array(WARM_RAMP, dtype=np.float64)
     fi = np.clip((lq * (len(ramp) - 1)).round().astype(int), 0, len(ramp) - 1)
     flat = ramp[fi]                                    # (h,w,3) 暖色平涂
     # 暖度混合：warm=1 用纯阶梯；warm<1 保留部分源色相/明度
