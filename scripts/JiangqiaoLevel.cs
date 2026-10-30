@@ -180,6 +180,13 @@ public partial class JiangqiaoLevel : Node2D
     /// and the enemy walk around at scale 1.06, so 108 x 1.06 = 114.5.
     /// Everything in the level that has to sit next to a human - a house
     /// wall, a bridge - is measured against this number.
+    ///
+    /// v3.39: this 114.5px is the protagonist's height, anchored to 170cm
+    /// (a normal East-Asian male; the 160-180cm band, with rare outliers
+    /// like Yao Ming ~200cm+). So 1px ~= 1.484cm. Houses stand 1.5x this
+    /// (WallH = 255cm) and the bridge 2.5x (BridgeH). Soldier/enemy share
+    /// the same PersonH reference, so the protagonist reads as a normal
+    /// built man next to them.
     /// </summary>
     public const float PersonH = 114.5f;
 
@@ -324,7 +331,10 @@ public partial class JiangqiaoLevel : Node2D
         // crater + fallen soldier vignette next to it.
         AddHouse("h1", 845f + Jit(24), "house_ruined_near", HouseWidthForWall("house_ruined_near", WallH), true, 0f);
         AddHouse("h3", 1925f, "house_intact_near", HouseWidthForWall("house_intact_near", WallH), true, 0f);
-        AddHouse("h4", 3244f + Jit(45), "house_posts", 320f, false, 0f);
+        // v3.39: h4 is the near roofless ruin (house_posts). The user set
+        // "near non-burnt houses stand 1.5 man-heights", so lock it to WallH
+        // like the intact houses instead of the old fixed 320px width.
+        AddHouse("h4", 3244f + Jit(45), "house_posts", HouseWidthForWall("house_posts", WallH), false, 0f);
         AddHouse("h2", 2760f, "house_burned_near", 450f, true, 0f);
     }
 
@@ -340,6 +350,10 @@ public partial class JiangqiaoLevel : Node2D
     {
         ["house_intact_near"] = 495f,
         ["house_ruined_near"] = 460f,
+        // v3.39: house_posts is a roofless ruined frame, so the whole
+        // standing structure (top of the art down to the snow) is the
+        // "wall" the eave row locks to 1.5 man-heights.
+        ["house_posts"] = 12f,
     };
 
     /// <summary>
