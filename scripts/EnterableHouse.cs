@@ -120,6 +120,36 @@ public partial class EnterableHouse : Node2D
             new Rect2(-20f, -20f, 40f, 40f), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
+        // v3.47: the burned / skeletal / posts / ruined textures are full of
+        // see-through gaps, mostly in their lower half. Through them the
+        // parallax tree layer (z -20) and the railway band showed at a ground
+        // line ABOVE the house's own base, so the ruin read as floating above
+        // the snow, and the burnt shell's hung door leaf read as planted in
+        // open snow right on the track (user screenshots 2026-10-31). A soft
+        // charred-interior wash behind the wall fills those gaps: what shows
+        // through a hole is now the house's own darkness, not the landscape
+        // behind it. The intact house is fully painted and needs none.
+        if (_texName != "house_intact_near")
+        {
+            bool charred = _texName == "house_burned_near" || _texName == "house_skeleton_near";
+            var hole = charred
+                ? new Color(0.055f, 0.045f, 0.038f, 0.56f)   // charred interior
+                : new Color(0.10f, 0.085f, 0.07f, 0.38f);    // ruined / posts: dim interior
+            // lifted far-row houses are drawn at 0.88 fade - keep the wash
+            // one notch lighter so it sinks into the haze with them
+            if (_lift > 0f) hole.A *= 0.82f;
+            // two overlapping soft lobes: a wide low one hugging the base and
+            // a narrower one reaching up the middle - organic coverage, and
+            // the radial falloff means no rim can peek past the wall silhouette
+            DrawSetTransform(new Vector2(_w * 0.5f, gl - h * 0.26f), 0f,
+                new Vector2(_w * 0.85f / 64f, h * 0.55f / 64f));
+            DrawTextureRect(SoftSnow.Blob(hole, 1f), new Rect2(-32f, -32f, 64f, 64f), false);
+            DrawSetTransform(new Vector2(_w * 0.44f, gl - h * 0.42f), 0f,
+                new Vector2(_w * 0.55f / 64f, h * 0.50f / 64f));
+            DrawTextureRect(SoftSnow.Blob(hole, 1f), new Rect2(-32f, -32f, 64f, 64f), false);
+            DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
+        }
+
         // house body, bottom sits on the snow line
         DrawTextureRect(_tex, new Rect2(0f, gl - h, _w, h), false, fade);
 
@@ -179,8 +209,19 @@ public partial class EnterableHouse : Node2D
             // whisper of tint to settle it into the wall's palette
             DrawSetTransform(new Vector2(dx, gl), -0.045f, Vector2.One);
             DrawTextureRect(_leafTex, leafRect, false, new Color(0.92f, 0.90f, 0.87f));
-            // thin ink jamb frame: sits inside the opening, not on the wall
-            InkStyle.InkRect(this, leafRect, new Color(0f, 0f, 0f, 0f), InkStyle.InkColor, 1.6f);
+            // thin ink jamb frame: two posts and a lintel.
+            // v3.47: the jamb used to be a full InkRect - its bottom bar drew
+            // a hard ink line across the railway band right where the leaf
+            // met the ground line, visually nailing the door to the track
+            // (rail top sits 9px above the house base). No bottom bar; the
+            // sill contact below keeps the foot grounded instead.
+            var jamb = InkStyle.InkColor;
+            DrawLine(new Vector2(leafRect.Position.X, leafRect.Position.Y),
+                new Vector2(leafRect.Position.X, leafRect.End.Y), jamb, 1.6f, true);
+            DrawLine(new Vector2(leafRect.End.X, leafRect.Position.Y),
+                new Vector2(leafRect.End.X, leafRect.End.Y), jamb, 1.6f, true);
+            DrawLine(new Vector2(leafRect.Position.X, leafRect.Position.Y),
+                new Vector2(leafRect.End.X, leafRect.Position.Y), jamb, 1.6f, true);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 
