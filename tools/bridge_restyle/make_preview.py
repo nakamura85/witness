@@ -25,13 +25,13 @@ OUT_TRACK = os.path.join(ROOT, "docs/screenshots/v55_jq_track_rework.png")
 
 # ---- palette (0..255) taken from JiangqiaoLevel.cs DrawRailway / InkStyle ----
 INK = (36, 26, 20)            # InkStyle.InkColor (0.14,0.10,0.08)
-SLEEPER = (115, 107, 97)      # SleeperWood base (0.45,0.42,0.38)
-SLEEPER_SH = (48, 42, 36)     # sleeper shadow (0.19,0.165,0.14)
-BALLAST = (189, 189, 184)     # ballast fill (0.74,0.74,0.72)
-BALLAST_EDGE = (224, 224, 219)
-PLATE = (107, 110, 110)       # steel deck plate (0.42,0.43,0.43)
-PLATE_FL = (143, 143, 140)    # plate top flange (0.56,0.56,0.55)
-SHEEN = (217, 219, 214)       # rail steel sheen (0.85,0.86,0.84)
+SLEEPER = (107, 107, 110)      # SleeperWood base (0.42,0.42,0.43) neutral gray
+SLEEPER_SH = (56, 56, 59)      # sleeper shadow (0.22,0.22,0.23) neutral dark
+BALLAST = (184, 186, 191)     # ballast fill (0.72,0.73,0.75) cool neutral
+BALLAST_EDGE = (221, 224, 228)
+PLATE = (102, 105, 107)       # steel deck plate (0.40,0.41,0.42) neutral
+PLATE_FL = (138, 140, 143)    # plate top flange (0.54,0.55,0.56) cool
+SHEEN = (224, 230, 235)       # rail steel sheen (0.88,0.90,0.92) cool
 GRAVEL = (153, 156, 161)
 SNOW = (245, 247, 247)
 
