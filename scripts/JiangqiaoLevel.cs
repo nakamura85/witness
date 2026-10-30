@@ -2821,8 +2821,11 @@ public partial class JiangqiaoLevel : Node2D
             _crateRot = crateListRot.ToArray();
 
             // 铁路：随机挑约 30 根枕木去掉（画得到的就是 84 根，三成缺失 = 战时打烂的样子）
+            // v3.28: the tie pitch changed from 34px to 26px, so the count of
+            // ties along the line changed with it - the index has to stay in
+            // step with the loop in DrawRailway or the missing ties drift.
             var railSkip = new HashSet<int>();
-            int railCount = (int)((WorldW - 2400f) / 34f) + 2;
+            int railCount = (int)((WorldW - 2400f) / 26f) + 2;
             for (int k = 0; k < 30; k++) railSkip.Add((int)rng.RandfRange(0, railCount));
             _railSkipIdx = railSkip.ToArray();
 
@@ -3209,34 +3212,61 @@ public partial class JiangqiaoLevel : Node2D
                 topEdge.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
             DrawPolyline(topEdge.ToArray(), new Color(0.90f, 0.925f, 0.93f, 0.7f), 2.6f, false);
 
+            // ——— 枕木：斜俯视下是**竖条**，不是横块 ———
+            //
+            // 两条钢轨画在 railY 和 railY+12 —— 这已经是斜俯视了（纯侧视的
+            // 两条轨会重合成一条线）。斜俯视里，枕木横跨轨道，落在屏幕上
+            // 就该是一根**竖条**。
+            //
+            // 之前画的是 22x13 的横块：一根 2.6 米长的木料被画成一块方糖，
+            // 还是巧克力色的，在灰白雪原里特别扎眼——用户实机看到的
+            // "那个铁轨看起来巧克力色的方块、很不真实有点被敷衍"就是它。
+            //
+            // 宽度按真实比例定：枕木沿轨道方向 250mm、间距 600mm，比例 0.42。
+            // 间距从 34px 收到 26px，枕木宽 10px，比例 0.38 —— 密密的横档，
+            // 而不是几个孤立的齿。
+            //
+            // 木色也从"巧克力"改成灰褐：暖度 +0.073，贴着房子（+0.063），
+            // 而不是原来 +0.168 的一柱褐色糖。
+            void DrawSleeper(float x, float topY, float len, float thick,
+                             Color wood, bool charred, int k)
+            {
+                var r = new Rect2(x, topY, thick, len);
+                // 影：右下偏开（光从右上来，全关卡的影子都朝左下）
+                InkStyle.InkRect(this,
+                    new Rect2(r.Position.X + 1.2f, r.Position.Y + 1.2f, r.Size.X, r.Size.Y),
+                    new Color(0.19f, 0.165f, 0.14f, 0.85f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                // 枕木本体：只有 10px 宽，描边必须用细线，否则一根木头
+                // 会被 3px 的边框塞满
+                InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.ThinStroke);
+                // 雪：搭在枕木中段的一道
+                if (!charred && Mathf.Sin(k * 7.31f) > -0.2f)
+                    DrawLine(new Vector2(r.Position.X + 1.2f, topY + len * 0.44f),
+                             new Vector2(r.Position.X + thick - 1.2f, topY + len * 0.44f),
+                             new Color(0.93f, 0.95f, 0.95f, 0.78f), 2.2f, true);
+            }
+
+            Color SleeperWood(int k, bool charred)
+            {
+                if (charred) return new Color(0.16f, 0.142f, 0.126f);
+                float d = 0.026f * Mathf.Sin(k * 3.7f);
+                return new Color(0.285f + d, 0.252f + d * 0.86f, 0.212f + d * 0.72f);
+            }
+
             int k = 0;
-            for (float x = 2400; x < fieldEnd; x += 34, k++)
+            for (float x = 2400; x < fieldEnd; x += 26, k++)
             {
                 // v3.25: the last stretch before the deck is never skipped.
                 // One missing tie right at the joint leaves a bare strip of
                 // ballast between the field and the bridge and the line
                 // reads as cut off again.
-                if ((skip.Contains(k) && x < fieldEnd - 150f) || OnRailCrater(x + 11f)) continue;
+                if ((skip.Contains(k) && x < fieldEnd - 150f) || OnRailCrater(x + 5f)) continue;
                 // each sleeper got own height/brightness jitter (deterministic,
                 // picture stays stable between frames)
                 float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
-                float shade = 0.40f + 0.06f * Mathf.Sin(k * 3.7f);
-                bool charred = NearRailDmg(x + 11f, 30f);
-                var wood = charred
-                    ? new Color(0.17f, 0.14f, 0.12f)
-                    : new Color(shade, shade * 0.80f, shade * 0.60f);
-                var r = new Rect2(x, railY + 3 + jy, 22, 13);
-                // sleeper: ink frame then wood fill, the hand-drawn manga way
-                InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
-                // shadow edge, lower-left away from the light
-                InkStyle.InkRect(this, new Rect2(x - 2, r.Position.Y + 7, 22, 5),
-                    new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                // thin snow on the sleeper top for ~60% of them, phase-shifted
-                // so it don't read as a copied row
-                if (!charred && Mathf.Sin(k * 7.31f) > -0.2f)
-                    DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
-                        new Vector2(x + 20, r.Position.Y + 1.2f),
-                        new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
+                bool charred = NearRailDmg(x + 5f, 30f);
+                DrawSleeper(x, railY - 3f + jy, 18f, 8f,
+                            SleeperWood(k, charred), charred, k);
             }
 
             // v3.26: the deck plate.
@@ -3258,25 +3288,31 @@ public partial class JiangqiaoLevel : Node2D
             //
             // The plate's top edge IS the rail line, so the two sit exactly
             // on each other and the joint with the field track is seamless.
-            const float plateH = 13f;
+            //
+            // v3.28: the plate got taller so BOTH rails sit on it (they used
+            // to straddle its edges), and it lost its blue tint - the snow
+            // light on this level is neutral, the mountains behind are cold
+            // white, and a blue-grey slab is part of what made the span read
+            // as a picture from another game.
+            const float plateH = 17f;
             var plate = new[]
             {
-                new Vector2(fieldEnd - 30f, railY + 1f),
-                new Vector2(trackEnd, railY + 1f),
-                new Vector2(trackEnd, railY + 1f + plateH),
-                new Vector2(fieldEnd - 30f, railY + 1f + plateH),
+                new Vector2(fieldEnd - 30f, railY - 2f),
+                new Vector2(trackEnd, railY - 2f),
+                new Vector2(trackEnd, railY - 2f + plateH),
+                new Vector2(fieldEnd - 30f, railY - 2f + plateH),
             };
             // steel base - a step darker than the snow, a step lighter than
             // the girder web below it, so the three layers separate
-            DrawColoredPolygon(plate, new Color(0.31f, 0.34f, 0.37f));
+            DrawColoredPolygon(plate, new Color(0.285f, 0.292f, 0.292f));
             // the top flange catches the flat winter light
             DrawColoredPolygon(new[]
             {
-                new Vector2(fieldEnd - 30f, railY + 1f),
+                new Vector2(fieldEnd - 30f, railY - 2f),
+                new Vector2(trackEnd, railY - 2f),
                 new Vector2(trackEnd, railY + 1f),
-                new Vector2(trackEnd, railY + 4f),
-                new Vector2(fieldEnd - 30f, railY + 4f),
-            }, new Color(0.47f, 0.51f, 0.54f));
+                new Vector2(fieldEnd - 30f, railY + 1f),
+            }, new Color(0.44f, 0.45f, 0.45f));
             // closed ink outline - the plate is a cut steel edge, it reads as
             // one plate and not as a loose stripe
             var plateEdge = new List<Vector2>(plate) { plate[0] };
@@ -3291,36 +3327,24 @@ public partial class JiangqiaoLevel : Node2D
                 new Vector2(fieldEnd - 104f, railY + 22f),
             }, new Color(0.73f, 0.755f, 0.765f, 0.5f));
 
-            // v3.26: the sleepers on the span go through the SAME routine as
-            // the sleepers on the field - same wood tone, same height
-            // jitter, same shadow strip, same snow on top. The old bridge
-            // sleepers were a flat un-jittered 9px tan bar, and a perfect
-            // repeating row of flat bars reads as a painted stripe rather
-            // than as track. One rhythm, one material, field to span.
-            for (float x = fieldEnd; x < trackEnd; x += 34f)
-            {
-                int tk = Mathf.RoundToInt((x - 2400f) / 34f);
-                float jy = Mathf.Sin(tk * 12.9898f) * 2.2f;
-                float shade = 0.40f + 0.06f * Mathf.Sin(tk * 3.7f);
-                bool charred = NearRailDmg(x + 11f, 30f);
-                var wood = charred
-                    ? new Color(0.17f, 0.14f, 0.12f)
-                    : new Color(shade, shade * 0.80f, shade * 0.60f);
-                // laid flat on the steel plate: thinner than the field ties,
-                // which are sunk in ballast
-                var r = new Rect2(x, railY + 3f + jy, 22, 10f);
-                InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
-                // shadow edge, lower-left away from the light
-                InkStyle.InkRect(this, new Rect2(x - 2, r.Position.Y + 5f, 22, 4f),
-                    new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                // thin snow on the sleeper top, phase-shifted exactly like the
-                // field ties, so the two halves of the line carry the same
-                // hand-placed rhythm
-                if (!charred && Mathf.Sin(tk * 7.31f) > -0.2f)
-                    DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
-                        new Vector2(x + 20, r.Position.Y + 1.2f),
-                        new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
-            }
+            // v3.28: the span carries NO sleepers, and that is not a shortcut -
+            // it is what the bridge actually is.
+            //
+            // The photoreal source texture settles it: the deck of this span
+            // is an open steel plate with snow lying on it, and the rails sit
+            // straight on the steel. No ballast, no ties - that is what a
+            // through truss with an open deck looks like, and the picture
+            // shows it plainly.
+            //
+            // The span used to be given a row of sleepers anyway. That was
+            // the "chocolate block" the player kept pointing at, and it was
+            // also the other half of the "two roads" complaint: a brown band
+            // of ties on the span and a different band on the field, two
+            // stripes that never met.
+            //
+            // Now the field has ballast and ties, the span has a steel
+            // plate and bare rail, and the two are different because the
+            // bridge is different - not because two roads were drawn.
 
             // two parallel rails: broken at the craters, drawn as short intact
             // segments with steel sheen. snow caps sit on top in short patches.

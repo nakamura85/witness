@@ -201,32 +201,35 @@ def remove_deck_railing(alpha, band_h=52, core_size=11, halo=17, guard=3, thin_m
 #  InkStyle 色板
 #  参照实测：房子墨线 (0.096,0.095,0.090) 近黑；亮度 p50 0.493；彩度 p50 0.035
 # ————————————————————————————————————————————————————————————
-INK = (0.098, 0.093, 0.086)        # 主墨线：近黑中性
-PAPER = (0.950, 0.949, 0.936)      # 纸底 / 雪
+INK = (0.092, 0.088, 0.082)        # 主墨线：近黑中性
+PAPER = (0.905, 0.910, 0.906)      # 纸底 / 雪（比背景雪山略暗，免得跳出来）
 
-# 桁架：锈褐主梁 + 暗板岩腹杆（照原图，不是蓝灰钢）
-CHORD_DK = (0.298, 0.244, 0.198)   # 锈褐·暗
-CHORD_MID = (0.462, 0.390, 0.322)  # 锈褐·中
-CHORD_LIT = (0.612, 0.536, 0.462)  # 锈褐·亮
-CHORD_EDGE = (0.772, 0.742, 0.700)  # 受光边缘
+# 桁架：锈褐主梁（暖，但克制——房子暖度 +0.063，尸体 +0.212，木头才是暖的）
+CHORD_DK = (0.220, 0.186, 0.158)   # 锈褐·暗
+CHORD_MID = (0.348, 0.298, 0.252)  # 锈褐·中
+CHORD_LIT = (0.478, 0.418, 0.356)  # 锈褐·亮
+CHORD_EDGE = (0.628, 0.562, 0.488)  # 受光边缘
 
-WEB_DK = (0.198, 0.204, 0.218)     # 腹杆/节点板·暗
-WEB_MID = (0.312, 0.320, 0.336)    # 腹杆·中
-WEB_LIT = (0.432, 0.436, 0.444)    # 腹杆·亮
-STEEL_LIT = (0.735, 0.730, 0.716)  # 亮钢
+# 腹杆：**中性深灰**，不是蓝灰。
+# 背景雪山是冷白（中位 0.845），冷蓝灰的桁架在它面前会直接化掉。
+# 前景实体（中位亮度）都在 0.25~0.35：榆树 0.309、烧毁房子 0.226、尸体 0.250。
+WEB_DK = (0.118, 0.116, 0.112)     # 腹杆/节点板·暗
+WEB_MID = (0.228, 0.224, 0.216)    # 腹杆·中
+WEB_LIT = (0.362, 0.355, 0.340)    # 腹杆·亮
+STEEL_LIT = (0.522, 0.512, 0.492)  # 亮钢
 
 # 桥面（钢梁）
-DECK_DK = (0.262, 0.260, 0.258)
-DECK_MID = (0.440, 0.436, 0.430)
-DECK_LIT = (0.652, 0.646, 0.632)
+DECK_DK = (0.205, 0.204, 0.200)
+DECK_MID = (0.348, 0.345, 0.338)
+DECK_LIT = (0.518, 0.512, 0.498)
 
 # 桥墩（混凝土，暖灰）。参考"烧毁的房子"：墙是一大片平涂，不画脏渍
-CONC_DD = (0.318, 0.306, 0.288)
-CONC_DK = (0.448, 0.434, 0.410)
-CONC_MID = (0.600, 0.582, 0.552)
-CONC_LIT = (0.772, 0.754, 0.720)
+CONC_DD = (0.248, 0.240, 0.226)
+CONC_DK = (0.352, 0.340, 0.318)
+CONC_MID = (0.478, 0.462, 0.436)
+CONC_LIT = (0.640, 0.620, 0.586)
 
-BURNT = (0.248, 0.222, 0.200)      # 烧毁的焦黑钢
+BURNT = (0.215, 0.192, 0.170)      # 烧毁的焦黑钢
 
 
 # ————————————————————————————————————————————————————————————
@@ -434,6 +437,24 @@ def restyle(src_path, dst_path, verbose=True):
     if verbose:
         print(f"  补针孔 {int(hole_r1.sum())} px   铆钉孔去墨线环 {int(hole_r2.sum())} px")
 
+    # ——— 0b. 抠掉烘焙进 alpha 的天空 ———
+    #
+    # 西端桥墩是**两片混凝土夹一个 X 形钢桁架**，格子后面本该透过去
+    # 看到雪山。但写实渲染把天空烘焙进了贴图——那一带 alpha 完全不透明，
+    # 镂空就这么没了，墩子成了一整块灰板子。
+    #
+    # 天空像素好认：又亮、又冷、又几乎没有彩度。实测掩膜正好落在
+    # 交叉钢架的菱形格子里，钢构一点没伤到。
+    lum_g = rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
+    chroma_g = rgb.max(axis=2) - rgb.min(axis=2)
+    x_frame = np.zeros((h, w), dtype=bool)
+    x_frame[470:700, 140:245] = True
+    sky = x_frame & (alpha > 0.5) & (lum_g > 0.72) & (chroma_g < 0.12)
+    alpha[sky] = 0.0
+    op = alpha > 0.5
+    if verbose:
+        print(f"  抠掉烘焙天空 {int(sky.sum())} px（西端墩的 X 形钢架镂空）")
+
     # ——— 1. 分区 ———
     # 桥面顶边随透视是斜的：y = 342 + 0.054x
     deck_top = deck_top_profile(w)
@@ -455,6 +476,8 @@ def restyle(src_path, dst_path, verbose=True):
     # 暗缝只画在钢结构上。混凝土墩子上有的是污渍和裂缝，
     # 画上去就是"迷彩斑"——房子那套画法里墙面本来就不画这种东西。
     seam = seam & (truss_m | deck_m)
+    # 墩面不补暗缝。原图墩子上那些长水痕一勾就成了几道突兀的黑竖线，
+    # 而 X 形钢架现在自己透空了、边缘自带轮廓墨线，不需要额外描。
 
     outline = wobble_outline(alpha)
     # 铆钉孔那圈墨线去掉：洞留着（它是照片里就有的），但不再勾边
@@ -480,19 +503,40 @@ def restyle(src_path, dst_path, verbose=True):
     wash = np.empty((h, w))
     wash[truss_m] = wash_from_solid(lum_f, op, 6.0)[truss_m]
 
-    # 桥墩：逐列均值 → 竖向明暗带
+    # 桥墩：解析化的圆柱受光，**不看原图明暗**。
     #
-    # 均值只统计实体像素（用 wash_from_solid），否则墩子正面那个 X 形镂空
-    # 会把整列的均值拉黑，柱子就被切成一堆竖条。
-    pier_wash = wash_from_solid(lum_f, op, 12.0)
-    samp_top = deck_top[None, :] + 70
-    samp_bot = deck_top[None, :] + 240
-    samp = (rows >= samp_top) & (rows < samp_bot) & op
-    cnt = samp.sum(axis=0)
-    sums = (pier_wash * samp).sum(axis=0)
-    col_lum = np.where(cnt > 0, sums / np.maximum(cnt, 1), 0.55)
-    col_lum = np.convolve(col_lum, np.ones(25) / 25.0, mode="same")
-    wash[pier_m] = np.broadcast_to(col_lum[None, :], (h, w))[pier_m]
+    # 照片里墩面的明暗是污渍、水渍和阴影，不是结构——按它分档必然出
+    # 迷彩色斑；改成逐列均值又会把两根斜撑展平成竖条，柱子像条形码。
+    # 两条路都走不通，第三条：手绘的混凝土墩本来就是**几块大面**。
+    #
+    # 光从右上来（全关卡的影子都朝左下：房子的影子、枕木的暗边都在左），
+    # 所以墩身左暗右亮；顶部靠近墩帽稍亮，底部沉进河冰转暗。
+    # 墩子的位置靠 alpha 找，形状靠模型画。
+    pier_cols = (pier_m & op).sum(axis=0)
+    pier_h = np.maximum(h - (deck_top + 62), 1)
+    pier_hit = pier_cols > (0.30 * pier_h)
+    piers = []
+    x = 0
+    while x < w:
+        if pier_hit[x]:
+            x0 = x
+            while x < w and pier_hit[x]:
+                x += 1
+            if x - x0 > 40:
+                piers.append((x0, x))
+        else:
+            x += 1
+    for (x0, x1) in piers:
+        span = max(x1 - x0, 1)
+        t = np.clip((np.arange(x0, x1) - x0) / span, 0, 1)
+        base = 0.352 + 0.258 * t                    # 左暗 → 右亮
+        rel = rows - (deck_top[None, x0:x1] + 62)
+        # 顶部不加反光带：它与竖向分档交叉会在墩肩切出一个 L 形的阶梯，
+        # 像贴图拼错。墩顶的受光交给上面的墩帽（deck 区）去管。
+        vert = np.zeros((h, x1 - x0))
+        vert = vert - np.where(rows > h - 34, 0.075, 0.0)   # 沉进河冰
+        wash[:, x0:x1] = base[None, :] + vert
+    wash[pier_m] = np.where(op, wash, wash)[pier_m]
 
     # 桥面：按结构分层
     deck_rel = rows - deck_top[None, :]
@@ -503,11 +547,18 @@ def restyle(src_path, dst_path, verbose=True):
     wash = np.where(op, wash, 1.0)
 
     # 曝光归一：把每个区的中位亮度对齐到色板该有的位置。
+    #
+    # 桁架原来对齐到 0.42，成品中位 0.431、最亮的 10% 到 0.717——而背景雪山
+    # 是 0.845 的冷白，桁架最亮的那一批几乎贴着背景，整座桥在雪原前"化"了。
+    # 前景实体不该这么亮：榆树 0.309、烧毁房子 0.226、尸体 0.250。
+    # 对齐到 0.38，成品桁架中位落在 0.29~0.30（榆树 0.309、烧毁房子 0.226），
+    # 既是一道能在雪山前立住的深色剪影，又不会闷成一团黑。
     # 桥墩再压一点对比，否则竖带会多到像条形码。
     truss_op = truss_m & op
     wash = level_shift(wash, truss_op, 0.42)
+    # 桥墩的亮度已经是解析模型画好的，不再做 level_shift ——
+    # 一压对比，三个大面就并成一块，墩子又会变成一片平。
     pier_op = pier_m & op
-    wash = level_shift(wash, pier_op, 0.50, contrast=0.62)
 
     warm_t = wash_from_solid(warm_f, op, 3.0, far=0.0)
     # 暖色 = 锈蚀的钢。桁架的主梁是褐的、腹杆是灰的，一眼能分。
@@ -523,7 +574,7 @@ def restyle(src_path, dst_path, verbose=True):
                              [CHORD_DK, CHORD_MID, CHORD_LIT, CHORD_EDGE])
     deck_col, _ = quantize(wash, [0.30, 0.50],
                             [DECK_DK, DECK_MID, DECK_LIT])
-    conc_col, _ = quantize(wash, [0.38, 0.56],
+    conc_col, _ = quantize(wash, [0.44, 0.56],
                             [CONC_DD, CONC_MID, CONC_LIT])
 
     # 钢构件按自己的局部明暗上色（桁架用桁架的曝光，墩子里的钢用局部的）
@@ -542,19 +593,26 @@ def restyle(src_path, dst_path, verbose=True):
     burnt = np.clip(burnt * 0.85, 0, 1)
     out_rgb = out_rgb * (1 - burnt[..., None]) + np.array(BURNT) * burnt[..., None]
     # 烧毁段的墨线减淡，免得糊成一团黑
-    ink = np.where(burn_col_m[None, :] & op, ink * 0.28, ink)
+    # 烧毁段的墨线减淡，但**不能减到没有**——减太狠整段就糊成一块黑饼，
+    # 看不出扭曲的钢架骨架。留一半，骨架才认得出来。
+    ink = np.where(burn_col_m[None, :] & op, ink * 0.55, ink)
 
     # ——— 6. 雪：纸白透出来 ——
     #
     # 雪积在**朝上**的面，不会挂在斜杆的侧面上。所以除了"极亮且几乎无彩"，
     # 还得是所在构件的上沿（上方 3 行内能看到天）。
     # 少了这一条，远端桁架上会糊出一片一片的白斑，像泼了油漆。
+    # 雪只留在桥面上。
+    #
+    # 桁架上那一点积雪在深色钢构上像一排白补丁——贴图里的雪是照片级的，
+    # 一小块一整块；手绘不会在每根杆的受光尖上贴一块白。
+    # 朝上的面的判断（上方 3 行内能看到天）继续保留。
     op_up = np.zeros_like(op)
     op_up[3:] = op[:-3]
     near_top = op & ~op_up
-    snow_raw = (truss_m | deck_m) & op & (wash > 0.70) & (chroma_f < 0.06) & near_top
+    snow_raw = deck_m & op & (wash > 0.74) & (chroma_f < 0.06) & near_top
     snow_band = (rows >= deck_top[None, :] - 7) & (rows < deck_top[None, :] + 4)
-    snow_raw = snow_raw | (snow_band & op & (wash > 0.60) & (chroma_f < 0.08))
+    snow_raw = snow_raw | (snow_band & op & (wash > 0.66) & (chroma_f < 0.08))
     snow = np.asarray(Image.fromarray((snow_raw * 255).astype(np.uint8))
                       .filter(ImageFilter.GaussianBlur(1.4))) / 255.0
     snow = np.clip(snow * op, 0, 1)
