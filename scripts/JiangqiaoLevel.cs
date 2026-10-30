@@ -581,8 +581,27 @@ public partial class JiangqiaoLevel : Node2D
         // 屋基下沉 8px 进雪面：雪面顶边是起伏波浪线，平的房屋底边会露缝显得"飘在雪上"（#6）
         var h = new EnterableHouse(id, new Vector2(x, GroundY + 8f), tex, w, enterable, lift);
         _game.AddChild(h);
+        _houseRects.Add((x, w));
         if (enterable) _houses.Add(h);
         AddHouseSmoke(h, tex, x, w, lift);
+    }
+
+    // every house footprint (near AND far rows) - ground clutter such as
+    // barbed-wire stakes must not ride through a wall (v3.46).
+    // static: read from the nested near-layer class (same pattern as
+    // InsideSandbag); the level is a singleton so this stays consistent.
+    private static readonly List<(float X, float W)> _houseRects = new();
+
+    /// <summary>
+    /// True when x falls under a house footprint (with a small shoulder),
+    /// so ground clutter is kept out of the walls. v3.46: three of the four
+    /// barbed-wire runs used to cross straight through a house base.
+    /// </summary>
+    private static bool InsideHouseFootprint(float x)
+    {
+        foreach (var (hx, hw) in _houseRects)
+            if (x > hx - 12f && x < hx + hw + 12f) return true;
+        return false;
     }
 
     /// <summary>
@@ -946,8 +965,7 @@ public partial class JiangqiaoLevel : Node2D
     }
 
     private void BuildPlayer()
-    {
-        _playerShadow = new GroundShadow();
+    {        _playerShadow = new GroundShadow();
         _game.AddChild(_playerShadow);
 
         _player = new FieldPlayer { Position = new Vector2(230, GroundY - 2) };
@@ -961,6 +979,10 @@ public partial class JiangqiaoLevel : Node2D
         _player.Hit += OnPlayerHit;
         _player.Down += OnPlayerDown;
         _player.DryFired += OnDryFired;
+        // v3.46: the Landed event existed since the coyote/jump-buffer pass
+        // but nothing subscribed - falls ended in silence. A snow burst at
+        // the boots sells the impact the figure animation can't.
+        _player.Landed += OnPlayerLanded;
         _game.AddChild(_player);
         // GroundShadow node owns the player shadow, figure must not draw a second one
         // (two overlapping ellipses = the dark mud puddle under his legs)
@@ -1616,6 +1638,22 @@ public partial class JiangqiaoLevel : Node2D
         if (_elapsed - _lastDryToast < 1.2f) return;
         _lastDryToast = _elapsed;
         _hud.Toast("弹仓空了——去尸体边捡枪，或者进屋搜弹药。");
+    }
+
+    /// <summary>
+    /// v3.46: snow burst where the player lands. Impact speed (fall speed at
+    /// touchdown) scales the puff - a hop kicks a whisper of powder, a leap
+    /// off a rubble pile throws a real spray.
+    /// </summary>
+    private void OnPlayerLanded()
+    {
+        float vy = _player.Velocity.Y;
+        if (vy < 90f) return;
+        var puff = new SnowPuffFx(vy / 460f)
+        {
+            Position = new Vector2(_player.GlobalPosition.X, GroundY - 3f)
+        };
+        _game.AddChild(puff);
     }
 
     private void OnPlayerDown()
@@ -2377,31 +2415,51 @@ public partial class JiangqiaoLevel : Node2D
                 Drift(c, 130f + (i % 3) * 34f, 30f + (i % 2) * 8f, new Color(0.92f, 0.94f, 0.94f));
             }
 
-            // 铁丝网：木桩 + 三道下垂铁丝（几处断口，不铺满整条路）
+            // 铁丝网：木桩 + 两道下垂铁丝（几处断口，不铺满整条路）
             // v3.18: the stake spacing was fixed and the run at 3820 dropped
             // three stakes through the sandbag wall at 4160 and two through
             // the wall at 4388. A stake standing inside a sandbag stack reads
             // as a bundle of rods jammed into the pile. Any stake that would
             // land inside a wall is skipped now, and the wire run stops at
             // the last valid stake so it never spans a gap either.
+            // v3.46: the same rule now covers HOUSE footprints - three of the
+            // four runs rode straight through a house base (880-1480 through
+            // h1, 2540-3140 through h2, 3820-4360 through f3) and at close
+            // range read as one black torn band across the lower wall, which
+            // is exactly what the user circled. Stakes are gathered first so
+            // a sagging wire only ever joins two adjacent surviving stakes;
+            // the strands are also lightened (3 -> 2, alpha .6 -> .42) so the
+            // run reads as wire, and each stake gets a snow mound at its foot
+            // so it sits in the drift instead of poking out of nothing.
             foreach (float seg in new[] { -980f, 880f, 2540f, 3820f })
             for (float x0 = seg; x0 < seg + 600; x0 += 300)
             {
+                var stakes = new List<float>();
                 for (int p = 0; p < 6; p++)
                 {
                     float x = x0 + p * 50;
                     // v3.18: no stake past the bridge head - the wire run at
                     // 3820 reached 4420, straight into the span.
                     if (x > 4360f) break;
-                    if (InsideSandbag(x)) continue;
-                    DrawLine(new Vector2(x, 668), new Vector2(x - 3, 616), new Color(0.28f, 0.26f, 0.24f), 2.6f, true);
+                    if (InsideSandbag(x) || InsideHouseFootprint(x)) continue;
+                    stakes.Add(x);
+                }
+                for (int s = 0; s < stakes.Count; s++)
+                {
+                    float x = stakes[s];
+                    DrawLine(new Vector2(x, 668), new Vector2(x - 3, 616), new Color(0.30f, 0.28f, 0.26f), 2.2f, true);
                     DrawCircle(new Vector2(x - 3, 616), 2f, new Color(0.90f, 0.92f, 0.92f, 0.7f));
-                    if (p < 5)
-                        for (int w = 0; w < 3; w++)
+                    // snow kicked up around the stake foot: grounds the post
+                    DrawSetTransform(new Vector2(x, 666f), 0f, new Vector2(0.7f, 0.32f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.94f, 0.95f, 0.95f), 0.7f),
+                        new Rect2(-32f, -32f, 64f, 64f), false);
+                    DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
+                    if (s + 1 < stakes.Count && stakes[s + 1] - x < 60f)
+                        for (int w = 0; w < 2; w++)
                         {
-                            float y = 622 + w * 15;
-                            var wire = Curved(new Vector2(x, y), new Vector2(x + 25, y + 9), new Vector2(x + 50, y), 4);
-                            DrawPolyline(wire, new Color(0.26f, 0.25f, 0.23f, 0.6f), 1f, true);
+                            float y = 626 + w * 18;
+                            var wire = Curved(new Vector2(x, y), new Vector2(x + 25, y + 8), new Vector2(x + 50, y), 4);
+                            DrawPolyline(wire, new Color(0.28f, 0.27f, 0.25f, 0.42f), 0.9f, true);
                         }
                 }
             }

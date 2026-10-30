@@ -12,6 +12,9 @@ public partial class Capture : Node
     private JiangqiaoLevel _lvl;
     private SubViewport _sub;
     private float _t;
+    private float _frozeAt;
+    private bool _jumped;      // v3.46 TEMP: landing-puff shot bookkeeping
+    private float _landTimer;
     private int _stage;
     private bool _started;
     // v2.9: this used to be a hardcoded absolute path that included the
@@ -128,7 +131,25 @@ public partial class Capture : Node
         {
             GD.Print("CAPTURE stage11 -> shot walk");
             SaveShot("capture_06_walk.png");
-            _stage = 12;
+            // v3.46 TEMP: one jump to exercise the landing snow puff - the
+            // shot fires ~0.25s after touchdown, right at puff peak.
+            Input.ActionPress("advance");
+            _stage = 30;
+        }
+        else if (_stage == 30)
+        {
+            Input.ActionRelease("advance");
+            if (_t > 6.05f && !_lvl._player.IsOnFloor()) _jumped = true;
+            if (_jumped && _lvl._player.IsOnFloor())
+            {
+                _landTimer += 1f / 60f;
+                if (_landTimer > 0.05f)
+                {
+                    GD.Print("CAPTURE stage30 -> shot landing puff");
+                    SaveShot("capture_06b_landing.png");
+                    _stage = 12;
+                }
+            }
         }
         else if (_stage == 12 && (PlayerX() > 1020f || _t > 11.5f))
         {
@@ -200,10 +221,11 @@ public partial class Capture : Node
             // span drifted in and out of the picture.
             Input.ActionRelease("move_right");
             _lvl._player.Position = new Vector2(4350f, JiangqiaoLevel.GroundY - 2f);
+            _frozeAt = _t;
             GD.Print("CAPTURE stage18 -> frozen at the bridge");
             _stage = 19;
         }
-        else if (_stage == 19 && _t > 46f)
+        else if (_stage == 19 && _t > _frozeAt + 2.5f)
         {
             // v3.15: was PlayerX() > 2760 - that fired while the runner was
             // still halfway down the level, so the "burnt village" frame
