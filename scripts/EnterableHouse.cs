@@ -143,22 +143,34 @@ public partial class EnterableHouse : Node2D
         float dx = _w * spec.Fx;
         float dh = h * spec.Fh;
 
-        if (spec.HangLeaf)
+        // v3.44: load the leaf once so the cast shadow, the leaf, the ink
+        // jamb and the sill contact can all share its measured width.
+        _leafTex ??= GD.Load<Texture2D>("res://assets/art/props/door_leaf.png");
+        float lw = _leafTex != null ? dh * _leafTex.GetSize().X / _leafTex.GetSize().Y : dh * 0.315f;
+        Rect2 leafRect = new Rect2(-lw * 0.5f, -dh, lw, dh);
+        float leafCx = dx, leafCy = gl - dh * 0.5f;
+
+        if (spec.HangLeaf && _leafTex != null)
         {
-            _leafTex ??= GD.Load<Texture2D>("res://assets/art/props/door_leaf.png");
-            if (_leafTex != null)
-            {
-                var lsz = _leafTex.GetSize();
-                float lw = dh * lsz.X / lsz.Y;
-                // hung a little askew, the way a door swings after the
-                // shelling that burned the roof off around it. Only sooted
-                // down a little - any darker and it vanishes into the
-                // charred frame it stands in.
-                DrawSetTransform(new Vector2(dx, gl), -0.045f, Vector2.One);
-                DrawTextureRect(_leafTex, new Rect2(-lw * 0.5f, -dh, lw, dh), false,
-                    new Color(0.84f, 0.80f, 0.76f));
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-            }
+            // v3.44: the leaf texture has a hard rectangular alpha edge (its
+            // plank frame runs to the image border), so hung as-is it reads
+            // as a flat block pasted on the charred wall. Seat it as a door in
+            // the burnt doorway: a soft cast shadow to the lower-right, a dark
+            // contact strip at the sill, and a thin ink jamb frame. The real
+            // fix is alpha-padding the texture so the edge disappears (flagged
+            // for art).
+            // soft cast shadow, lower-right inside the reveal
+            DrawSetTransform(new Vector2(leafCx + 6f, leafCy + 8f), 0,
+                new Vector2(lw / 40f * 1.12f, dh / 40f * 1.18f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.05f, 0.04f, 0.03f), 0.40f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            // the leaf itself, sooted down a touch
+            DrawSetTransform(new Vector2(dx, gl), -0.045f, Vector2.One);
+            DrawTextureRect(_leafTex, leafRect, false, new Color(0.78f, 0.73f, 0.67f));
+            // thin ink jamb frame: sits inside the opening, not on the wall
+            InkStyle.InkRect(this, leafRect, new Color(0f, 0f, 0f, 0f), InkStyle.InkColor, 1.6f);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 
         // doorstep snow disturbed
@@ -167,6 +179,16 @@ public partial class EnterableHouse : Node2D
         DrawTextureRect(SoftSnow.Blob(new Color(0.86f, 0.89f, 0.91f), 0.7f),
             new Rect2(-20f, -20f, 40f, 40f), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+        // v3.44: dark contact at the sill, over the snow, so the burnt-house
+        // leaf reads as grounded instead of floating
+        if (spec.HangLeaf && _leafTex != null)
+        {
+            DrawSetTransform(new Vector2(dx, gl - 3f), 0, new Vector2(lw / 40f * 1.05f, 0.34f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.04f, 0.03f, 0.02f), 0.5f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        }
     }
 }
 
