@@ -47,7 +47,8 @@ public partial class EnterableHouse : Node2D
         // drifted across the sill
         ["house_ruined_near"] = new(0.200f, 0.50f, false),
         // burnt shell: the roof burned off and nothing is left to find, so
-        // a door goes back into the frame
+        // a half-burnt door leaf leans back into the frame (v3.45: was an
+        // intact plank door - a burned house would not keep one)
         ["house_burned_near"] = new(0.260f, 0.42f, true),
     };
 
@@ -145,8 +146,17 @@ public partial class EnterableHouse : Node2D
 
         // v3.44: load the leaf once so the cast shadow, the leaf, the ink
         // jamb and the sill contact can all share its measured width.
-        _leafTex ??= GD.Load<Texture2D>("res://assets/art/props/door_leaf.png");
+        // v3.45: the burnt shell hangs a fire-damaged leaf (charred planks,
+        // torn corner, splintered foot) so the entrance reads without
+        // claiming the fire skipped the door. The intact leaf
+        // (door_leaf.png) is kept for any future standing-house use.
+        _leafTex ??= GD.Load<Texture2D>("res://assets/art/props/door_leaf_burnt.png");
         float lw = _leafTex != null ? dh * _leafTex.GetSize().X / _leafTex.GetSize().Y : dh * 0.315f;
+        // v3.45: the burnt leaf's bbox carries the torn spread of the fire
+        // damage, so hung at its natural aspect (0.67) it reads as a cabinet
+        // panel rather than a door. Squash to ~0.46: slimmer than the bbox,
+        // still wider than the intact leaf, keeps the ragged silhouette.
+        lw *= 0.68f;
         Rect2 leafRect = new Rect2(-lw * 0.5f, -dh, lw, dh);
         float leafCx = dx, leafCy = gl - dh * 0.5f;
 
@@ -165,9 +175,10 @@ public partial class EnterableHouse : Node2D
             DrawTextureRect(SoftSnow.Blob(new Color(0.05f, 0.04f, 0.03f), 0.40f),
                 new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-            // the leaf itself, sooted down a touch
+            // the leaf itself - the texture is already soot-dark, so only a
+            // whisper of tint to settle it into the wall's palette
             DrawSetTransform(new Vector2(dx, gl), -0.045f, Vector2.One);
-            DrawTextureRect(_leafTex, leafRect, false, new Color(0.78f, 0.73f, 0.67f));
+            DrawTextureRect(_leafTex, leafRect, false, new Color(0.92f, 0.90f, 0.87f));
             // thin ink jamb frame: sits inside the opening, not on the wall
             InkStyle.InkRect(this, leafRect, new Color(0f, 0f, 0f, 0f), InkStyle.InkColor, 1.6f);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
