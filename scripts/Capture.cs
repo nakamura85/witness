@@ -166,6 +166,30 @@ public partial class Capture : Node
         {
             GD.Print("CAPTURE stage17 -> shot burned house x="+PlayerX());
             SaveShot("capture_10c_burnedhouse.png");
+            // v3.44: freeze at the burnt house h2 and let the camera glide
+            // back before saving. The shot used to fire the same frame while
+            // the camera was still ~1000px ahead (it had been following the
+            // runner toward the bridge), so the h2 doorway landed off screen
+            // left and the frame showed the far-row shell f3 instead, which
+            // has no door by design (enterable=false).
+            Input.ActionRelease("move_right");
+            _lvl._player.Position = new Vector2(2760f, JiangqiaoLevel.GroundY - 2f);
+            _stage = 21;
+        }
+        else if (_stage == 21 && _t > 27f)
+        {
+            // camera smoothing is k=1-exp(-6.5*dt): after ~2s the residual
+            // gap is well under 1px, so the h2 doorway is centred here.
+            foreach (var hh in _lvl._houses)
+            {
+                if (hh.Id != "h2") continue;
+                var ct = _lvl.GetCanvasTransform();
+                Vector2 doorTop = ct * new Vector2(hh.DoorX, JiangqiaoLevel.GroundY - 100f);
+                GD.Print($"CAPTURE stage21 door h2 world={hh.DoorX:F0} screenTop={doorTop}");
+            }
+            GD.Print("CAPTURE stage21 -> burnt door frozen shot saved");
+            SaveShot("capture_10d_burned_door.png");
+            Input.ActionPress("move_right");
             _stage = 18;
         }
         else if (_stage == 18 && PlayerX() > 4290f)
