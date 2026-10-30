@@ -2345,7 +2345,10 @@ public partial class JiangqiaoLevel : Node2D
                 float gap = 280f + nearRng.Randf() * 140f;
                 float kind = nearRng.Randf();
                 if (kind < 0.5f)
-                    Sprite("tree_elm", new Vector2(nx, 672f), 60f + nearRng.Randf() * 60f, 1f,
+                    // v3.41: near-tree baseline raised from 672 to 650 so the
+                    // tree sits BEHIND the near houses (base 663) instead of
+                    // poking its trunk out under the house and making it float.
+                    Sprite("tree_elm", new Vector2(nx, 650f), 60f + nearRng.Randf() * 60f, 1f,
                         flip: nearRng.Randf() < 0.5f);
                 else if (kind < 0.85f)
                 {
@@ -2357,13 +2360,15 @@ public partial class JiangqiaoLevel : Node2D
                     // the user pointed at in picture 7.
                     // the procedural version is twigs hugging the ground plus
                     // snow at the roots, no hard edges.
-                    WillowClump(nx, 668f, 24f + nearRng.Randf() * 20f);
+                    WillowClump(nx, 650f, 24f + nearRng.Randf() * 20f);
                 }
                 nx += gap;
             }
             // three taller lone trees to break the rhythm
             foreach (var (tx2, th) in new[] { (-820f, 138f), (2460f, 112f), (4900f, 158f) })
-                Sprite("tree_elm", new Vector2(tx2, 676f), th, 1f, flip: tx2 < 0f);
+                // v3.41: lone-tree baseline raised 676 -> 654 so it stays behind the
+                // near houses (base 663); previously its trunk showed under the house.
+                Sprite("tree_elm", new Vector2(tx2, 654f), th, 1f, flip: tx2 < 0f);
 
             // 雪坎：软边（三层同心椭圆），不是一个个白泡泡
             for (int i = 0; i < 22; i++)
