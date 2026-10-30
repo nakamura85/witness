@@ -21,7 +21,7 @@ from PIL import Image, ImageDraw
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROPS = os.path.join(ROOT, "assets/art/props")
 BACK  = os.path.join(ROOT, "assets/art/backdrop")
-OUT   = os.path.join(ROOT, "docs/screenshots")
+OUT   = os.path.join(ROOT, "tools/tree_float_fix/previews")
 os.makedirs(OUT, exist_ok=True)
 
 HOUSE = os.path.join(PROPS, "house_burned_near.png")
