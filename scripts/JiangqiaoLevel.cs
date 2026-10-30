@@ -3205,12 +3205,12 @@ public partial class JiangqiaoLevel : Node2D
                 ballast.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
             ballast.Add(new Vector2(fieldEnd, railY + 22f));
             ballast.Add(new Vector2(2380f, railY + 22f));
-            DrawColoredPolygon(ballast.ToArray(), new Color(0.73f, 0.755f, 0.765f, 0.5f));
+            DrawColoredPolygon(ballast.ToArray(), new Color(0.74f, 0.74f, 0.72f, 0.55f));
             // soft top-edge highlight following the same wave
             var topEdge = new List<Vector2>();
             for (float x = 2380f; x <= fieldEnd; x += 38f)
                 topEdge.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
-            DrawPolyline(topEdge.ToArray(), new Color(0.90f, 0.925f, 0.93f, 0.7f), 2.6f, false);
+            DrawPolyline(topEdge.ToArray(), new Color(0.88f, 0.88f, 0.86f, 0.7f), 2.2f, false);
 
             // ——— 枕木：斜俯视下是**竖条**，不是横块 ———
             //
@@ -3246,11 +3246,12 @@ public partial class JiangqiaoLevel : Node2D
                              new Color(0.93f, 0.95f, 0.95f, 0.78f), 2.2f, true);
             }
 
+            // 枕木色：低饱和暖灰（贴近新桥本体中调），不再是巧克力木色
             Color SleeperWood(int k, bool charred)
             {
-                if (charred) return new Color(0.16f, 0.142f, 0.126f);
-                float d = 0.026f * Mathf.Sin(k * 3.7f);
-                return new Color(0.285f + d, 0.252f + d * 0.86f, 0.212f + d * 0.72f);
+                if (charred) return new Color(0.20f, 0.18f, 0.15f);
+                float d = 0.018f * Mathf.Sin(k * 3.7f);
+                return new Color(0.45f + d, 0.42f + d * 0.9f, 0.38f + d * 0.8f);
             }
 
             int k = 0;
@@ -3261,11 +3262,10 @@ public partial class JiangqiaoLevel : Node2D
                 // ballast between the field and the bridge and the line
                 // reads as cut off again.
                 if ((skip.Contains(k) && x < fieldEnd - 150f) || OnRailCrater(x + 5f)) continue;
-                // each sleeper got own height/brightness jitter (deterministic,
-                // picture stays stable between frames)
-                float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
+                // 轻微抖动（确定性，逐帧稳定），不再大幅高低不平
+                float jy = Mathf.Sin(k * 12.9898f) * 1.0f;
                 bool charred = NearRailDmg(x + 5f, 30f);
-                DrawSleeper(x, railY - 3f + jy, 18f, 8f,
+                DrawSleeper(x, railY - 3f + jy, 16f, 8f,
                             SleeperWood(k, charred), charred, k);
             }
 
@@ -3304,7 +3304,7 @@ public partial class JiangqiaoLevel : Node2D
             };
             // steel base - a step darker than the snow, a step lighter than
             // the girder web below it, so the three layers separate
-            DrawColoredPolygon(plate, new Color(0.285f, 0.292f, 0.292f));
+            DrawColoredPolygon(plate, new Color(0.42f, 0.43f, 0.43f));
             // the top flange catches the flat winter light
             DrawColoredPolygon(new[]
             {
@@ -3312,7 +3312,7 @@ public partial class JiangqiaoLevel : Node2D
                 new Vector2(trackEnd, railY - 2f),
                 new Vector2(trackEnd, railY + 1f),
                 new Vector2(fieldEnd - 30f, railY + 1f),
-            }, new Color(0.44f, 0.45f, 0.45f));
+            }, new Color(0.56f, 0.56f, 0.55f));
             // closed ink outline - the plate is a cut steel edge, it reads as
             // one plate and not as a loose stripe
             var plateEdge = new List<Vector2>(plate) { plate[0] };
@@ -3325,7 +3325,7 @@ public partial class JiangqiaoLevel : Node2D
                 new Vector2(fieldEnd - 26f, railY + 2f),
                 new Vector2(fieldEnd - 26f, railY + 12f),
                 new Vector2(fieldEnd - 104f, railY + 22f),
-            }, new Color(0.73f, 0.755f, 0.765f, 0.5f));
+            }, new Color(0.74f, 0.74f, 0.72f, 0.55f));
 
             // v3.28: the span carries NO sleepers, and that is not a shortcut -
             // it is what the bridge actually is.
@@ -3410,7 +3410,7 @@ public partial class JiangqiaoLevel : Node2D
             {
                 if (OnRailCrater(gx) || NearRailDmg(gx, 12f)) continue;
                 float gy = railY + 8f + Mathf.Sin(gx * 0.13f) * 4f;
-                DrawCircle(new Vector2(gx, gy), 1.4f, new Color(0.62f, 0.64f, 0.66f, 0.7f));
+                DrawCircle(new Vector2(gx, gy), 1.4f, new Color(0.60f, 0.61f, 0.63f, 0.7f));
             }
         }
 
