@@ -30,11 +30,11 @@ MTN = (150, 160, 172)           # 雪山剪影（冷灰）
 MTN_EDGE = (40, 30, 24)         # 深棕描边
 INK = (36, 26, 20)              # InkStyle.InkColor 深暖棕
 
-# ---- 铁轨（照 v3.26 DrawRailway 原版配色，已随 bridge.png 一并回退）----
-BALLAST = (186, 193, 195)       # 道砟床 (0.73,0.755,0.765)
-SLEEPER = (108, 84, 60)         # 枕木 褐木 (shade, shade*0.80, shade*0.60)
-STEEL = (79, 87, 94)            # 钢桥板 (0.31,0.34,0.37)
-RAIL = INK                      # 钢轨 = 深墨色
+# ---- 铁轨（v3.35 暖灰漫画配色，对齐士兵/房子：深棕墨线 + 暖灰平涂）----
+BALLAST = (194, 190, 184)       # 道砟床 暖灰 (0.76,0.745,0.72)
+SLEEPER = (102, 82, 61)         # 枕木 褐木 (0.40,0.32,0.24)
+STEEL = (92, 86, 77)            # 钢桥板 暖深灰 (0.36,0.335,0.30)
+RAIL = INK                      # 钢轨 = 深暖棕墨色
 
 
 def vgrad(h, w, top, bot):
@@ -125,7 +125,7 @@ def build_full():
     draw_soldier(canvas, 980, ground + 4, h=150)
 
     # 极简说明（避免中文乱码，只用英文/数字标签）
-    d.text((14, 12), "Jiangqiao bridge + railway  v3.26 REVERTED (original comic bridge + original railway)", fill=(60, 50, 42))
+    d.text((14, 12), "Jiangqiao bridge + railway  v3.35 (warm comic railway, steel plate tucked under bridge deck)", fill=(60, 50, 42))
     d.text((14, H - 22), "left soldier = 108px reference sprite (untouched)", fill=(60, 50, 42))
     return canvas
 
@@ -156,7 +156,7 @@ def build_track():
     d.line([(40, rail_y2), (W - 30, rail_y2)], fill=RAIL, width=3)
 
     draw_soldier(canvas, 90, ground + 4, h=150)
-    d.text((14, 12), "Railway: field sleepers 8x16 vertical strips; on-bridge = steel deck, no sleepers", fill=(60, 50, 42))
+    d.text((14, 12), "Railway v3.35: warm-gray field sleepers + steel deck (no cold blue-gray)", fill=(60, 50, 42))
     return canvas
 
 

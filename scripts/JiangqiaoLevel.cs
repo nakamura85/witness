@@ -3202,12 +3202,12 @@ public partial class JiangqiaoLevel : Node2D
                 ballast.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
             ballast.Add(new Vector2(fieldEnd, railY + 22f));
             ballast.Add(new Vector2(2380f, railY + 22f));
-            DrawColoredPolygon(ballast.ToArray(), new Color(0.73f, 0.755f, 0.765f, 0.5f));
+            DrawColoredPolygon(ballast.ToArray(), new Color(0.76f, 0.745f, 0.72f, 0.5f));
             // soft top-edge highlight following the same wave
             var topEdge = new List<Vector2>();
             for (float x = 2380f; x <= fieldEnd; x += 38f)
                 topEdge.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
-            DrawPolyline(topEdge.ToArray(), new Color(0.90f, 0.925f, 0.93f, 0.7f), 2.6f, false);
+            DrawPolyline(topEdge.ToArray(), new Color(0.92f, 0.91f, 0.885f, 0.7f), 2.6f, false);
 
             int k = 0;
             for (float x = 2400; x < fieldEnd; x += 34, k++)
@@ -3261,22 +3261,22 @@ public partial class JiangqiaoLevel : Node2D
             const float plateH = 13f;
             var plate = new[]
             {
-                new Vector2(fieldEnd - 30f, railY + 1f),
+                new Vector2(fieldEnd - 8f, railY + 1f),
                 new Vector2(trackEnd, railY + 1f),
                 new Vector2(trackEnd, railY + 1f + plateH),
-                new Vector2(fieldEnd - 30f, railY + 1f + plateH),
+                new Vector2(fieldEnd - 8f, railY + 1f + plateH),
             };
             // steel base - a step darker than the snow, a step lighter than
             // the girder web below it, so the three layers separate
-            DrawColoredPolygon(plate, new Color(0.31f, 0.34f, 0.37f));
+            DrawColoredPolygon(plate, new Color(0.36f, 0.335f, 0.30f));
             // the top flange catches the flat winter light
             DrawColoredPolygon(new[]
             {
-                new Vector2(fieldEnd - 30f, railY + 1f),
+                new Vector2(fieldEnd - 8f, railY + 1f),
                 new Vector2(trackEnd, railY + 1f),
                 new Vector2(trackEnd, railY + 4f),
-                new Vector2(fieldEnd - 30f, railY + 4f),
-            }, new Color(0.47f, 0.51f, 0.54f));
+                new Vector2(fieldEnd - 8f, railY + 4f),
+            }, new Color(0.52f, 0.50f, 0.46f));
             // closed ink outline - the plate is a cut steel edge, it reads as
             // one plate and not as a loose stripe
             var plateEdge = new List<Vector2>(plate) { plate[0] };
@@ -3286,8 +3286,8 @@ public partial class JiangqiaoLevel : Node2D
             DrawColoredPolygon(new[]
             {
                 new Vector2(fieldEnd - 104f, railY + 2f),
-                new Vector2(fieldEnd - 26f, railY + 2f),
-                new Vector2(fieldEnd - 26f, railY + 12f),
+                new Vector2(fieldEnd - 8f, railY + 2f),
+                new Vector2(fieldEnd - 8f, railY + 12f),
                 new Vector2(fieldEnd - 104f, railY + 22f),
             }, new Color(0.73f, 0.755f, 0.765f, 0.5f));
 
@@ -3349,7 +3349,7 @@ public partial class JiangqiaoLevel : Node2D
                     if (OnRailCrater(x) || NearRailDmg(x, 9f))
                     {
                         if (x - segStart > 4f)
-                            DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
+                            DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), new Color(0.87f, 0.86f, 0.83f), 1.6f, true);
                         segStart = x + 10f;
                     }
                 }
@@ -3386,7 +3386,7 @@ public partial class JiangqiaoLevel : Node2D
             {
                 if (OnRailCrater(gx) || NearRailDmg(gx, 12f)) continue;
                 float gy = railY + 8f + Mathf.Sin(gx * 0.13f) * 4f;
-                DrawCircle(new Vector2(gx, gy), 1.4f, new Color(0.62f, 0.64f, 0.66f, 0.7f));
+                DrawCircle(new Vector2(gx, gy), 1.4f, new Color(0.64f, 0.63f, 0.60f, 0.7f));
             }
         }
 
