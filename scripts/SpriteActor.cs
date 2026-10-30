@@ -331,15 +331,18 @@ public partial class SpriteActor : Node2D
             float bob = 0f, sway = 0f;
             if (proneWalk)
             {
-                // 匍匐前进：身体随爬行上下小幅起伏 + 前后微摆，像手肘交替撑地拖动
-                bob = Mathf.Sin(Phase) * 2.4f;
-                sway = Mathf.Cos(Phase) * 1.8f;
+                // #anim1: prone crawl - make the body clearly heave and rock so
+                // it reads as "dragging forward on elbows", not a frozen sheet
+                // sliding. Amplitude is in px on a ~108px figure.
+                bob = Mathf.Sin(Phase) * 4.6f;
+                sway = Mathf.Cos(Phase) * 3.0f;
             }
             else if (crouchWalk)
             {
-                // 蹲行：重心随步频轻沉 + 左右微摆，保留跪姿轮廓的同时给出移动感
-                bob = Mathf.Abs(Mathf.Cos(Phase)) * 1.8f - 0.9f;
-                sway = Mathf.Sin(Phase) * 1.2f;
+                // #anim1: crouch-walk - heavier weight drop on each step + rock,
+                // so the motion is legible without distorting the crouch silhouette.
+                bob = Mathf.Abs(Mathf.Cos(Phase)) * 3.4f - 1.7f;
+                sway = Mathf.Sin(Phase) * 2.2f;
             }
             // v3.13: 落地缓冲也接到专姿立绘上——着地那一瞬间整个人往下沉一下
             // 再弹回来。以前只有纸娃娃分支有，蹲/趴/站专姿图落地是硬接地的。
@@ -365,10 +368,11 @@ public partial class SpriteActor : Node2D
         float frontRot = 0f, backRot = 0f;
         if (standingWalk)
         {
-            // swing kept small: a wide scissor opens the crotch seam of the
-            // split texture and the legs read like ghost doubles
-            frontRot = -swing * 0.20f * Facing;
-            backRot = swing * 0.20f * Facing;
+            // #anim1: widen the scissor so the stride reads as walking, not
+            // sliding-in-place. Kept asymmetric (front lifts a touch more) so
+            // the two leg strips don't fan open at the crotch seam.
+            frontRot = -swing * 0.36f * Facing;
+            backRot = swing * 0.30f * Facing;
         }
         else if (Prone)
         {
@@ -393,16 +397,12 @@ public partial class SpriteActor : Node2D
         }
         else if (air)
         {
-            // v2.9 jump tuck: both legs rotate the SAME direction now. Before
-            // this the front leg swung forward (-0.62) while the back leg
-            // dragged back (+0.34), the two strips fanned open around the
-            // shared crotch pivot and the gap read as "feet split from the
-            // body" mid-jump. A real jump tuck brings both knees up together,
-            // which also keeps the hip seam shut. Slight legK pull keeps the
-            // boots tucked under the torso.
-            legK = 0.95f;
-            frontRot = -0.48f * Facing;
-            backRot = -0.14f * Facing;
+            // #anim1: stronger jump tuck so the leap reads as "push off - tuck -
+            // land" instead of a flat hop. Both knees come up together (same
+            // rotation sign) to keep the hip seam shut.
+            legK = 0.88f;
+            frontRot = -0.62f * Facing;
+            backRot = -0.34f * Facing;
         }
         else if (Crouched)
         {
@@ -458,8 +458,9 @@ public partial class SpriteActor : Node2D
         }
         else if (standingWalk)
         {
-            torsoY += -Mathf.Abs(Mathf.Cos(Phase)) * 2.6f + 1.3f; // 迈步重心起伏
-            torsoRot = (0.085f + Mathf.Sin(Phase * 2f) * 0.03f) * Facing;
+            // #anim1: bigger weight bounce per step so the stride is obvious
+            torsoY += -Mathf.Abs(Mathf.Cos(Phase)) * 3.6f + 1.8f;
+            torsoRot = (0.10f + Mathf.Sin(Phase * 2f) * 0.04f) * Facing;
         }
         else
         {
