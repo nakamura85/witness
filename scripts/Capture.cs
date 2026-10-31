@@ -147,9 +147,24 @@ public partial class Capture : Node
                 {
                     GD.Print("CAPTURE stage30 -> shot landing puff");
                     SaveShot("capture_06b_landing.png");
-                    _stage = 12;
+                    // v3.48: freeze at h1 (ruined, enterable) so the camera
+                    // settles and we can inspect the tree/door overlap the
+                    // user circled in this run's screenshots.
+                    Input.ActionRelease("move_right");
+                    _lvl._player.Position = new Vector2(845f, JiangqiaoLevel.GroundY - 2f);
+                    _frozeAt = _t;
+                    _stage = 40;
                 }
             }
+        }
+        else if (_stage == 40 && _t > _frozeAt + 2.5f)
+        {
+            // camera converged on h1's centre - full-res look at its door,
+            // the wall beside it and whatever the near trees do there.
+            GD.Print("CAPTURE stage40 -> shot h1 ruined house");
+            SaveShot("capture_40_h1.png");
+            Input.ActionPress("move_right");
+            _stage = 12;
         }
         else if (_stage == 12 && (PlayerX() > 1020f || _t > 11.5f))
         {
@@ -210,6 +225,17 @@ public partial class Capture : Node
             }
             GD.Print("CAPTURE stage21 -> burnt door frozen shot saved");
             SaveShot("capture_10d_burned_door.png");
+            // v3.48: continue on to h4 (roofless posts ruin) and freeze there
+            // too - third spot from the user's screenshot batch.
+            Input.ActionRelease("move_right");
+            _lvl._player.Position = new Vector2(3244f, JiangqiaoLevel.GroundY - 2f);
+            _frozeAt = _t;
+            _stage = 41;
+        }
+        else if (_stage == 41 && _t > _frozeAt + 2.5f)
+        {
+            GD.Print("CAPTURE stage41 -> shot h4 posts ruin");
+            SaveShot("capture_41_h4.png");
             Input.ActionPress("move_right");
             _stage = 18;
         }

@@ -281,7 +281,17 @@ public partial class JiangqiaoLevel : Node2D
             {
                 _started = true;
                 _hud.ShowTutorial("A / D 移动 · 空格 跳跃 · S 蹲下 · Ctrl 匍匐 · E 记录/捡枪/进屋 · G 手榴弹 · 鼠标左键射击");
-                Artillery(0.55f);
+                // v3.48: the opening barrage used to land on the SAME frame the
+                // intro overlay vanished - the player's very first sight of the
+                // level was a full-screen flash plus a camera jolt, which read
+                // as a rendering glitch ("按回车闪一下抖一下"). Now the scene
+                // gets one breath (~1s), THEN the distant shell lands: same
+                // drama, but it reads as intentional instead of broken.
+                GetTree().CreateTimer(1.0).Timeout += () =>
+                {
+                    if (IsInsideTree() && !_ended)
+                        Artillery(0.4f);
+                };
             });
     }
 
@@ -597,10 +607,10 @@ public partial class JiangqiaoLevel : Node2D
     /// so ground clutter is kept out of the walls. v3.46: three of the four
     /// barbed-wire runs used to cross straight through a house base.
     /// </summary>
-    private static bool InsideHouseFootprint(float x)
+    private static bool InsideHouseFootprint(float x, float margin = 12f)
     {
         foreach (var (hx, hw) in _houseRects)
-            if (x > hx - 12f && x < hx + hw + 12f) return true;
+            if (x > hx - margin && x < hx + hw + margin) return true;
         return false;
     }
 
@@ -818,6 +828,14 @@ public partial class JiangqiaoLevel : Node2D
         {
             new Backdrop(this, Backdrop.KindFar, 0.06f, -40),
             new Backdrop(this, Backdrop.KindMid, MidFactor, -30),            new Backdrop(this, Backdrop.KindNear, 0.55f, -20),
+            // v3.48: the ground band (near trees / willow clumps / wire fence)
+            // moved OUT of the 0.55 parallax layer into the world plane. It
+            // used to share the ground line with the houses (663) and the
+            // railway (654) while scrolling at 0.55, so every step slid the
+            // trunks sideways across doors and walls - the user kept catching
+            // a tree glued to a doorway in screenshots. Factor 1.0 pins the
+            // band to the world: a tree beside a door STAYS beside that door.
+            new Backdrop(this, Backdrop.KindGround, 1f, -5),
             new Backdrop(this, Backdrop.KindFore, 1.32f, 20),
         };
         foreach (var l in _layers) AddChild(l);
@@ -1951,7 +1969,7 @@ public partial class JiangqiaoLevel : Node2D
 
     private partial class Backdrop : Node2D
     {
-        public const int KindFar = 0, KindMid = 1, KindNear = 2, KindFore = 3;
+        public const int KindFar = 0, KindMid = 1, KindNear = 2, KindFore = 3, KindGround = 4;
 
         private readonly JiangqiaoLevel _lvl;
         public int Kind { get; }
@@ -1979,6 +1997,7 @@ public partial class JiangqiaoLevel : Node2D
                 case KindFar: DrawFar(); break;
                 case KindMid: DrawMid(); break;
                 case KindNear: DrawNear(); break;
+                case KindGround: DrawGroundBand(); break;
                 default: DrawFore(); break;
             }
         }
@@ -2374,6 +2393,33 @@ public partial class JiangqiaoLevel : Node2D
         // —— 近景：枯树带、灌木柳丛、雪坎、铁丝网、废车（一律低于人物腰部，绝不遮脸）——
         private void DrawNear()
         {
+            // 雪坎：软边（三层同心椭圆），不是一个个白泡泡
+            // v3.48: this is all that is left in the 0.55 parallax layer.
+            // The trees, willow clumps and wire fence used to live here too,
+            // but they stand on the same ground line as the world-plane
+            // houses and railway, so the 0.55 scroll made them slide across
+            // doors and walls as the player walked. They moved to
+            // DrawGroundBand (factor 1.0, world pinned) below.
+            for (int i = 0; i < 22; i++)
+            {
+                var c = new Vector2(-1300 + i * 410, 626);
+                Drift(c, 130f + (i % 3) * 34f, 30f + (i % 2) * 8f, new Color(0.92f, 0.94f, 0.94f));
+            }
+        }
+
+        /// <summary>
+        /// v3.48: the ground band - near trees, willow clumps, wire fence -
+        /// drawn in the WORLD plane (factor 1.0, z -5: in front of the
+        /// ground art / railway, behind the near houses). Everything here
+        /// stands within a few pixels of the houses' ground line (663), so
+        /// it has to share the houses' parallax or it visibly swims against
+        /// them. Tree baselines moved 650/654 -> 660 so they stand just
+        /// behind the house line, and trees skip house footprints (the same
+        /// rule the fence stakes got in v3.46 - which only ever worked at
+        /// one camera position while the band was still parallaxed).
+        /// </summary>
+        private void DrawGroundBand()
+        {
             // near band: generated elm / willow sprites, fixed seed, sparse gaps
             var nearRng = new RandomNumberGenerator();
             nearRng.Seed = 19311105;
@@ -2382,37 +2428,30 @@ public partial class JiangqiaoLevel : Node2D
             {
                 float gap = 280f + nearRng.Randf() * 140f;
                 float kind = nearRng.Randf();
-                if (kind < 0.5f)
-                    // v3.41: near-tree baseline raised from 672 to 650 so the
-                    // tree sits BEHIND the near houses (base 663) instead of
-                    // poking its trunk out under the house and making it float.
-                    Sprite("tree_elm", new Vector2(nx, 650f), 60f + nearRng.Randf() * 60f, 1f,
-                        flip: nearRng.Randf() < 0.5f);
-                else if (kind < 0.85f)
+                bool blocked = InsideHouseFootprint(nx, 30f);
+                if (!blocked)
                 {
-                    // the willow clump is now procedural: one clump of arching twigs.
-                    // before this it used the willow.png texture, but that image
-                    // carries a whole white snow base, and scaled down to 26~48px
-                    // it became a pile of black spikes radiating out of the
-                    // ground, very jarring on open snow - that is the odd object
-                    // the user pointed at in picture 7.
-                    // the procedural version is twigs hugging the ground plus
-                    // snow at the roots, no hard edges.
-                    WillowClump(nx, 650f, 24f + nearRng.Randf() * 20f);
+                    if (kind < 0.5f)
+                        Sprite("tree_elm", new Vector2(nx, 660f), 60f + nearRng.Randf() * 60f, 1f,
+                            flip: nearRng.Randf() < 0.5f);
+                    else if (kind < 0.85f)
+                    {
+                        // the willow clump is procedural: one clump of arching twigs.
+                        // before this it used the willow.png texture, but that image
+                        // carries a whole white snow base, and scaled down to 26~48px
+                        // it became a pile of black spikes radiating out of the
+                        // ground, very jarring on open snow - that is the odd object
+                        // the user pointed at in picture 7.
+                        WillowClump(nx, 660f, 24f + nearRng.Randf() * 20f);
+                    }
                 }
                 nx += gap;
             }
             // three taller lone trees to break the rhythm
             foreach (var (tx2, th) in new[] { (-820f, 138f), (2460f, 112f), (4900f, 158f) })
-                // v3.41: lone-tree baseline raised 676 -> 654 so it stays behind the
-                // near houses (base 663); previously its trunk showed under the house.
-                Sprite("tree_elm", new Vector2(tx2, 654f), th, 1f, flip: tx2 < 0f);
-
-            // 雪坎：软边（三层同心椭圆），不是一个个白泡泡
-            for (int i = 0; i < 22; i++)
             {
-                var c = new Vector2(-1300 + i * 410, 626);
-                Drift(c, 130f + (i % 3) * 34f, 30f + (i % 2) * 8f, new Color(0.92f, 0.94f, 0.94f));
+                if (InsideHouseFootprint(tx2, 30f)) continue;
+                Sprite("tree_elm", new Vector2(tx2, 660f), th, 1f, flip: tx2 < 0f);
             }
 
             // 铁丝网：木桩 + 两道下垂铁丝（几处断口，不铺满整条路）
