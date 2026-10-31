@@ -2417,14 +2417,23 @@ public partial class JiangqiaoLevel : Node2D
         /// behind the house line, and trees skip house footprints (the same
         /// rule the fence stakes got in v3.46 - which only ever worked at
         /// one camera position while the band was still parallaxed).
+        ///
+        /// v3.50: 660 was still IN FRONT of the railway (rail top 654) and
+        /// the loop ran to WorldW+1200, so elms stood on the ballast and
+        /// grew on the bridge deck / frozen river (user screenshot
+        /// 2026-10-31). Baseline moved back to 642 - behind the track -
+        /// and the band now stops 240px short of the bridge approach: no
+        /// tree grows on the deck, the wreck pile or the river.
         /// </summary>
         private void DrawGroundBand()
         {
+            const float TreeLine = 642f;      // behind the rail top (654)
+            const float BandEnd = GroundArt.BridgeDeckX - 240f;  // no trees at the bridge
             // near band: generated elm / willow sprites, fixed seed, sparse gaps
             var nearRng = new RandomNumberGenerator();
             nearRng.Seed = 19311105;
             float nx = -1400f;
-            while (nx < WorldW + 1200)
+            while (nx < BandEnd)
             {
                 float gap = 280f + nearRng.Randf() * 140f;
                 float kind = nearRng.Randf();
@@ -2432,7 +2441,7 @@ public partial class JiangqiaoLevel : Node2D
                 if (!blocked)
                 {
                     if (kind < 0.5f)
-                        Sprite("tree_elm", new Vector2(nx, 660f), 60f + nearRng.Randf() * 60f, 1f,
+                        Sprite("tree_elm", new Vector2(nx, TreeLine), 60f + nearRng.Randf() * 60f, 1f,
                             flip: nearRng.Randf() < 0.5f);
                     else if (kind < 0.85f)
                     {
@@ -2442,16 +2451,18 @@ public partial class JiangqiaoLevel : Node2D
                         // it became a pile of black spikes radiating out of the
                         // ground, very jarring on open snow - that is the odd object
                         // the user pointed at in picture 7.
-                        WillowClump(nx, 660f, 24f + nearRng.Randf() * 20f);
+                        WillowClump(nx, TreeLine, 24f + nearRng.Randf() * 20f);
                     }
                 }
                 nx += gap;
             }
             // three taller lone trees to break the rhythm
-            foreach (var (tx2, th) in new[] { (-820f, 138f), (2460f, 112f), (4900f, 158f) })
+            // v3.50: the third one stood at x=4900 - on the torn bridge deck
+            // over the river. Moved to the open field west of the start.
+            foreach (var (tx2, th) in new[] { (-820f, 138f), (2460f, 112f), (560f, 158f) })
             {
                 if (InsideHouseFootprint(tx2, 30f)) continue;
-                Sprite("tree_elm", new Vector2(tx2, 660f), th, 1f, flip: tx2 < 0f);
+                Sprite("tree_elm", new Vector2(tx2, TreeLine), th, 1f, flip: tx2 < 0f);
             }
 
             // 铁丝网：木桩 + 两道下垂铁丝（几处断口，不铺满整条路）
@@ -2882,7 +2893,9 @@ public partial class JiangqiaoLevel : Node2D
         /// off in front of the bridge and the two read as two pictures
         /// laid side by side with nothing joining them.
         /// </summary>
-        private const float BridgeDeckX = 4457f;
+        // v3.50: internal (was private) - the Backdrop ground band also needs
+        // the deck position to keep trees off the bridge and the river.
+        internal const float BridgeDeckX = 4457f;
         private const float BridgeWreckX = 4902f;
         private int[] _trussSkipDiags = System.Array.Empty<int>();    // 桥桁架被去掉的斜腹杆
         private int[] _pierDamageIdx = System.Array.Empty<int>();     // 被炮弹蹭过的桥墩（画烧黑斑）
