@@ -1479,8 +1479,20 @@ public partial class JiangqiaoLevel : Node2D
                 _playerThrowing = false;
                 if (_ended || !IsInstanceValid(_player)) return;
                 _player.Figure.ThrowPose = 0f;
-                var g = new GrenadeProj(_player.GlobalPosition + new Vector2(_player.Facing * 14f, -46f),
-                    _player.Facing);
+                // v3.59: 投掷方向跟随鼠标——瞄哪儿丢哪儿，不再是固定 45° 抛物线。
+                // 出手速度恒定 360；仰角钳在 -0.15 以上（不许往自己脚下砸），
+                // 瞄得太近时按朝向给一个最小向前掷。
+                var start = _player.GlobalPosition + new Vector2(_player.Facing * 14f, -46f);
+                var aim = GetGlobalMousePosition() - start;
+                if (aim.LengthSquared() < 3600f)
+                    aim = new Vector2(_player.Facing * 60f, -60f);
+                var dir = aim.Normalized();
+                if (dir.Y > -0.15f)
+                {
+                    float sx = Mathf.Sign(dir.X == 0f ? _player.Facing : dir.X);
+                    dir = new Vector2(sx * 0.989f, -0.15f);
+                }
+                var g = new GrenadeProj(start, dir * 360f, ijaType: false);
                 _game.AddChild(g);
                 _grenades.Add(g);
                 _hud.Toast("手榴弹出手——卧倒！");
@@ -1501,8 +1513,9 @@ public partial class JiangqiaoLevel : Node2D
     {
         Artillery(0.65f);
         Shake(0.9f);
-        _fx.Puff(at, 30f);
-        _fx.Puff(at + new Vector2(-24f, 8f), 22f);
+        // v3.59: 成层爆炸——暖核一闪、灰烟上升、雪泥碎屑抛物线、雪雾扩散环
+        // （BlastFx），贴地底雪再补一蓬白 puff。全部圆形/粒子，无矩形。
+        _game.AddChild(new BlastFx { Position = at });
         _fx.Puff(new Vector2(at.X, GroundY - 4f), 26f);
         foreach (var e in _enemies)
         {
@@ -4522,18 +4535,134 @@ public partial class JiangqiaoLevel : Node2D
     /// along the way, everything fades into the debris field that _Draw now
     /// leaves behind. Self-freeing.
     /// </summary>
+    /// <summary>v3.59: 手雷爆炸的成层特效，水彩风四层——
+    /// ① 暖核：低饱和橙红一闪 0.16s，快速让位给烟；
+    /// ② 烟团：8 团错位灰褐烟，上升膨胀渐隐；
+    /// ③ 雪泥碎屑：14 粒深色小圆粒抛物线飞散（重力 1150），非方块；
+    /// ④ 雪雾扩散环：一圈白弧快速胀开淡出。
+    /// 全部用圆形/弧线，杜绝任何"四四方方"的色块（v3.55/v3.58 的教训）。</summary>
+    private partial class BlastFx : Node2D
+    {
+        private struct Debris { public Vector2 Pos, Vel; public float R, Life, MaxLife; }
+        private struct Smoke { public Vector2 Pos, Vel; public float R, Grow, Life, MaxLife; }
+
+        private readonly List<Debris> _debris = new();
+        private readonly List<Smoke> _smoke = new();
+        private readonly RandomNumberGenerator _rng = new();
+        private float _t;
+        private float _ringR;
+        private const float FireT = 0.16f;
+        private const float SmokeT = 1.1f;
+
+        public BlastFx()
+        {
+            _rng.Randomize();
+            for (int i = 0; i < 14; i++)
+            {
+                float ang = _rng.RandfRange(-Mathf.Pi, 0f);   // 上半球喷出
+                float spd = _rng.RandfRange(120f, 340f);
+                _debris.Add(new Debris
+                {
+                    Pos = Vector2.Zero,
+                    Vel = new Vector2(Mathf.Cos(ang) * spd, Mathf.Sin(ang) * spd * 0.8f),
+                    R = _rng.RandfRange(1.6f, 3.6f),
+                    Life = 0f,
+                    MaxLife = _rng.RandfRange(0.5f, 0.9f),
+                });
+            }
+            for (int i = 0; i < 8; i++)
+            {
+                _smoke.Add(new Smoke
+                {
+                    Pos = new Vector2(_rng.RandfRange(-16f, 16f), _rng.RandfRange(-10f, 4f)),
+                    Vel = new Vector2(_rng.RandfRange(-9f, 9f), _rng.RandfRange(-34f, -18f)),
+                    R = _rng.RandfRange(9f, 15f),
+                    Grow = _rng.RandfRange(10f, 20f),
+                    Life = 0f,
+                    MaxLife = _rng.RandfRange(0.7f, 1.1f),
+                });
+            }
+        }
+
+        public override void _Process(double delta)
+        {
+            float f = (float)delta;
+            _t += f;
+            _ringR += f * 210f;
+            for (int i = _debris.Count - 1; i >= 0; i--)
+            {
+                var d = _debris[i];
+                d.Life += f;
+                d.Vel += new Vector2(0f, 1150f * f);
+                d.Pos += d.Vel * f;
+                if (d.Life >= d.MaxLife) _debris.RemoveAt(i);
+                else _debris[i] = d;
+            }
+            for (int i = 0; i < _smoke.Count; i++)
+            {
+                var s = _smoke[i];
+                s.Life += f;
+                s.Pos += s.Vel * f;
+                s.R += s.Grow * f;
+                _smoke[i] = s;
+            }
+            if (_t > SmokeT) { QueueFree(); return; }
+            QueueRedraw();
+        }
+
+        public override void _Draw()
+        {
+            // ④ 雪雾扩散环
+            if (_t > 0.12f && _t < 0.85f)
+            {
+                float a = Mathf.Clamp((0.85f - _t) / 0.5f, 0f, 1f) * 0.30f;
+                DrawArc(Vector2.Zero, _ringR * 0.6f, 0f, Mathf.Tau, 40,
+                    new Color(0.93f, 0.94f, 0.96f, a), 5f, true);
+            }
+            // ① 暖核：短暂一闪
+            if (_t < FireT)
+            {
+                float p = _t / FireT;
+                float r = 8f + p * 26f;
+                float a = 0.85f * (1f - p);
+                DrawCircle(new Vector2(-3f, -4f), r * 0.7f, new Color(0.85f, 0.55f, 0.28f, a));
+                DrawCircle(new Vector2(2f, -2f), r * 0.55f, new Color(0.78f, 0.42f, 0.22f, a * 0.9f));
+                DrawCircle(Vector2.Zero, r * 0.4f, new Color(0.95f, 0.82f, 0.55f, a));
+            }
+            // ② 烟团：三圆偏移叠出一团不规则烟
+            foreach (var s in _smoke)
+            {
+                float a = Mathf.Clamp(1f - s.Life / s.MaxLife, 0f, 1f) * 0.34f;
+                if (a <= 0.01f) continue;
+                DrawCircle(s.Pos, s.R, new Color(0.42f, 0.40f, 0.38f, a));
+                DrawCircle(s.Pos + new Vector2(s.R * 0.45f, -s.R * 0.25f), s.R * 0.7f,
+                    new Color(0.50f, 0.48f, 0.45f, a * 0.8f));
+                DrawCircle(s.Pos - new Vector2(s.R * 0.5f, s.R * 0.15f), s.R * 0.55f,
+                    new Color(0.34f, 0.33f, 0.32f, a * 0.8f));
+            }
+            // ③ 雪泥碎屑：深色小圆粒
+            foreach (var d in _debris)
+            {
+                float a = Mathf.Clamp(1f - d.Life / d.MaxLife, 0f, 1f);
+                DrawCircle(d.Pos, d.R, new Color(0.30f, 0.27f, 0.24f, 0.8f * a));
+                DrawCircle(d.Pos, d.R * 0.5f, new Color(0.16f, 0.15f, 0.14f, 0.9f * a));
+            }
+        }
+    }
+
     private partial class CoverBurstFx : Node2D
     {
         private sealed class Bag
         {
             public Vector2 Pos, Vel;
             public float Rot, RotV, W, H;
-            public bool Landed;
+            public bool Landed, Bounced;
         }
 
         private readonly List<Bag> _bags = new();
+        private readonly List<(Vector2 p, float t)> _puffs = new();
         private float _t;
-        private const float Life = 1.1f;
+        private const float Life = 1.6f;
         /// <summary>v3.58: 飞散袋用水彩单袋贴图——v3.55 漏改的最后一处矩形袋，
         /// 爆炸瞬间满屏四四方方的色块（用户截图实锤）。贴图缺失回退矩形。</summary>
         private readonly Texture2D _bagTex = GD.Load<Texture2D>("res://assets/art/props/sandbag_single.png");
@@ -4542,15 +4671,19 @@ public partial class JiangqiaoLevel : Node2D
         {
             var rng = new RandomNumberGenerator();
             rng.Randomize();
-            for (int k = 0; k < 7; k++)
+            // v3.59: 径向飞散——袋子从爆心向两侧抛出去（偏水平初速 + 上抛
+            // 分量），空中减速，落地弹一下蹭出雪雾再停稳，转势随速度衰减。
+            // 不再像"原地随机喷一坨"。
+            for (int k = 0; k < 9; k++)
             {
                 float w = rng.RandfRange(18f, 26f);
+                float side = (k % 2 == 0) ? 1f : -1f;
                 _bags.Add(new Bag
                 {
-                    Pos = new Vector2(rng.RandfRange(-24f, 24f), rng.RandfRange(-26f, -6f)),
-                    Vel = new Vector2(rng.RandfRange(-190f, 190f), rng.RandfRange(-330f, -140f)),
+                    Pos = new Vector2(rng.RandfRange(-12f, 12f), rng.RandfRange(-22f, -6f)),
+                    Vel = new Vector2(side * rng.RandfRange(110f, 300f), -rng.RandfRange(170f, 380f)),
                     Rot = 0f,
-                    RotV = rng.RandfRange(-7f, 7f),
+                    RotV = side * rng.RandfRange(3f, 8f),
                     W = w, H = w * 0.48f,
                 });
             }
@@ -4565,13 +4698,36 @@ public partial class JiangqiaoLevel : Node2D
             {
                 if (b.Landed) continue;
                 b.Vel += new Vector2(0f, 980f * f);
+                b.Vel.X = Mathf.MoveToward(b.Vel.X, 0f, 40f * f);   // 空气阻力
                 b.Pos += b.Vel * f;
                 b.Rot += b.RotV * f;
-                if (b.Pos.Y > -3f)              // 砸进雪里就停住、转势归零
+                b.RotV = Mathf.MoveToward(b.RotV, 0f, 2.2f * f);
+                if (b.Pos.Y > -3f)
                 {
                     b.Pos = new Vector2(b.Pos.X, -3f);
-                    b.Landed = true;
+                    if (!b.Bounced && Mathf.Abs(b.Vel.Y) > 90f)
+                    {
+                        // 第一次触地：弹一下，蹭出雪雾
+                        b.Vel = new Vector2(b.Vel.X * 0.55f, -Mathf.Abs(b.Vel.Y) * 0.26f);
+                        b.RotV *= 0.5f;
+                        b.Bounced = true;
+                        _puffs.Add((b.Pos, 0f));
+                    }
+                    else
+                    {
+                        // 停稳：半埋进雪里
+                        b.Landed = true;
+                        b.RotV = 0f;
+                        _puffs.Add((b.Pos, 0f));
+                    }
                 }
+            }
+            for (int i = _puffs.Count - 1; i >= 0; i--)
+            {
+                var pf = _puffs[i];
+                pf.t += f;
+                if (pf.t > 0.45f) _puffs.RemoveAt(i);
+                else _puffs[i] = pf;
             }
             QueueRedraw();
         }
@@ -4579,6 +4735,12 @@ public partial class JiangqiaoLevel : Node2D
         public override void _Draw()
         {
             float fade = Mathf.Clamp((Life - _t) / 0.3f, 0f, 1f);
+            // 落地雪雾：小团白雾胀开淡出
+            foreach (var (p, pt) in _puffs)
+            {
+                float a = Mathf.Clamp(1f - pt / 0.45f, 0f, 1f) * 0.32f;
+                DrawCircle(p, 4f + pt * 26f, new Color(0.94f, 0.95f, 0.97f, a));
+            }
             if (_bagTex != null)
             {
                 // 手绘袋：宽随袋生成参数，高按贴图比例，随机旋转翻面
@@ -5093,12 +5255,61 @@ public partial class GrenadeProj : Node2D
         }
         else
         {
-            // 仿德 M24 木柄手榴弹：木柄 + 铸铁弹头，拉弦式
-            DrawRect(new Rect2(-4f, -12f, 8f, 16f), new Color(0.42f, 0.32f, 0.20f));
-            DrawRect(new Rect2(-7f, -22f, 14f, 12f), new Color(0.30f, 0.31f, 0.33f));
-            DrawRect(new Rect2(-7f, -22f, 14f, 12f), new Color(0.18f, 0.18f, 0.20f, 0.8f), false, 1.2f);
+            // v3.59 重绘：M24 木柄手榴弹照钢笔淡彩的语言画——先罩色后勾墨线。
+            // 木柄略锥形带木纹与暗面、颈箍、铸铁弹头带顶盖横槽、柄尾拉盖 +
+            // 拉绳环（拉弦式）。不再是两根光秃秃的矩形。
+            var wood = new Color(0.47f, 0.36f, 0.23f);
+            var woodShade = new Color(0.37f, 0.27f, 0.16f);
+            var iron = new Color(0.34f, 0.35f, 0.37f);
+            var ironDark = new Color(0.24f, 0.25f, 0.27f);
+            var ink = new Color(0.17f, 0.15f, 0.13f, 0.9f);
+
+            // 木柄：上宽下窄的锥形（y -12..+5）+ 右侧暗面 + 一条木纹
+            DrawColoredPolygon(new[] {
+                new Vector2(-4.2f, -12f), new Vector2(4.2f, -12f),
+                new Vector2(3.1f, 5f), new Vector2(-3.1f, 5f),
+            }, wood);
+            DrawColoredPolygon(new[] {
+                new Vector2(1.2f, -12f), new Vector2(4.2f, -12f),
+                new Vector2(3.1f, 5f), new Vector2(1.2f, 5f),
+            }, woodShade);
+            DrawLine(new Vector2(-1.6f, -9f), new Vector2(-1.1f, 3f), woodShade, 0.8f, true);
+
+            // 颈箍
+            DrawRect(new Rect2(-4.8f, -14.5f, 9.6f, 3.4f), ironDark);
+
+            // 铸铁弹头：切角圆柱（y -26..-14.5）+ 顶盖横槽 + 左侧暗面
+            DrawColoredPolygon(new[] {
+                new Vector2(-6.6f, -23.5f), new Vector2(-5.2f, -26f),
+                new Vector2(5.2f, -26f), new Vector2(6.6f, -23.5f),
+                new Vector2(6.6f, -14.5f), new Vector2(-6.6f, -14.5f),
+            }, iron);
+            DrawLine(new Vector2(-6.2f, -23f), new Vector2(6.2f, -23f), ironDark, 1.1f, true);
+            DrawColoredPolygon(new[] {
+                new Vector2(-6.6f, -23.5f), new Vector2(-5.2f, -26f),
+                new Vector2(-3.4f, -26f), new Vector2(-3.4f, -14.5f),
+                new Vector2(-6.6f, -14.5f),
+            }, ironDark);
+
+            // 柄尾拉盖 + 拉绳环（拉弦式的识别特征）
+            DrawRect(new Rect2(-3.4f, 4.4f, 6.8f, 2.6f), ironDark);
+            DrawArc(new Vector2(0f, 8.6f), 2.6f, 0f, Mathf.Tau, 12,
+                new Color(0.72f, 0.66f, 0.55f), 1.3f, true);
+
+            // 全身墨线勾边
+            DrawPolyline(new[] {
+                new Vector2(-6.6f, -14.5f), new Vector2(-6.6f, -23.5f),
+                new Vector2(-5.2f, -26f), new Vector2(5.2f, -26f),
+                new Vector2(6.6f, -23.5f), new Vector2(6.6f, -14.5f),
+                new Vector2(4.8f, -12f), new Vector2(4.2f, -12f),
+                new Vector2(3.1f, 5f), new Vector2(3.4f, 7f),
+                new Vector2(-3.4f, 7f), new Vector2(-3.1f, 5f),
+                new Vector2(-4.2f, -12f), new Vector2(-4.8f, -12f),
+                new Vector2(-6.6f, -14.5f),
+            }, ink, 1.1f, true);
+
             if (_fuse < 0.6f && (int)(_fuse * 14f) % 2 == 0)
-                DrawCircle(new Vector2(0f, -24f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
+                DrawCircle(new Vector2(0f, -28f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
         }
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }

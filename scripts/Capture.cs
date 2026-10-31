@@ -17,6 +17,7 @@ public partial class Capture : Node
     private float _landTimer;
     private float _sx, _pressAt, _blastAt;   // v3.53 sandbag cover test
     private float _alertAt;                  // v3.57 enemy aim-verification
+    private GrenadeProj _nade;               // v3.59 stick-grenade closeup
     private int _stage;
     private bool _started;
     // v2.9: this used to be a hardcoded absolute path that included the
@@ -350,6 +351,24 @@ public partial class Capture : Node
             _stage = 50;
         }
         else if (_stage == 50 && _t > _alertAt + 1.7f)
+        {
+            // v3.59: 木柄手榴弹落地特写——手动丢一枚到玩家脚边雪地里，
+            // 等 0.7s 让它落稳，拍静置帧（fuse 2.2s，收工前不会炸）。
+            // 挂到玩家的父节点（= _game 容器），与正常投掷同一坐标系。
+            _nade = new GrenadeProj(
+                new Vector2(_lvl._player.Position.X + 56f, JiangqiaoLevel.GroundY - 70f),
+                new Vector2(10f, -18f));
+            _lvl._player.GetParent().AddChild(_nade);
+            GD.Print("CAPTURE stage50 -> stick grenade dropped");
+            _stage = 54;
+        }
+        else if (_stage == 54 && _t > _alertAt + 2.4f)
+        {
+            GD.Print("CAPTURE stage54 -> shot stick grenade at rest");
+            SaveShot("capture_46_nade_rest.png");
+            _stage = 55;
+        }
+        else if (_stage == 55 && _t > _alertAt + 2.9f)
         {
             GD.Print("CAPTURE done");
             GetTree().Quit();
