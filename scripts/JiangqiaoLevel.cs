@@ -1001,6 +1001,7 @@ public partial class JiangqiaoLevel : Node2D
         _player.Fired += OnPlayerFired;
         _player.Hit += OnPlayerHit;
         _player.Down += OnPlayerDown;
+        _player.Bled += OnPlayerBled;   // v3.61: 流血滴到雪地
         _player.DryFired += OnDryFired;
         // v3.46: the Landed event existed since the coyote/jump-buffer pass
         // but nothing subscribed - falls ended in silence. A snow burst at
@@ -1865,6 +1866,19 @@ public partial class JiangqiaoLevel : Node2D
         Shake(0.32f);
         _flashA = Mathf.Max(_flashA, 0.15f);
         _hud.Toast("你中弹了——蹲下能减少暴露");
+        // v3.61: 中弹瞬间先喷一小蓬血，之后由 Bled 信号持续滴
+        for (int i = 0; i < 5; i++)
+            OnPlayerBled(_player.GlobalPosition);
+    }
+
+    /// <summary>v3.61: 一滴血落到雪地——水彩深红小渍，停留约 9s 渐隐。</summary>
+    private void OnPlayerBled(Vector2 at)
+    {
+        _game.AddChild(new BloodDropFx
+        {
+            Position = new Vector2(at.X + (float)GD.RandRange(-16.0, 18.0),
+                                   JiangqiaoLevel.GroundY - 2f - (float)GD.RandRange(0.0, 3.0)),
+        });
     }
 
     private void OnDryFired()
@@ -4567,6 +4581,33 @@ public partial class JiangqiaoLevel : Node2D
     /// ③ 雪泥碎屑：14 粒深色小圆粒抛物线飞散（重力 1150），非方块；
     /// ④ 雪雾扩散环：一圈白弧快速胀开淡出。
     /// 全部用圆形/弧线，杜绝任何"四四方方"的色块（v3.55/v3.58 的教训）。</summary>
+    /// <summary>v3.61: 一滴雪地血渍——拉扁的深红椭圆（水彩罩染：内浓外晕），
+    /// 约 9 秒后随雪盖住渐隐。压在人物脚下的 Z 序（ZIndex 1）。</summary>
+    private partial class BloodDropFx : Node2D
+    {
+        private readonly float _r = (float)GD.RandRange(1.6, 3.4);
+        private float _t;
+        private const float Life = 9f;
+
+        public BloodDropFx() { ZIndex = 1; }
+
+        public override void _Process(double delta)
+        {
+            _t += (float)delta;
+            if (_t > Life) { QueueFree(); return; }
+            QueueRedraw();
+        }
+
+        public override void _Draw()
+        {
+            float a = Mathf.Clamp((Life - _t) / 3.5f, 0f, 1f) * 0.62f;
+            DrawSetTransform(new Vector2(0, 0), 0, new Vector2(1.5f, 0.42f));
+            DrawCircle(Vector2.Zero, _r * 1.7f, new Color(0.42f, 0.10f, 0.09f, a * 0.4f));
+            DrawCircle(Vector2.Zero, _r, new Color(0.36f, 0.08f, 0.08f, a));
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        }
+    }
+
     private partial class BlastFx : Node2D
     {
         private struct Debris { public Vector2 Pos, Vel; public float R, Life, MaxLife; }
@@ -5083,6 +5124,9 @@ public partial class EnemySoldier : Node2D
     /// <summary>同一波里的站位错位：两人不能停在同一条 x 上，否则轮廓会叠成一团。</summary>
     private readonly float _lane;
     private float _alertT;            // 警觉剩余时间：被击中或听到枪声后进入战斗状态
+    private float _retreatT;          // v3.61 负伤后撤剩余时间
+    private float _proneT;            // v3.61 负伤卧倒隐蔽剩余时间
+    private float _curV;              // v3.61 当前水平速度（启停平滑用）
 
     public bool Gone { get; private set; }
     public bool Alerted => _alertT > 0f;
@@ -5124,6 +5168,38 @@ public partial class EnemySoldier : Node2D
         if (_alertT > 0f) _alertT -= f;
         bool engaged = _alertT > 0f;
 
+        // v3.61 负伤本能：不呆呆往前站桩挨打。中弹后二选一——
+        // 向后撤到更远的射程外，或就地卧倒隐蔽几秒再爬起来继续打。
+        if (_retreatT > 0f)
+        {
+            _retreatT -= f;
+            _windup = 0f;   // 撤退不打枪
+            if (Position.X >= _holdX + 740f)
+            {
+                // 退到自家警戒线后方就不再退了——就地卧倒缓过来
+                _retreatT = 0f;
+                _proneT = 1.5f;
+                return;
+            }
+            Position += new Vector2(96f * f, 0);   // 远离玩家（玩家在其左侧）
+            _fig.Speed = 96f;
+            _fig.Phase += f * 8.2f;
+            _fig.Aim = Mathf.MoveToward(_fig.Aim, 0f, f * 12f);
+            _fig.Prone = false;
+            return;
+        }
+        if (_proneT > 0f)
+        {
+            _proneT -= f;
+            _windup = 0f;
+            _fig.Prone = true;
+            _fig.Speed = 0f;
+            _fig.Phase = Mathf.Lerp(_fig.Phase, 0f, f * 8f);
+            _fig.Aim = Mathf.MoveToward(_fig.Aim, 0f, f * 12f);
+            return;
+        }
+        _fig.Prone = false;
+
         float px = _level.PlayerX;
         float dist = Position.X - px;
 
@@ -5134,17 +5210,15 @@ public partial class EnemySoldier : Node2D
         if (_level.PlayerInCover()) targetDist -= 95f;
         float stopX = Mathf.Max(_holdX + _lane, _level.PlayerX + targetDist);
         float runSpeed = engaged ? 96f : 64f;
-        if (Position.X > stopX + 16f)
+        // v3.61: 启停加速度平滑——不再瞬间起步/急停（走路生硬的根因）
+        float want = Position.X > stopX + 16f ? -runSpeed
+                   : (dist < 220f - _lane && _level.PlayerAlive && Position.X < _holdX + 96f ? 38f : 0f);
+        _curV = Mathf.MoveToward(_curV, want, 280f * f);
+        if (Mathf.Abs(_curV) > 3f)
         {
-            Position -= new Vector2(runSpeed * f, 0);
-            _fig.Speed = runSpeed;
-            _fig.Phase += f * (engaged ? 8.4f : 6.2f);
-        }
-        else if (dist < 220f - _lane && _level.PlayerAlive && Position.X < _holdX + 96f)
-        {
-            Position += new Vector2(38f * f, 0);
-            _fig.Speed = 38f;
-            _fig.Phase += f * 5f;
+            Position += new Vector2(_curV * f, 0);
+            _fig.Speed = Mathf.Abs(_curV);
+            _fig.Phase += f * Mathf.Abs(_curV) * 0.088f;   // 步频与实际位移锁定
         }
         else
         {
@@ -5210,6 +5284,12 @@ public partial class EnemySoldier : Node2D
         else
         {
             Alert();
+            // v3.61: 负伤本能——55% 就地向后撤，45% 就地卧倒隐蔽；
+            // 恢复后照常战斗。不再站在原地当靶子。
+            if (GD.Randf() < 0.55f)
+                _retreatT = 1.6f + (float)GD.RandRange(0.0, 1.0);
+            else
+                _proneT = 2.2f + (float)GD.RandRange(0.0, 1.4);
         }
     }
 }
@@ -5220,6 +5300,8 @@ public partial class GrenadeProj : Node2D
     private Vector2 _vel;
     private float _fuse = 2.2f;
     private float _spin;
+    private bool _resting;          // v3.61 已在雪地停稳，正倒向横躺
+    private float _restSpin;
 
     /// <summary>v3.56 史实弹型：false = 东北军仿德 M24 木柄手榴弹（拉弦式）；
     /// true = 日军九一式手雷（1931 年列装，卵形铸铁弹体 + 拉销式引信，
@@ -5269,8 +5351,24 @@ public partial class GrenadeProj : Node2D
         {
             Position = new Vector2(Position.X, JiangqiaoLevel.GroundY - 6f);
             _vel = new Vector2(_vel.X * 0.35f, -_vel.Y * 0.28f);
-            if (Mathf.Abs(_vel.Y) < 60f) _vel = new Vector2(_vel.X * 0.8f, 0f);
+            if (Mathf.Abs(_vel.Y) < 60f)
+            {
+                _vel = new Vector2(_vel.X * 0.8f, 0f);
+                // v3.61: 停稳后不再直直立着——手雷会倒向雪地横躺
+                //（M24 长轴倒平 ±扰动；91式随机侧向）。目标角归一到
+                // 当前 _spin 的最近等价角，避免倒下时绕好几圈。
+                if (!_resting)
+                {
+                    _resting = true;
+                    float side = GD.Randf() < 0.5f ? -1f : 1f;
+                    _restSpin = side * Mathf.Pi * 0.5f + (float)GD.RandRange(-0.24f, 0.24f);
+                    while (_restSpin - _spin > Mathf.Pi) _restSpin -= Mathf.Tau;
+                    while (_restSpin - _spin < -Mathf.Pi) _restSpin += Mathf.Tau;
+                }
+            }
         }
+        if (_resting)
+            _spin = Mathf.Lerp(_spin, _restSpin, f * 7f);
 
         _fuse -= f;
         QueueRedraw();

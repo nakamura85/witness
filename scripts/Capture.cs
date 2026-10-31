@@ -348,6 +348,15 @@ public partial class Capture : Node
         {
             GD.Print("CAPTURE stage48 -> shot IJA windup/fire");
             SaveShot("capture_45_ija_windup.png");
+            // v3.61: 打伤他一发——0.7s 后拍负伤后撤帧（55% 后撤/45% 卧倒）
+            foreach (var e in _lvl._enemies)
+                if (IsInstanceValid(e) && !e.Gone) { e.Hit(); break; }
+            _stage = 49;
+        }
+        else if (_stage == 49 && _t > _alertAt + 1.75f)
+        {
+            GD.Print("CAPTURE stage49 -> shot wounded foe reaction");
+            SaveShot("capture_48_foe_wounded.png");
             _stage = 50;
         }
         else if (_stage == 50 && _t > _alertAt + 1.7f)

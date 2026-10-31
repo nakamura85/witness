@@ -32,6 +32,16 @@ public partial class FieldPlayer : CharacterBody2D
 
     public bool Wounded => Hp < HpMax;
 
+    /// <summary>v3.61: 重伤拖拽——剩 ≤2 心时腿上像灌了铅，移速降到 78%。
+    /// 中枪不是只掉个数字：身体真的变笨重了。</summary>
+    public float WoundFactor => Hp <= 2 ? 0.78f : 1f;
+
+    /// <summary>v3.61: 流血剩余时间。中弹/被炸后几秒内一路往雪地滴血。</summary>
+    private float _bleedT;
+    private float _dripCd;
+    /// <summary>滴一滴血到雪地（世界坐标），JiangqiaoLevel 订阅后落地成血渍。</summary>
+    public event System.Action<Vector2> Bled;
+
     /// <summary>returns rounds actually taken, bag full means fewer</summary>
     public int AddAmmo(int n)
     {
@@ -128,6 +138,7 @@ public partial class FieldPlayer : CharacterBody2D
         _poseBlend = Mathf.MoveToward(_poseBlend, poseTarget, f * 7.2f);
         float poseSpeed = Mathf.Lerp(RunSpeed, CrouchSpeed, Mathf.Clamp(_poseBlend, 0f, 1f));
         poseSpeed = Mathf.Lerp(poseSpeed, ProneSpeed, Mathf.Clamp(_poseBlend - 1f, 0f, 1f));
+        poseSpeed *= WoundFactor;   // v3.61: 重伤拖拽
 
         float target = input * poseSpeed;
         float accel = onFloor ? 1900f : 1100f;
@@ -164,6 +175,19 @@ public partial class FieldPlayer : CharacterBody2D
         // —— 动画状态 ——
         float hs = Mathf.Abs(Velocity.X);
         Figure.Speed = onFloor ? hs : 0f;
+
+        // v3.61: 流血——中弹/被炸后几秒内，每隔 0.4s 往雪地滴一滴血；
+        // 移动会滴得更急（心脏泵血），站定则缓。
+        if (_bleedT > 0f && Hp > 0)
+        {
+            _bleedT -= f;
+            _dripCd -= f * (Mathf.Abs(hs) > 20f ? 1.6f : 1f);
+            if (_dripCd <= 0f)
+            {
+                _dripCd = 0.4f;
+                Bled?.Invoke(GlobalPosition);
+            }
+        }
         Figure.Grounded = onFloor;
         Figure.Crouching = crouch;
         Figure.Prone = wantProne;
@@ -220,6 +244,7 @@ public partial class FieldPlayer : CharacterBody2D
         if (_invuln > 0f || Hp <= 0) return;
         _invuln = 1.15f;
         Hp--;
+        _bleedT = 4.0f;      // v3.61: 中弹后流血数秒
         Figure.HurtFlash = 1f;
         float away = GlobalPosition.X < fromX ? -1f : 1f;
         Velocity = new Vector2(away * 190f, -230f);
@@ -235,6 +260,7 @@ public partial class FieldPlayer : CharacterBody2D
         if (_invuln > 0f || Hp <= 0) return;
         _invuln = 1.5f;
         Hp = Mathf.Max(0, Hp - Mathf.Max(1, hearts));
+        _bleedT = 6.0f;      // v3.61: 被炸伤流血更久
         Figure.HurtFlash = 1f;
         float away = GlobalPosition.X < fromX ? -1f : 1f;
         Velocity = new Vector2(away * 260f, -300f);   // 冲击波掀翻比子弹更狠
