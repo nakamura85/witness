@@ -56,6 +56,11 @@ public partial class FieldPlayer : CharacterBody2D
     private float _poseBlend;
 
     private const float RunSpeed = 232f;
+    /// <summary>v3.53: set by the level while the player is tucked behind a
+    /// sandbag wall (E). Forces the crouch pose; the level clears it when the
+    /// player presses E again, moves, or the wall gets blown up.</summary>
+    public bool CoverHold { get; set; }
+
     private const float CrouchSpeed = 96f;
     private const float ProneSpeed = 55f;
     private const float Gravity = 1980f;
@@ -96,7 +101,9 @@ public partial class FieldPlayer : CharacterBody2D
         if (_jumpBuffer > 0f) _jumpBuffer -= f;
 
         bool wantProne = !ControlLocked && Input.IsActionPressed("prone") && onFloor;
-        bool crouch = !ControlLocked && Input.IsActionPressed("crouch") && onFloor && !wantProne;
+        // v3.53: CoverHold (sandbag interact) forces the crouch pose
+        bool crouch = (!ControlLocked && Input.IsActionPressed("crouch") && onFloor && !wantProne)
+                      || (!ControlLocked && CoverHold);
         float input = ControlLocked ? 0f : Input.GetAxis("move_left", "move_right");
 
         // v3.51: facing follows input while CROUCHED too - before this the

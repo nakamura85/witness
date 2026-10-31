@@ -165,6 +165,10 @@ public partial class JiangqiaoLevel : Node2D
     internal readonly List<EnterableHouse> _houses = new();
     private HouseInteriorUi _houseUi;
     private readonly List<GrenadeProj> _grenades = new();
+    // v3.53: sandbag cover interaction state
+    private int _coverIdx = -1;
+    private float _coverCd;            // blocks enter/exit re-triggering on one press
+    private float _enemyNadeTimer = -1f;
     private TracerFx _fx;
     private SnowScreen _snow;
     private SmokeFx _smokeWorld;    // smoke columns, in front of every house
@@ -1179,6 +1183,7 @@ public partial class JiangqiaoLevel : Node2D
 
         UpdateInteractions();
         UpdateGrenades(f);
+        UpdateCover(f);
         UpdateRecording(f);
         UpdateObjective();
         UpdatePrompts();
@@ -1258,11 +1263,110 @@ public partial class JiangqiaoLevel : Node2D
             if (d < bestP) { bestP = d; nearPickup = p; }
         }
 
+        // v3.53: sandbag cover competes with the house door for E - the
+        // stack at 2320 stands a stone's throw from h3's door. Whichever
+        // interaction target is CLOSER wins (house wins ties).
+        int coverIdx = _coverArt?.NearestStack(px, 100f) ?? -1;
+        float coverD = coverIdx >= 0 ? Mathf.Abs(_coverArt.StackX(coverIdx) - px) : 9999f;
+        float houseD = nearHouse != null ? Mathf.Abs(nearHouse.DoorX - px) : 9999f;
+
         if (Input.IsActionJustPressed("interact"))
         {
-            if (nearHouse != null) OpenHouse(nearHouse);
+            if (coverIdx >= 0 && coverD < houseD) EnterCover(coverIdx);
+            else if (nearHouse != null) OpenHouse(nearHouse);
             else if (nearPickup != null) LootPickup(nearPickup);
+            else if (coverIdx >= 0) EnterCover(coverIdx);
         }
+    }
+
+    // —— v3.53 沙袋掩体：E 躲入、挡子弹不挡手榴弹、可被炸毁 ——
+
+    private void EnterCover(int idx)
+    {
+        if (_coverIdx >= 0 || _coverCd > 0f || _coverArt == null || _player == null) return;
+        if (!_player.IsOnFloor()) return;
+        _coverIdx = idx;
+        _coverCd = 0.3f;
+        _player.CoverHold = true;
+        _player.Position = new Vector2(_coverArt.StackX(idx) - 36f, GroundY - 2f);
+        _player.Velocity = Vector2.Zero;
+        _hud.Toast("你缩到沙袋后面——挡子弹，挡不住手榴弹（E 或移动键离开）");
+    }
+
+    private void ExitCover()
+    {
+        _coverIdx = -1;
+        _coverCd = 0.3f;
+        if (_player != null) _player.CoverHold = false;
+    }
+
+    // ---- v3.53: capture-scene test hooks (also handy for tuning) ----
+    internal float DebugCoverX(int i) => _coverArt == null ? 0f : _coverArt.StackX(i);
+    internal void DebugBlast(float x) => Explode(new Vector2(x, GroundY - 20f));
+
+    private void UpdateCover(float f)
+    {
+        if (_coverCd > 0f) _coverCd -= f;
+
+        if (_coverIdx >= 0 && _ended)
+        {
+            ExitCover();
+            return;
+        }
+        if (_noteOpen || _houseUi != null || _ended) return;
+
+        if (_coverIdx >= 0)
+        {
+            if (_coverArt.IsDestroyed(_coverIdx))
+            {
+                ExitCover();
+                _hud.Toast("沙袋被炸烂了——这里不能再躲了！");
+            }
+            else if (_coverCd <= 0f
+                     && (Input.IsActionJustPressed("interact")
+                         || Mathf.Abs(Input.GetAxis("move_left", "move_right")) > 0.3f
+                         || Input.IsActionJustPressed("advance")))
+            {
+                ExitCover();
+                _hud.Toast("离开了沙袋掩体。");
+            }
+            else if (PlayerAlive)
+            {
+                // 敌兵不会让你永远缩着：定时掷木柄手榴弹逼你挪窝
+                if (_enemyNadeTimer < 0f) _enemyNadeTimer = (float)GD.RandRange(6.0, 10.0);
+                _enemyNadeTimer -= f;
+                if (_enemyNadeTimer <= 0f)
+                {
+                    _enemyNadeTimer = (float)GD.RandRange(8.0, 13.0);
+                    EnemyThrowGrenade();
+                }
+            }
+        }
+    }
+
+    private void EnemyThrowGrenade()
+    {
+        EnemySoldier thrower = null;
+        float best = 820f;
+        foreach (var e in _enemies)
+        {
+            if (!IsInstanceValid(e) || e.Gone) continue;
+            float d = Mathf.Abs(e.Position.X - _player.GlobalPosition.X);
+            if (d < best) { best = d; thrower = e; }
+        }
+        if (thrower == null) return;
+
+        var start = thrower.Position + new Vector2(-20f, -70f);
+        var target = new Vector2(_coverArt.StackX(_coverIdx) + 10f, GroundY - 8f);
+        float T = 1.05f;                      // flight time
+        float g = 1500f;                      // matches GrenadeProj gravity
+        var vel = new Vector2((target.X - start.X) / T,
+                              (target.Y - start.Y - 0.5f * g * T * T) / T);
+        var nade = new GrenadeProj(start, vel);
+        _game.AddChild(nade);
+        _grenades.Add(nade);
+        _hud.Toast("敌兵掷来木柄手榴弹——快离开落点！");
+        Shake(0.08f);
     }
 
     private void LootPickup(WeaponPickup p)
@@ -1349,6 +1453,12 @@ public partial class JiangqiaoLevel : Node2D
                 e.Hit();   // blast kills outright
             }
         }
+        // v3.53: the blast chews through sandbag cover too - direct hit
+        // flattens the wall, a blast one wall over mangles it. The player
+        // damage check below deliberately ignores cover: a grenade does not
+        // care that you are hiding.
+        if (_coverArt != null && _coverArt.Blast(at.X))
+            _hud.Toast("沙袋掩体被炸毁了！");
         if (_player.GlobalPosition.DistanceTo(at) < 120f)
             _player.TakeHit(at.X);
     }
@@ -1703,8 +1813,16 @@ public partial class JiangqiaoLevel : Node2D
         bool crouching = Input.IsActionPressed("crouch") && _player.IsOnFloor();
         bool cover = PlayerInCover();
         // 沙袋后面趴着基本打不中（真实掩体），站着挨打最惨
-        float hitChance = cover ? 0.04f : crouching ? 0.10f : 0.28f;
+        // v3.53: tuck-in cover is near-immune (0.02); every burst of suppressing
+        // fire chews the wall a little - cover is consumable.
+        float hitChance = cover ? 0.02f : crouching ? 0.10f : 0.28f;
         bool hit = GD.Randf() < hitChance;
+
+        if (cover && _coverArt != null)
+        {
+            int si = _coverArt.StackAt(_player.GlobalPosition.X);
+            if (si >= 0) _coverArt.Damage(si, 1.8f);
+        }
 
         if (hit)
         {
@@ -3953,15 +4071,88 @@ public partial class JiangqiaoLevel : Node2D
         internal static readonly float[] SandbagBaseX = { 980f, 2320f, 3640f, 4160f };
         internal static readonly float SandbagHalfWidth = 54f * 2.55f * 0.5f + 24f;
 
+        internal const float FullHp = 100f;
+
         private StackSpec[] _stacks = System.Array.Empty<StackSpec>();
         private Texture2D _sackTex;
+        private Texture2D _deadTex;
+        private float[] _hp = System.Array.Empty<float>();
 
-        /// <summary>沙袋是给主角躲的：蹲/趴在垛子投影范围内算进掩体。</summary>
+        /// <summary>沙袋是给主角躲的：蹲/趴在垛子投影范围内算进掩体。
+        /// v3.53: destroyed walls cover nobody.</summary>
         public bool Covers(float x)
         {
-            foreach (var s in _stacks)
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                if (_hp[i] <= 0f) continue;
+                var s = _stacks[i];
                 if (Mathf.Abs(x - s.X) < s.W * 0.5f + 26f) return true;
+            }
             return false;
+        }
+
+        // ---- v3.53: destructible cover ----
+
+        internal bool IsDestroyed(int i) => _hp[i] <= 0f;
+
+        internal float StackX(int i) => _stacks[i].X;
+
+        /// <summary>Nearest intact stack within range of px, or -1.</summary>
+        internal int NearestStack(float px, float range)
+        {
+            int best = -1;
+            float bd = range;
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                if (_hp[i] <= 0f) continue;
+                float d = Mathf.Abs(px - _stacks[i].X);
+                if (d < bd) { bd = d; best = i; }
+            }
+            return best;
+        }
+
+        /// <summary>The intact stack covering x, or -1 (bullet chips land here).</summary>
+        internal int StackAt(float x)
+        {
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                if (_hp[i] <= 0f) continue;
+                var s = _stacks[i];
+                if (Mathf.Abs(x - s.X) < s.W * 0.5f + 26f) return i;
+            }
+            return -1;
+        }
+
+        internal void Damage(int i, float dmg)
+        {
+            if (i < 0 || i >= _hp.Length || _hp[i] <= 0f) return;
+            _hp[i] = Mathf.Max(0f, _hp[i] - dmg);
+            QueueRedraw();
+        }
+
+        /// <summary>Grenade blast at world x: a direct hit flattens the wall
+        /// (unusable, visual swaps to the wreck), a blast one wall over just
+        /// mangles it. Returns true when a wall was destroyed by THIS blast.</summary>
+        internal bool Blast(float x)
+        {
+            bool wrecked = false;
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                if (_hp[i] <= 0f) continue;
+                float d = Mathf.Abs(x - _stacks[i].X);
+                if (d < 75f)
+                {
+                    wrecked = true;
+                    Damage(i, 999f);
+                }
+                else if (d < 175f)
+                {
+                    float before = _hp[i];
+                    Damage(i, 65f);
+                    if (before > 0f && _hp[i] <= 0f) wrecked = true;
+                }
+            }
+            return wrecked;
         }
 
         public override void _Ready()
@@ -3992,6 +4183,9 @@ public partial class JiangqiaoLevel : Node2D
             }
             _stacks = list.ToArray();
             _sackTex = GD.Load<Texture2D>("res://assets/art/props/sandbags.png");
+            _deadTex = GD.Load<Texture2D>("res://assets/art/props/sandbags_destroyed.png");
+            _hp = new float[_stacks.Length];
+            for (int i = 0; i < _hp.Length; i++) _hp[i] = FullHp;
         }
 
         public override void _Draw()
@@ -4001,10 +4195,45 @@ public partial class JiangqiaoLevel : Node2D
             {
                 var s = _stacks[i];
                 float cx = s.X;
+                bool destroyed = _hp[i] <= 0f;
+                bool damaged = !destroyed && _hp[i] < 60f;
 
-                SnowShadow.Draw(this, new Vector2(cx, GroundY - 1f), s.W * 0.55f, 0.30f);
+                SnowShadow.Draw(this, new Vector2(cx, GroundY - 1f),
+                    destroyed ? s.W * 0.8f : s.W * 0.55f, 0.30f);
 
                 bool flip = i % 2 == 1;
+                if (destroyed)
+                {
+                    // v3.53: the wall is gone - collapsed wreck of torn bags,
+                    // wider and lower than the standing wall, scorch pooled
+                    // where it used to stand. Provides no cover any more.
+                    if (_deadTex != null)
+                    {
+                        // v3.53b: 1.55x1.02 squashed the 2.29:1 wreck texture
+                        // into a 3.9:1 sliver - it read as generic debris, not
+                        // torn bags. 1.6x1.35 keeps it a low mound (slightly
+                        // over wall height: spilled sand mounds up) that still
+                        // shows the torn canvas and scorch holes.
+                        float w = s.W * 1.6f;
+                        float h = s.H * 1.35f;
+                        if (flip)
+                        {
+                            DrawSetTransform(new Vector2(cx, GroundY + 1f), 0, new Vector2(-1f, 1f));
+                            DrawTextureRect(_deadTex, new Rect2(-w * 0.5f, -h, w, h), false);
+                            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                        }
+                        else
+                        {
+                            DrawTextureRect(_deadTex, new Rect2(cx - w * 0.5f, GroundY + 1f - h, w, h), false);
+                        }
+                    }
+                    DrawSetTransform(new Vector2(cx, GroundY - 2f), 0, new Vector2(s.W * 0.042f, 0.6f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.16f, 0.14f, 0.11f), 0.40f),
+                        new Rect2(-32f, -32f, 64f, 64f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    continue;
+                }
+
                 if (flip)
                 {
                     DrawSetTransform(new Vector2(cx, GroundY + 1f), 0, new Vector2(-1f, 1f));
@@ -4014,6 +4243,23 @@ public partial class JiangqiaoLevel : Node2D
                 else
                 {
                     DrawTextureRect(_sackTex, new Rect2(cx - s.W * 0.5f, GroundY + 1f - s.H, s.W, s.H), false);
+                }
+
+                if (damaged)
+                {
+                    // chipped wall: scorch blotch on the face + one bag knocked
+                    // loose at the foot. Still usable, visibly worse for wear.
+                    float side = flip ? -1f : 1f;
+                    DrawSetTransform(new Vector2(cx - side * s.W * 0.22f, GroundY - s.H * 0.55f), 0.10f * side,
+                        new Vector2(1.4f, 1.1f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.14f, 0.12f, 0.09f), 0.5f),
+                        new Rect2(-14f, -14f, 28f, 28f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    var sack = new Color(0.62f, 0.55f, 0.42f);
+                    float lx = cx + side * s.W * 0.62f;
+                    DrawRect(new Rect2(lx - 11f, GroundY - 10f, 22f, 12f), sack);
+                    DrawRect(new Rect2(lx - 11f, GroundY - 10f, 22f, 12f),
+                        new Color(0.2f, 0.17f, 0.12f, 0.75f), false, 1.2f);
                 }
             }
         }
@@ -4436,6 +4682,15 @@ public partial class GrenadeProj : Node2D
     {
         Position = pos;
         _vel = new Vector2(facing * 320f, -330f);
+        ZIndex = 3;
+    }
+
+    /// <summary>v3.53: explicit ballistics for enemy throws at the player's
+    /// sandbag cover.</summary>
+    public GrenadeProj(Vector2 pos, Vector2 vel)
+    {
+        Position = pos;
+        _vel = vel;
         ZIndex = 3;
     }
 

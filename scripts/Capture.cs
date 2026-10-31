@@ -15,6 +15,7 @@ public partial class Capture : Node
     private float _frozeAt;
     private bool _jumped;      // v3.46 TEMP: landing-puff shot bookkeeping
     private float _landTimer;
+    private float _sx, _pressAt, _blastAt;   // v3.53 sandbag cover test
     private int _stage;
     private bool _started;
     // v2.9: this used to be a hardcoded absolute path that included the
@@ -236,6 +237,46 @@ public partial class Capture : Node
         {
             GD.Print("CAPTURE stage41 -> shot h4 posts ruin");
             SaveShot("capture_41_h4.png");
+            // v3.53: sandbag cover test - wall #3 (base 4160, no house door
+            // in reach). Freeze just west of it, then press E to tuck in.
+            Input.ActionRelease("move_right");
+            _sx = _lvl.DebugCoverX(2);
+            _lvl._player.Position = new Vector2(_sx - 70f, JiangqiaoLevel.GroundY - 2f);
+            _frozeAt = _t;
+            _stage = 42;
+        }
+        else if (_stage == 42 && _t > _frozeAt + 2.5f)
+        {
+            Input.ActionPress("interact");
+            _pressAt = _t;
+            GD.Print("CAPTURE stage42 -> interact pressed (tuck in)");
+            _stage = 43;
+        }
+        else if (_stage == 43 && _t > _pressAt + 0.25f)
+        {
+            Input.ActionRelease("interact");
+            GD.Print($"CAPTURE stage43 player x={PlayerX():F0} (wall {_sx:F0}, expect {_sx - 36f:F0})");
+            SaveShot("capture_42_cover.png");
+            Input.ActionPress("move_left");
+            _stage = 44;
+        }
+        else if (_stage == 44 && _t > _pressAt + 0.55f)
+        {
+            Input.ActionRelease("move_left");
+            _lvl._player.Position = new Vector2(_sx - 300f, JiangqiaoLevel.GroundY - 2f);
+            _blastAt = _t;
+            _stage = 45;
+        }
+        else if (_stage == 45 && _t > _blastAt + 0.5f)
+        {
+            _lvl.DebugBlast(_sx + 2f);
+            GD.Print("CAPTURE stage45 -> blast on the wall");
+            _stage = 46;
+        }
+        else if (_stage == 46 && _t > _blastAt + 1.9f)
+        {
+            GD.Print("CAPTURE stage46 -> shot wrecked wall");
+            SaveShot("capture_43_wreck.png");
             Input.ActionPress("move_right");
             _stage = 18;
         }
