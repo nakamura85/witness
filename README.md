@@ -662,10 +662,6 @@
 
 ![烟囱动态炊烟](docs/screenshots/v51_jq_chimney.png?v=3.25)
 
-**焚毁村落 · 焦柱断壁 + 动态黑烟 + 残火（程序化演出，非贴图）**
-
-![焚毁村落](docs/screenshots/v50_jq_burnt.png?v=3.52)
-
 **嫩江江桥 · 轨道铺上桥面（v3.26：钢桥板 + 拆掉检修走道栏杆 + 贴图重绘成手绘风）**
 
 ![嫩江江桥](docs/screenshots/v52_jq_bridge.png?v=3.40)
