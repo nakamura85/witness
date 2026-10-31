@@ -1410,10 +1410,10 @@ public partial class JiangqiaoLevel : Node2D
             if (!IsInstanceValid(thrower) || thrower.Gone) return;
             thrower._fig.ThrowPose = 0f;
             thrower._throwing = false;
-            var nade = new GrenadeProj(start, vel);
+            var nade = new GrenadeProj(start, vel, ijaType: true);   // 日军九一式手雷（史实）
             _game.AddChild(nade);
             _grenades.Add(nade);
-            _hud.Toast("敌兵拉弦掷来木柄手榴弹——快离开落点！");
+            _hud.Toast("敌兵掷来九一式手雷——快离开落点！");
             Shake(0.08f);
         };
     }
@@ -4149,9 +4149,45 @@ public partial class JiangqiaoLevel : Node2D
             public Vector2 Size;
             public bool Torn;        // darker, torn-open bag
             public bool Snow;        // snow-capped (half-buried look)
+            public int Slice;        // v3.56: which hand-painted bag crop to draw
         }
 
         private List<WreckBag>[] _wreck;
+
+        /// <summary>v3.56: three single-bag crops cut from the sandbag-wall
+        /// texture itself, so scattered debris shares the exact watercolour
+        /// hand of the standing wall instead of code-drawn rectangles.</summary>
+        private AtlasTexture[] _bagSlices = System.Array.Empty<AtlasTexture>();
+
+        /// <summary>v3.56: dedicated single-bag art (pending user approval).
+        /// When it lands in assets/art/props/ the debris field switches to it
+        /// automatically; until then the wall-texture crops above are used.</summary>
+        private Texture2D _singleBag;
+
+        /// <summary>Cut the single-bag regions out of the wall texture. The
+        /// wall is a stack of clearly readable bags, so three mid/lower bags
+        /// become our debris sprites - same ink lines, same wash.</summary>
+        private void BuildBagSlices()
+        {
+            if (_sackTex == null) return;
+            _bagSlices = new AtlasTexture[3];
+            // regions eyeballed on the 1449x451 wall: one clean mid bag,
+            // one lower bag, one snow-capped upper bag (verified on capture)
+            var regions = new Rect2[]
+            {
+                new Rect2(435, 142, 225, 108),
+                new Rect2(305, 248, 235, 108),
+                new Rect2(420, 52, 230, 110),
+            };
+            for (int k = 0; k < 3; k++)
+                _bagSlices[k] = new AtlasTexture
+                {
+                    Atlas = _sackTex,
+                    Region = regions[k],
+                };
+            // dedicated single-bag art wins when present (v3.56)
+            _singleBag = GD.Load<Texture2D>("res://assets/art/props/sandbag_single.png");
+        }
 
         /// <summary>
         /// v3.55: build the scattered debris layout for one stack. A blast does
@@ -4180,6 +4216,7 @@ public partial class JiangqiaoLevel : Node2D
                     Size = new Vector2(w, w * rng.RandfRange(0.42f, 0.55f)),
                     Torn = rng.Randf() < 0.30f,
                     Snow = rng.Randf() < 0.35f,
+                    Slice = rng.RandiRange(0, 2),
                 });
             }
             // —— 抛飞散袋：砸到雪里，两侧 0.6~1.8 倍墙宽处，半埋 + 积雪 ——
@@ -4196,6 +4233,7 @@ public partial class JiangqiaoLevel : Node2D
                     Size = new Vector2(w, w * rng.RandfRange(0.36f, 0.46f)),
                     Torn = rng.Randf() < 0.25f,
                     Snow = true,
+                    Slice = rng.RandiRange(0, 2),
                 });
             }
             list.Sort((a, b) => a.Pos.Y.CompareTo(b.Pos.Y));   // 远的先画
@@ -4312,6 +4350,7 @@ public partial class JiangqiaoLevel : Node2D
             }
             _stacks = list.ToArray();
             _sackTex = GD.Load<Texture2D>("res://assets/art/props/sandbags.png");
+            BuildBagSlices();
             // v3.55: the tidy wreck texture is retired - an explosion SCATTERS
             // the wall, it does not leave a neat mound. Each stack gets a
             // deterministic debris layout (seeded, built once) used by _Draw.
@@ -4368,27 +4407,37 @@ public partial class JiangqiaoLevel : Node2D
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                     var sack = new Color(0.62f, 0.55f, 0.42f);
                     float lx = cx + side * s.W * 0.62f;
-                    DrawRect(new Rect2(lx - 11f, GroundY - 10f, 22f, 12f), sack);
-                    DrawRect(new Rect2(lx - 11f, GroundY - 10f, 22f, 12f),
-                        new Color(0.2f, 0.17f, 0.12f, 0.75f), false, 1.2f);
+                    // v3.56: the knocked-loose bag is a real painted crop,
+                    // not a code rectangle (style-mismatch report)
+                    if (_bagSlices.Length > 0)
+                    {
+                        DrawSetTransform(new Vector2(lx, GroundY - 7f), 0.16f * side, Vector2.One);
+                        DrawTextureRect(_bagSlices[0], new Rect2(-14f, -9f, 28f, 17f), false);
+                        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    }
+                    else
+                    {
+                        DrawRect(new Rect2(lx - 11f, GroundY - 10f, 22f, 12f), sack);
+                        DrawRect(new Rect2(lx - 11f, GroundY - 10f, 22f, 12f),
+                            new Color(0.2f, 0.17f, 0.12f, 0.75f), false, 1.2f);
+                    }
                 }
             }
         }
 
         /// <summary>
-        /// v3.55: draw the scattered wreck. Bags share the hand-drawn language
-        /// of the chipped-wall loose bag above (same tan fill + ink outline),
-        /// torn ones darker with the seam split open, snow-capped ones get a
-        /// white cap so the flung bags read as half-buried in drift.
+        /// v3.56: draw the scattered wreck with the real hand-painted bag
+        /// crops (AtlasTexture slices of the standing-wall texture), rotated
+        /// and tinted - debris shares the exact watercolour hand of the wall,
+        /// instead of flat code rectangles that read as another art style.
+        /// Torn bags darken and keep the split seam; snow-capped ones get a
+        /// soft white cap so flung bags read as half-buried in drift.
         /// </summary>
         private void DrawWreck(int i)
         {
             var bags = _wreck[i];
-            if (bags == null) return;
+            if (bags == null || _bagSlices.Length == 0) return;
             var s = _stacks[i];
-            var sack = new Color(0.62f, 0.55f, 0.42f);
-            var sackDark = new Color(0.46f, 0.39f, 0.29f);
-            var ink = new Color(0.2f, 0.17f, 0.12f, 0.8f);
             var spill = new Color(0.55f, 0.48f, 0.36f, 0.30f);
 
             // 溢出的沙：堆间几摊浅色
@@ -4408,17 +4457,33 @@ public partial class JiangqiaoLevel : Node2D
 
             foreach (var b in bags)
             {
+                float w = b.Size.X * 1.25f;
+                float h = w * 0.62f;
+                var tint = b.Torn ? new Color(0.62f, 0.56f, 0.48f) : Colors.White;
                 DrawSetTransform(b.Pos, b.Rot, Vector2.One);
-                var fill = b.Torn ? sackDark : sack;
-                DrawRect(new Rect2(-b.Size.X * 0.5f, -b.Size.Y * 0.5f, b.Size.X, b.Size.Y), fill);
+                if (_singleBag != null)
+                {
+                    // dedicated art: aspect from the texture itself, odd slices
+                    // drawn flipped for variety
+                    float bw = w * 1.35f;
+                    float bh = bw * _singleBag.GetSize().Y / _singleBag.GetSize().X;
+                    DrawTextureRect(_singleBag, new Rect2(-bw * 0.5f, -bh * 0.62f, bw, bh),
+                        (b.Slice & 1) == 1, tint);
+                }
+                else
+                {
+                    var tex = _bagSlices[b.Slice];
+                    var src = tex.Region;
+                    float aspect = src.Size.Y / src.Size.X;
+                    DrawTextureRect(tex, new Rect2(-w * 0.5f, -h * 0.5f, w, h), false, tint);
+                }
                 // 撕口：袋身中缝一道深色裂线
                 if (b.Torn)
-                    DrawRect(new Rect2(-b.Size.X * 0.5f, -1f, b.Size.X, 2f),
+                    DrawRect(new Rect2(-w * 0.5f, -1f, w, 2f),
                         new Color(0.25f, 0.2f, 0.14f, 0.9f));
-                DrawRect(new Rect2(-b.Size.X * 0.5f, -b.Size.Y * 0.5f, b.Size.X, b.Size.Y), ink, false, 1.2f);
                 if (b.Snow)
-                    DrawRect(new Rect2(-b.Size.X * 0.5f, -b.Size.Y * 0.5f, b.Size.X, b.Size.Y * 0.34f),
-                        new Color(0.94f, 0.95f, 0.97f, 0.85f));
+                    DrawRect(new Rect2(-w * 0.5f, -h * 0.5f, w, h * 0.36f),
+                        new Color(0.94f, 0.95f, 0.97f, 0.72f));
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
@@ -4910,6 +4975,11 @@ public partial class GrenadeProj : Node2D
     private float _fuse = 2.2f;
     private float _spin;
 
+    /// <summary>v3.56 史实弹型：false = 东北军仿德 M24 木柄手榴弹（拉弦式）；
+    /// true = 日军九一式手雷（1931 年列装，卵形铸铁弹体 + 拉销式引信，
+    /// 不是木柄）。江桥抗战（1931.11）双方各自的制式手榴弹。</summary>
+    public bool IjaType;
+
     public bool Exploded { get; private set; }
 
     public GrenadeProj(Vector2 pos, float facing)
@@ -4921,10 +4991,11 @@ public partial class GrenadeProj : Node2D
 
     /// <summary>v3.53: explicit ballistics for enemy throws at the player's
     /// sandbag cover.</summary>
-    public GrenadeProj(Vector2 pos, Vector2 vel)
+    public GrenadeProj(Vector2 pos, Vector2 vel, bool ijaType = false)
     {
         Position = pos;
         _vel = vel;
+        IjaType = ijaType;
         ZIndex = 3;
     }
 
@@ -4961,13 +5032,30 @@ public partial class GrenadeProj : Node2D
         DrawSetTransform(new Vector2(0, JiangqiaoLevel.GroundY - Position.Y + 2f), 0, new Vector2(1.3f, 0.3f));
         DrawCircle(Vector2.Zero, 7f, new Color(0.10f, 0.09f, 0.08f, 0.25f));
         DrawSetTransform(new Vector2(0, 0), _spin, Vector2.One);
-        // wooden handle + head
-        DrawRect(new Rect2(-4f, -12f, 8f, 16f), new Color(0.42f, 0.32f, 0.20f));
-        DrawRect(new Rect2(-7f, -22f, 14f, 12f), new Color(0.30f, 0.31f, 0.33f));
-        DrawRect(new Rect2(-7f, -22f, 14f, 12f), new Color(0.18f, 0.18f, 0.20f, 0.8f), false, 1.2f);
-        // fuse spark near the end
-        if (_fuse < 0.6f && (int)(_fuse * 14f) % 2 == 0)
-            DrawCircle(new Vector2(0f, -24f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
+        if (IjaType)
+        {
+            // 九一式手雷：卵形铸铁弹体（深铁灰、带压纹点）、顶部引信管+拉销环
+            DrawCircle(new Vector2(0, -8f), 7.2f, new Color(0.24f, 0.25f, 0.24f));
+            DrawCircle(new Vector2(0, -8f), 7.2f, new Color(0.12f, 0.12f, 0.12f, 0.75f), false, 1.2f);
+            // 铸铁压纹（几粒小点）
+            foreach (var p in new[] { (-3f, -11f), (3f, -9f), (0f, -5f), (-4f, -6f), (4f, -12f) })
+                DrawCircle(new Vector2(p.Item1, p.Item2), 0.9f, new Color(0.14f, 0.14f, 0.13f));
+            // 引信管 + 拉销环
+            DrawRect(new Rect2(-2f, -17f, 4f, 6f), new Color(0.30f, 0.30f, 0.29f));
+            DrawArc(new Vector2(4f, -18f), 2.6f, 0f, Mathf.Tau, 10, new Color(0.55f, 0.52f, 0.45f), 1.4f, true);
+            // 引信冒烟近爆
+            if (_fuse < 0.6f && (int)(_fuse * 14f) % 2 == 0)
+                DrawCircle(new Vector2(4f, -18f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
+        }
+        else
+        {
+            // 仿德 M24 木柄手榴弹：木柄 + 铸铁弹头，拉弦式
+            DrawRect(new Rect2(-4f, -12f, 8f, 16f), new Color(0.42f, 0.32f, 0.20f));
+            DrawRect(new Rect2(-7f, -22f, 14f, 12f), new Color(0.30f, 0.31f, 0.33f));
+            DrawRect(new Rect2(-7f, -22f, 14f, 12f), new Color(0.18f, 0.18f, 0.20f, 0.8f), false, 1.2f);
+            if (_fuse < 0.6f && (int)(_fuse * 14f) % 2 == 0)
+                DrawCircle(new Vector2(0f, -24f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
+        }
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }

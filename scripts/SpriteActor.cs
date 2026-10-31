@@ -54,6 +54,9 @@ public partial class SpriteActor : Node2D
         // v3.55: 掷弹蓄力优先于蹲/瞄——标准投弹动作是站直挥臂，不能被瞄准姿吃掉
         if (ThrowPose > 0.25f && _throwTex != null && !(Airborne || !Grounded) && !Vaulting)
             return (_throwTex, _throwS, 0f, 0.9f);
+        // v3.56: 蹲姿抵肩瞄准（蹲射复合姿）优先于普通蹲——掩体里据枪待射
+        // 的标准姿势，枪身水平贴腮，不再是枪口斜上的端枪站桩。
+        if (Crouched && Aim > 0.45f && _crouchAimTex != null) return (_crouchAimTex, _crouchAimS, 0f, 0.31f);
         if (Crouched && _crouchTex != null) return (_crouchTex, _crouchS, 0f, 0.31f);
         if (Aim > 0.5f && _aimTex != null && !(Airborne || !Grounded) && !Vaulting)
             return (_aimTex, _aimS, 0f, 0.165f);
@@ -86,8 +89,8 @@ public partial class SpriteActor : Node2D
     /// <summary>hip pivot in texture coords (from top-left): the point that must
     /// stay glued to the leg pieces whenever the torso rotates.</summary>
     private Vector2 _hipPivot;
-    private Texture2D _aimTex, _crouchTex, _proneTex, _throwTex;
-    private float _aimS, _crouchS, _proneS, _throwS;
+    private Texture2D _aimTex, _crouchTex, _proneTex, _throwTex, _crouchAimTex;
+    private float _aimS, _crouchS, _proneS, _throwS, _crouchAimS;
     private ShaderMaterial _mat;
     private bool _wasGrounded = true;
     private float _landT;             // 落地缓冲计时 1→0
@@ -249,12 +252,14 @@ public partial class SpriteActor : Node2D
             _crouchTex = LoadPoseTex($"{stem}_crouch");
             _proneTex = LoadPoseTex($"{stem}_prone");
             _throwTex = LoadPoseTex($"{stem}_throw");
+            _crouchAimTex = LoadPoseTex($"{stem}_crouch_aim");
             // 蹲：跪姿真实高度比 0.74（同一个人只是姿势变矮，头/装备不缩小）
             // 趴：按身体长度=站立身高定缩放（趴下身长不变，横向贴地）
             if (_aimTex != null) _aimS = Height / _aimTex.GetSize().Y;
             if (_crouchTex != null) _crouchS = Height * 0.74f / _crouchTex.GetSize().Y;
             if (_proneTex != null) _proneS = Height / _proneTex.GetSize().X;
             if (_throwTex != null) _throwS = Height / _throwTex.GetSize().Y;
+            if (_crouchAimTex != null) _crouchAimS = Height * 0.74f / _crouchAimTex.GetSize().Y;
             _pose = new Sprite2D { Centered = false, Visible = false, Material = _mat };
             _flip.AddChild(_pose);
         }

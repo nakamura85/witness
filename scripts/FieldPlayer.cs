@@ -168,7 +168,9 @@ public partial class FieldPlayer : CharacterBody2D
         Figure.Crouching = crouch;
         Figure.Prone = wantProne;
         Figure.FacingRight = _facing > 0f;
-        Figure.Aim = aiming ? 1f : 0f;
+        // v3.56: tucked behind sandbags the soldier keeps the rifle shouldered
+        // (crouch-aim art once it lands) instead of loosely cradling it.
+        Figure.Aim = (aiming || CoverHold) ? 1f : 0f;
         if (onFloor && hs > 6f)
             Figure.Phase += hs * f * 0.095f;
         else if (onFloor)
