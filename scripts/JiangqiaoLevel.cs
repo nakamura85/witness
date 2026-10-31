@@ -1588,7 +1588,11 @@ public partial class JiangqiaoLevel : Node2D
 
     private void OnPlayerFired(Vector2 origin, bool faceRight)
     {
-        Shake(0.55f);
+        // v3.51: was 0.55 - trauma^2 put every bolt shot at +-13px of screen
+        // jolt, which read as a glitch rather than recoil (user report
+        // 2026-10-31). 0.20 -> ~+-2px: a nudge in the shoulder, the real
+        // feedback stays with the muzzle flash and the body pushback.
+        Shake(0.20f);
         EnemySoldier target = null;
         float best = 980f;
         foreach (var e in _enemies)
@@ -1646,8 +1650,10 @@ public partial class JiangqiaoLevel : Node2D
 
     private void OnPlayerHit()
     {
-        Shake(0.5f);
-        _flashA = Mathf.Max(_flashA, 0.30f);
+        // v3.51: was 0.5 + full-screen flash 0.30 - read as a render fault.
+        // 0.32 / 0.15 keeps the hurt feedback but below the glitch line.
+        Shake(0.32f);
+        _flashA = Mathf.Max(_flashA, 0.15f);
         _hud.Toast("你中弹了——蹲下能减少暴露");
     }
 
@@ -1716,8 +1722,12 @@ public partial class JiangqiaoLevel : Node2D
 
     private void Artillery(float strength)
     {
-        _flashA = Mathf.Max(_flashA, strength);
-        Shake(0.7f * strength + 0.2f);
+        // v3.51: was full-strength flash + 0.7s+0.2 shake. The full-screen
+        // warm wash at 0.4-0.65 alpha read as a screen fault every time a
+        // wave spawned (user report 2026-10-31). Halved flash, softer jolt:
+        // a distant shell you feel, not a screen you distrust.
+        _flashA = Mathf.Max(_flashA, strength * 0.55f);
+        Shake(0.45f * strength + 0.1f);
         // 远处的雪雾
         _snow.Burst();
     }

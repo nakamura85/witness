@@ -99,7 +99,12 @@ public partial class FieldPlayer : CharacterBody2D
         bool crouch = !ControlLocked && Input.IsActionPressed("crouch") && onFloor && !wantProne;
         float input = ControlLocked ? 0f : Input.GetAxis("move_left", "move_right");
 
-        if (Mathf.Abs(input) > 0.05f && !crouch)
+        // v3.51: facing follows input while CROUCHED too - before this the
+        // facing was locked once crouched (`&& !crouch`), so crouch-walking
+        // backwards slid the pose away tail-first with no mirrored side
+        // (user report 2026-10-31). The aiming branch below still wins while
+        // the mouse aims, so combat facing is unaffected.
+        if (Mathf.Abs(input) > 0.05f)
             _facing = Mathf.Sign(input);
 
         // 瞄准：按住右键，或刚开过枪
