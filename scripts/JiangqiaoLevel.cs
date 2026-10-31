@@ -1901,11 +1901,12 @@ public partial class JiangqiaoLevel : Node2D
 
     private void Artillery(float strength)
     {
-        // v3.51: was full-strength flash + 0.7s+0.2 shake. The full-screen
-        // warm wash at 0.4-0.65 alpha read as a screen fault every time a
-        // wave spawned (user report 2026-10-31). Halved flash, softer jolt:
-        // a distant shell you feel, not a screen you distrust.
-        _flashA = Mathf.Max(_flashA, strength * 0.55f);
+        // v3.58: the full-screen flash is GONE, not just halved. Even at 0.22
+        // alpha the warm wash one second after the intro still read as a
+        // glitch ("一闪", user report 2026-10-31) - and a distant shell makes
+        // no physical case for repainting the whole screen anyway. The hit is
+        // carried by the camera jolt + snow wave alone; _flash stays reserved
+        // for the player being hurt.
         Shake(0.45f * strength + 0.1f);
         // 远处的雪雾
         _snow.Burst();
@@ -4533,6 +4534,9 @@ public partial class JiangqiaoLevel : Node2D
         private readonly List<Bag> _bags = new();
         private float _t;
         private const float Life = 1.1f;
+        /// <summary>v3.58: 飞散袋用水彩单袋贴图——v3.55 漏改的最后一处矩形袋，
+        /// 爆炸瞬间满屏四四方方的色块（用户截图实锤）。贴图缺失回退矩形。</summary>
+        private readonly Texture2D _bagTex = GD.Load<Texture2D>("res://assets/art/props/sandbag_single.png");
 
         public CoverBurstFx()
         {
@@ -4575,6 +4579,23 @@ public partial class JiangqiaoLevel : Node2D
         public override void _Draw()
         {
             float fade = Mathf.Clamp((Life - _t) / 0.3f, 0f, 1f);
+            if (_bagTex != null)
+            {
+                // 手绘袋：宽随袋生成参数，高按贴图比例，随机旋转翻面
+                float tw = _bagTex.GetSize().X;
+                float th = _bagTex.GetSize().Y;
+                var tint = new Color(1f, 1f, 1f, fade);
+                foreach (var b in _bags)
+                {
+                    float bw = b.W * 1.6f;
+                    float bh = bw * th / tw;
+                    DrawSetTransform(b.Pos, b.Rot, Vector2.One);
+                    DrawTextureRect(_bagTex, new Rect2(-bw * 0.5f, -bh * 0.55f, bw, bh),
+                        (b.RotV > 0f), tint);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                }
+                return;
+            }
             var sack = new Color(0.62f, 0.55f, 0.42f, fade);
             var ink = new Color(0.2f, 0.17f, 0.12f, 0.8f * fade);
             foreach (var b in _bags)

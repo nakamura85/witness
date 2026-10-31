@@ -272,6 +272,15 @@ public partial class Capture : Node
         {
             _lvl.DebugBlast(_sx + 2f);
             GD.Print("CAPTURE stage45 -> blast on the wall");
+            _stage = 462;
+        }
+        else if (_stage == 462 && _t > _blastAt + 0.9f)
+        {
+            // v3.58: catch the burst FX mid-flight (0.4s after the blast,
+            // bags still airborne) - this is the frame that used to show
+            // code-drawn squares flying.
+            GD.Print("CAPTURE stage462 -> shot burst mid-flight");
+            SaveShot("capture_45b_burst.png");
             _stage = 46;
         }
         else if (_stage == 46 && _t > _blastAt + 1.9f)
