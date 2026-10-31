@@ -68,15 +68,25 @@ public partial class AsiaMap : Control
 
     private void BuildHeader()
     {
+        // v3.11: the two lines used to be parked by hand-guessed Y offsets, and
+        // every guess landed too close - the subtitle kept kissing the title's
+        // descenders. Now both live in one vertical container: the container
+        // measures the title's real rendered height and drops the subtitle a
+        // clean 14px below it, so the line spacing is structural, not luck.
+        var header = new VBoxContainer();
+        header.Position = new Vector2(54, 8);
+        header.AddThemeConstantOverride("separation", 14);
+        header.MouseFilter = MouseFilterEnum.Ignore;
+        AddChild(header);
+
         var title = new Label
         {
             Text = "记忆档案馆 · 东亚 1895—1945",
         };
-        title.AddThemeFontSizeOverride("font_size", 28);
+        title.AddThemeFontSizeOverride("font_size", 25);
         title.AddThemeColorOverride("font_color", new Color(0.90f, 0.85f, 0.73f));
-        title.Position = new Vector2(54, 22);
         title.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(title);
+        header.AddChild(title);
 
         var sub = new Label
         {
@@ -84,9 +94,8 @@ public partial class AsiaMap : Control
         };
         sub.AddThemeFontSizeOverride("font_size", 14);
         sub.AddThemeColorOverride("font_color", new Color(0.68f, 0.63f, 0.53f));
-        sub.Position = new Vector2(56, 56);
         sub.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(sub);
+        header.AddChild(sub);
     }
 
     private void BuildLabels()
@@ -110,11 +119,22 @@ public partial class AsiaMap : Control
         // 地理名：位置全部由经纬度派生，不再手工摆
         Tag("苏联", 118.5f, 50.2f, -18, -6, 15, -2f);
         Tag("蒙古", 114.6f, 45.5f, 2, -4, 12, 1.5f);
-        Tag("中国（中华民国时代）", 117.6f, 34.5f, -18, -10, 20, -1f);
+        // v2.8: the country name used to sit on top of the red Korean colony
+        // hatching and on the coastline, so half the characters were hard to
+        // read. It now sits inland over empty ground, fully clear of both.
+        Tag("中国（中华民国时代）", 114.4f, 27.5f, -8, 0, 19, -1f);
         Tag("满洲", 131.6f, 48.0f, 2, -4, 15, 2f);
-        Tag("朝鲜半岛", 125.0f, 30.1f, 0, 0, 11, -1f);
+        // v2.7: Korea was already a colony of the Japanese Empire from 1910,
+        // so a 1931 war map should not call it "Korean Peninsula" - that is
+        // a modern geographic name and it does not fit the period.
+        // v2.8: was at lon 125.0 which put the text straight across the
+        // coastline and over the colony hatching. Now it sits out in the
+        // sea south-east of the peninsula, where nothing else is.
+        Tag("朝鮮（1910 起被吞并）", 126.5f, 29.5f, 4, 0, 10, -1f);
         Tag("大日本帝国", 140.6f, 36.5f, 4, -6, 16, 0f);
-        Tag("台湾地区", 120.3f, 23.2f, -26, 2, 12, -2f);
+        // v2.8: the Taiwan label was overlapping the red colony hatching.
+        // Moved south-west, over open water.
+        Tag("台湾地区", 120.3f, 23.2f, -40, 6, 12, -2f);
         Tag("华北", 115.4f, 38.5f, -10, -6, 13, -1f);
 
         // 进军路线上的落脚城镇（标签向路线外侧错开，避免压在粗线上）
@@ -122,12 +142,35 @@ public partial class AsiaMap : Control
         Tag("平壤", 125.7f, 39f, -38, -4, 10);
         Tag("沈阳", 123.4f, 41.8f, -48, -4, 11);
         Tag("长春", 125.3f, 43.9f, -46, -4, 11);
-        Tag("哈尔滨 · 731 部队 1932", 126.6f, 45.8f, 12, -3, 10);
+        // v2.7 timeline order fix:
+        // 9.18 (1931.9) -> Jiangqiao (1931.11) -> 731 predecessor (1932) ->
+        // 731 formed (1936) -> first combat (1940)
+        // Before this it said "Harbin / 731 Unit 1932", which reads as if the
+        // unit already existed in 1932, and the map put it south of Jiangqiao
+        // so people read it as "731 first, Jiangqiao later".
+        // Now it says the 1932 institute (the real predecessor), and the
+        // formation + combat dates live in the chapter list on the right.
+        // v2.9: the bridge pin used to sit at lon 125.2 / lat 49.2 - that is
+        // Nenjiang city way up north, not the battle site. The real Jiangqiao
+        // (-Taolai county) is SOUTH of Qiqihar, ~123.35E 46.45N, where the
+        // railway crosses the lower Nen River. With the pin up north the map
+        // read "Harbin 731 first, Jiangqiao later on the Soviet border".
+        Tag("哈尔滨 · 石井四郎细菌战研究所 1932（731 前身）", 126.6f, 45.8f, 12, -3, 9);
         Tag("齐齐哈尔", 123.9f, 47.3f, -62, -4, 10);
-        Tag("嫩江 · 江桥", 125.2f, 49.2f, 14, -3, 11, 0f, new Color(0.62f, 0.21f, 0.16f, 0.90f));
-        Tag("南京 1937", 118.8f, 32f, 8, 2, 10);
-        Tag("1931 · 关东军北上", 116.0f, 41.4f, 0, 0, 12, -3f,
+        Tag("嫩江 · 江桥 1931.11", 123.35f, 46.45f, -26, 16, 11, 0f, new Color(0.62f, 0.21f, 0.16f, 0.90f));
+        // v2.8: "南京 1937" used to sit right on the coastline and the sea
+        // cut the characters in half. It now sits inland, to the west.
+        Tag("南京 1937", 118.8f, 32f, -76, -8, 10);
+        // v2.8: this label used to sit at lon 116.0 / lat 41.4, which is right
+        // on top of the "沈阳" city tag - the red text ran straight through the
+        // grey characters and both became unreadable. It now sits in the empty
+        // land west of the railway, inside the map frame. The year sits on its
+        // own line underneath, so neither line reaches the railway line or
+        // the red colony hatching.
+        Tag("关东军北上", 114.6f, 42.6f, 0, 0, 12, -3f,
             new Color(0.62f, 0.21f, 0.16f, 0.62f));
+        Tag("1931", 114.6f, 41.5f, 0, 0, 10, -3f,
+            new Color(0.62f, 0.21f, 0.16f, 0.52f));
     }
 
     private void BuildNotes()
@@ -167,37 +210,59 @@ public partial class AsiaMap : Control
         };
         _enter.AddThemeStyleboxOverride("normal", enterStyle);
         _enter.AddThemeColorOverride("font_color", new Color(0.94f, 0.89f, 0.77f));
-        _enter.Pressed += () => _main.StartJiangqiao();
+        _enter.Pressed += () => EnterJiangqiao();
         AddChild(_enter);
     }
 
     /// <summary>档案栏右列：后面几章要经过的地方（现在只登记，不开放）。</summary>
     private void BuildChapters()
     {
-        var head = new Label { Text = "后续章节 · 尚未抵达" };
+        // same structured spacing as the header: one VBox owns the column,
+        // separation is guaranteed by the container, not guessed Y offsets
+        var col = new VBoxContainer();
+        col.Position = new Vector2(980, 138);
+        col.CustomMinimumSize = new Vector2(224, 0);
+        col.AddThemeConstantOverride("separation", 12);
+        col.MouseFilter = MouseFilterEnum.Ignore;
+        AddChild(col);
+
+        var head = new Label { Text = "章节顺序 · 时间线" };
         head.AddThemeFontSizeOverride("font_size", 13);
         head.AddThemeColorOverride("font_color", new Color(0.30f, 0.26f, 0.21f, 0.60f));
-        head.Position = new Vector2(1006, 138);
         head.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(head);
+        col.AddChild(head);
 
-        string[] rows =
+        // v2.9: full chronological timeline. The old list started at 1932
+        // (731 predecessor), so the column read "731 first, Jiangqiao later".
+        // Now 9.18 and Jiangqiao lead the list and the bridge row is the
+        // highlighted current chapter, so the order is fixed: 9.18 ->
+        // Jiangqiao (1931.11) -> 731 predecessor (1932) -> formed (1936) ->
+        // combat use (1940).
+        (string, Color?)[] rows =
         {
-            "1932　哈尔滨 · 731 部队",
-            "1937　南京",
-            "1942　马来亚 · 知知港",
-            "1942　新加坡",
-            "1945　终战",
+            ("1931.9　沈阳 · 九一八事变", null),
+            ("1931.11　嫩江江桥 · 当前战役", new Color(0.62f, 0.21f, 0.16f, 0.85f)),
+            ("1932　哈尔滨 · 细菌战研究所（731 前身）", null),
+            ("1936　关东军防疫给水部（731 成军）", null),
+            ("1937　南京", null),
+            ("1938　平房基地 · 人体实验", null),
+            ("1940　细菌战投入实战", null),
+            ("1942　马来亚 · 知知港", null),
+            ("1942　新加坡", null),
+            ("1945　终战", null),
         };
         for (int i = 0; i < rows.Length; i++)
         {
-            var l = new Label { Text = rows[i] };
-            l.AddThemeFontSizeOverride("font_size", 12);
-            l.AddThemeColorOverride("font_color", new Color(0.26f, 0.22f, 0.18f, 0.52f));
-            l.Position = new Vector2(1006, 166 + i * 30);
+            var l = new Label { Text = rows[i].Item1 };
+            l.AddThemeFontSizeOverride("font_size", 11);
+            l.AddThemeColorOverride("font_color", rows[i].Item2 ?? new Color(0.26f, 0.22f, 0.18f, 0.52f));
             l.MouseFilter = MouseFilterEnum.Ignore;
-            AddChild(l);
+            col.AddChild(l);
         }
+
+        // breathing gap between the list and the footnote
+        var gap = new Control { CustomMinimumSize = new Vector2(0, 10), MouseFilter = MouseFilterEnum.Ignore };
+        col.AddChild(gap);
 
         var note = new Label
         {
@@ -207,9 +272,9 @@ public partial class AsiaMap : Control
         };
         note.AddThemeFontSizeOverride("font_size", 11);
         note.AddThemeColorOverride("font_color", new Color(0.32f, 0.27f, 0.22f, 0.40f));
-        note.Position = new Vector2(1006, 336);
+        note.AddThemeConstantOverride("line_spacing", 5);
         note.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(note);
+        col.AddChild(note);
     }
 
     private Button MakeSlip(string text, Vector2 pos, float rotDeg)
@@ -217,12 +282,13 @@ public partial class AsiaMap : Control
         var b = new Button
         {
             Text = text,
-            CustomMinimumSize = new Vector2(212, 104),
-            PivotOffset = new Vector2(106, 52),
+            CustomMinimumSize = new Vector2(212, 108),
+            PivotOffset = new Vector2(106, 54),
             Rotation = Mathf.DegToRad(rotDeg),
             Position = pos,
         };
         b.AddThemeFontSizeOverride("font_size", 15);
+        b.AddThemeConstantOverride("line_spacing", 6);
         var paper = new StyleBoxFlat
         {
             BgColor = new Color(0.92f, 0.87f, 0.74f),
@@ -276,7 +342,9 @@ public partial class AsiaMap : Control
         };
         _toast.AddThemeFontSizeOverride("font_size", 13);
         _toast.AddThemeColorOverride("font_color", new Color(0.55f, 0.20f, 0.16f));
-        _toast.Position = new Vector2(280, 618);
+        // v3.13: slid down with the map block so the toast still clears the
+        // frame bottom edge (611 -> 620) instead of landing on it.
+        _toast.Position = new Vector2(280, 627);
         _toast.MouseFilter = MouseFilterEnum.Ignore;
         _toast.Modulate = new Color(1, 1, 1, 0);
         AddChild(_toast);
@@ -325,9 +393,9 @@ public partial class AsiaMap : Control
             + (GameState.I.S.JiangqiaoDone ? "      ·      江桥已见证" : "");
 
         _hint.Text = !KoreaRead || !TaiwanRead
-            ? "先读右侧两张纸条：1895 台湾，1910 朝鲜半岛。"
+            ? "先读右侧两张纸条：1895 台湾，1910 大韩帝国。"
             : !BriefRead
-                ? "路线显影了：日军自汉城北上。读作战简报，进入江桥阵地。"
+                ? "路线显影了：九一八之后，日军沿四洮、洮昂铁路北上。读作战简报，进入江桥阵地。"
                 : "阵地已在等待。点下方按钮，进入 1931 年 11 月 4 日。";
 
         if (RouteOn)
@@ -377,14 +445,19 @@ public partial class AsiaMap : Control
             case "korea":
                 ui = new FieldNoteUi(
                     "纸条 01 · 1910 年 8 月 22 日",
-                    "《日韩合并条约》：半岛是怎样被吞下的",
+                    // v2.7: the proper name of the country in 1910 was the
+                    // "Korean Empire" (renamed by Emperor Gojong in 1897), and it
+                    // only stopped existing when the treaty took effect on
+                    // 29 Aug 1910. The old title used a modern geographic name
+                    // to talk about 1910, which is not accurate.
+                    "《日韩合并条约》：大韩帝国是怎样被吞下的",
                     new[]
                     {
-                        "1905 年，大日本帝国以《乙巳条约》夺走朝鲜的外交权，设“统监府”；1910 年 8 月 22 日，《日韩合并条约》签订，大韩帝国被并入大日本帝国，9 月 30 日朝鲜总督府成立。",
+                        "1905 年，大日本帝国以《乙巳条约》夺走大韩帝国外交权，设“统监府”；1910 年 8 月 22 日，大韩帝国内阁总理李完用与日本统监寺内正毅签订《日韩合并条约》，8 月 29 日生效，大韩帝国就此灭亡，朝鲜总督府成立。",
                         "大日本帝国要朝鲜，不只是为了土地：它是通往大陆的跳板，是粮食、矿产与劳动力的来源，也是面对俄国与中国的战略缓冲。1910—1918 年的土地调查，把大量公有地与农民耕地并入总督府和大日本帝国公司名下。",
                         "殖民统治并不安静：1919 年三一运动被镇压；1938 年起强制征用劳工；1940 年“创氏改名”；1944 年起在朝鲜征兵。1910 年的这张纸，是此后三十五年一切的起点。",
                     },
-                    "依据：《日韩合并条约》文本（1910）；《朝鲜总督府官报》；韩国国史编纂委员会公开史料。",
+                    "依据：《日韩合并条约》文本（1910）；《朝鲜总督府官报》；大韩帝国国史编纂委员会公开史料。",
                     () => MarkRead("korea"));
                 break;
 
@@ -433,8 +506,41 @@ public partial class AsiaMap : Control
         Refresh();
         bool both = GameState.I.S.MapNoteKorea && GameState.I.S.MapNoteTaiwan;
         Toast(both
-            ? "两张纸读完了：1895 台湾 → 1910 朝鲜。1931 年 11 月，关东军沿铁路北上。"
+            ? "两张纸读完了：1895 台湾 → 1910 大韩帝国。1931 年 11 月，关东军沿铁路北上。"
             : which == "korea" ? "已读：1910 日韩合并条约" : "已读：1895 马关条约·割台");
+    }
+
+    /// <summary>
+    /// v3.0: the 9.18 incident now leads the flow. The full Mukden level is
+    /// still unmade, so for now it passes as one archive popup before the
+    /// bridge battle; the popup shows only once per save, afterwards the
+    /// enter button goes straight into the level.
+    /// </summary>
+    private void EnterJiangqiao()
+    {
+        if (GameState.I.S.MapNote918)
+        {
+            _main.StartJiangqiao();
+            return;
+        }
+
+        var ui = new FieldNoteUi(
+            "档案 · 1931 年 9 月 18 日 夜",
+            "沈阳 · 九一八事变",
+            new[]
+            {
+                "1931 年 9 月 18 日夜，日军自行炸毁沈阳北侧柳条湖段的南满铁路路轨，反诬中国军队所为，随即进攻北大营、占领沈阳。此后数月，辽宁、吉林相继沦陷。",
+                "抵抗并没有结束。一个多月后，部队就将在下方的嫩江江桥打响反击——这是九一八之后，中国军队第一次有组织的、大规模的抵抗。",
+                "（九一八是完整章节，正式关卡日后制作；此处先以档案带过，先行进入嫩江江桥。）",
+            },
+            "依据：远东国际军事法庭判决书（九一八部分）；辽宁省档案馆公开史料。",
+            () =>
+            {
+                GameState.I.S.MapNote918 = true;
+                GameState.I.Save();
+            });
+        ui.Closed += () => _main.StartJiangqiao();
+        AddChild(ui);
     }
 
     // ================= 地图绘制（逐层） =================
@@ -471,10 +577,12 @@ public partial class AsiaMap : Control
         // 不是全球地图，而是一张作战档案图 —— 1931 的北上路线要看得清。
         private const float Lon0 = 113.4f, Lat0 = 19.6f;
         private const float SX = 15.8f, SY = 16.42f;
-        private const float X0 = 58f, Y0 = 608f;
+        private const float X0 = 58f, Y0 = 617f;
 
         // 图框（世界坐标）
-        private static readonly Rect2 Frame = new(57, 97, 534, 514);
+        // v3.13: slid down together with the projection origin so the whole
+        // map block dropped 9px and the header finally has air above it.
+        private static readonly Rect2 Frame = new(57, 106, 534, 514);
 
         public static Vector2 P(float lon, float lat)
             => new(X0 + (lon - Lon0) * SX, Y0 - (lat - Lat0) * SY);
@@ -537,14 +645,22 @@ public partial class AsiaMap : Control
         // —— 第 1 层：纸（桌面木纹由底下的 ColorRect 负责）——
         private void DrawPaper()
         {
-            var sheet = new Rect2(30, 74, 1220, 566);
+                // v3.13: the subtitle used to sit ON the paper - the sheet top edge
+            // was y=74 and the subtitle glyphs ran y=61..73, so the descenders were
+            // literally swallowed by the sheet and the text looked glued to the
+            // grid underneath. The whole map now sits lower: the sheet top moved
+            // 74->90 and the projection origin Y0 moved 608->617, which slides
+            // every drawn element (land, grid, labels, frame) down by the same 9px.
+            // Relative composition inside the map is therefore untouched - only the
+            // block of page above it grew.
+            var sheet = new Rect2(30, 90, 1220, 559);
             DrawRect(new Rect2(sheet.Position + new Vector2(7, 9), sheet.Size), new Color(0, 0, 0, 0.34f));
             DrawRect(sheet, Paper);
 
             // 纸纤维与污渍
             for (int i = 0; i < 240; i++)
             {
-                var p = new Vector2(34 + Hash(i, 1.3f) * 1212, 78 + Hash(i, 9.7f) * 558);
+                var p = new Vector2(34 + Hash(i, 1.3f) * 1212, 94 + Hash(i, 9.7f) * 551);
                 DrawCircle(p, 0.7f + Hash(i, 4.1f) * 1.3f,
                     new Color(0.42f, 0.34f, 0.22f, 0.03f + 0.045f * Hash(i, 2.2f)));
             }
@@ -795,8 +911,9 @@ public partial class AsiaMap : Control
             Geo(river, 1.7f,                                                  // 黑龙江
                 (121f, 53.4f), (123f, 52.6f), (125f, 51.5f), (127f, 50.2f), (129f, 49f),
                 (131.5f, 48.2f), (133.5f, 48.6f), (135.4f, 48.4f));
-            Geo(new Color(0.34f, 0.40f, 0.45f, 0.34f), 1.2f,                   // 嫩江
-                (126f, 50.4f), (125.4f, 49.4f), (124.7f, 48.4f), (124.2f, 47.7f), (123.9f, 47.3f));
+            Geo(new Color(0.34f, 0.40f, 0.45f, 0.34f), 1.2f,                   // 嫩江（下游到江桥渡口）
+                (126f, 50.4f), (125.4f, 49.4f), (124.7f, 48.4f), (124.2f, 47.7f), (123.9f, 47.3f),
+                (123.6f, 46.9f), (123.35f, 46.45f));
             Geo(river, 1.4f,                                                  // 黄河（含河套）
                 (96.5f, 35.2f), (101f, 35.8f), (103.8f, 36.1f), (106.5f, 39f), (108.2f, 40.3f),
                 (110.6f, 37.6f), (112.5f, 35.2f), (114.5f, 34.9f), (116.5f, 36.2f), (118.6f, 37.6f));
@@ -869,11 +986,14 @@ public partial class AsiaMap : Control
         {
             if (!RouteOn) return;
 
-            // 史实顺序：汉城 → 平壤 → 安东 → 沈阳 → 长春 → 哈尔滨 → 齐齐哈尔 → 嫩江
+            // advance leg followed the Sitao + Taoang railways: Shenyang ->
+            // Changchun -> Taonan -> Jiangqiao. Harbin fell only in early 1932,
+            // AFTER the bridge battle, so it never belonged on this leg - the
+            // Harbin 731 tag stays on the map as a marker for the later chapter.
             var key = new[]
             {
                 P(127f, 37.5f), P(125.7f, 39f), P(124.4f, 40.1f), P(123.4f, 41.8f),
-                P(125.3f, 43.9f), P(126.6f, 45.8f), P(123.9f, 47.3f), P(125.2f, 49.2f),
+                P(125.3f, 43.9f), P(122.6f, 45.3f), P(123.35f, 46.45f),
             };
             var path = CurvedPath(key, 0.14f);
             int count = Mathf.Clamp((int)(path.Count * Progress), 2, path.Count);
@@ -922,7 +1042,7 @@ public partial class AsiaMap : Control
 
         private void DrawPins()
         {
-            Pin(P(125.2f, 49.2f), GameState.I.S.JiangqiaoDone, true);   // 嫩江 · 江桥
+            Pin(P(123.35f, 46.45f), GameState.I.S.JiangqiaoDone, true); // 嫩江 · 江桥（泰来）
             Pin(P(126.6f, 45.8f), false, false);                        // 哈尔滨 · 731
             Pin(P(118.8f, 32f), false, false);                          // 南京
         }
@@ -971,7 +1091,7 @@ public partial class AsiaMap : Control
             if (RouteOn)
             {
                 float pulse = 0.55f + 0.2f * Mathf.Sin((float)Time.GetTicksMsec() / 420f);
-                DrawArc(P(125.2f, 49.2f), 15f + pulse * 3f, 0, Mathf.Tau, 28,
+                DrawArc(P(123.35f, 46.45f), 15f + pulse * 3f, 0, Mathf.Tau, 28,
                     new Color(Route, 0.55f), 1.4f, true);
             }
         }
@@ -1061,7 +1181,9 @@ public partial class FieldNoteUi : CanvasLayer
         _paragraphs = paragraphs;
         _source = source;
         _onClose = onClose;
-        Layer = 20;
+        // 30 > DialogueUi(25) / HouseInteriorUi(20)：笔记常被 AddChild 进屋内面板，
+        // CanvasLayer 按自身 Layer 跨整棵树排序，同 Layer 会被父层盖住 → 笔记盖在最上层（#4）
+        Layer = 30;
     }
 
     public override void _Ready()

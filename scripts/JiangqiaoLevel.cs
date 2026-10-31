@@ -6,6 +6,112 @@ using Godot;
 namespace Witness;
 
 /// <summary>
+/// Soft radial falloff sprites, used wherever a hard-edged circle would leave a
+/// visible rim on the flat snow.
+///
+/// v2.8: plain DrawCircle blobs were the reason bright white arcs kept
+/// flashing across the snowfield. A radial gradient fading to zero alpha has
+/// no rim, so the shape melts into the ground.
+///
+/// v2.8 fix: this did NOT use GradientTexture2D with Fill=Radial. That fill
+/// interpolates along the axis from FillFrom to FillTo, and any pixel on the
+/// far side of FillFrom clamps to offset 0 - which is fully opaque. The left
+/// half of the sprite came out solid with a straight vertical cut down the
+/// middle, which is exactly the hard edged pale slab that showed up on the
+/// snow. Now the falloff is computed per pixel from the real distance to the
+/// centre, so it fades out in every direction and has no edge at all.
+/// </summary>
+public static class SoftSnow
+{
+    private static readonly Dictionary<int, ImageTexture> _cache = new();
+
+    public static ImageTexture Blob(Color tint, float alpha)
+    {
+        // v2.9: the cache key was tint.GetHashCode() ^ (int)(alpha*1000).
+        //
+        // That was broken in a nasty way. Godot's C# Color.GetHashCode()
+        // casts R/G/B straight from float to uint, so 0.90f becomes 0 and
+        // 0.55f also becomes 0 - every colour we ever ask for hashed to the
+        // SAME number, and alpha is not part of the hash at all. The key
+        // therefore carried nothing but the alpha, so any two callers using
+        // the same alpha shared one texture no matter how different their
+        // colours were.
+        //
+        // The visible symptom: the pale snow drift around a corpse asked for
+        // a light blob and got back the near-black house shadow cached under
+        // the same alpha, so a hard dark octagon sat on the snow next to
+        // every body.
+        //
+        // The key is now built from the exact bytes, so no two requests can
+        // ever share a slot.
+        int key = ((int)(tint.R * 255f) << 24) ^ ((int)(tint.G * 255f) << 16)
+            ^ ((int)(tint.B * 255f) << 8) ^ ((int)(tint.A * 255f))
+            ^ ((int)(alpha * 1000f) * 7919);
+        if (_cache.TryGetValue(key, out var cached)) return cached;
+
+        const int size = 64;
+        var img = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
+        var half = size * 0.5f;
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float dx = (x + 0.5f - half) / half;
+            float dy = (y + 0.5f - half) / half;
+            float r = Mathf.Sqrt(dx * dx + dy * dy);
+            // smoothstep falloff: fully opaque in the middle, zero at the rim
+            float a = 1f - Mathf.Clamp(r, 0f, 1f);
+            a = a * a * (3f - 2f * a);
+            img.SetPixel(x, y, new Color(tint.R, tint.G, tint.B, tint.A * alpha * a));
+        }
+
+        var tex = ImageTexture.CreateFromImage(img);
+        _cache[key] = tex;
+        return tex;
+    }
+
+    /// <summary>
+    /// v3.16: a "melt band" - the snow that swallows the foot of a house or
+    /// the bottom of a tree sprite.
+    ///
+    /// It used to be a GradientTexture2D stretched over a rectangle. That
+    /// looked fine in the vertical direction but the rectangle itself had hard
+    /// left and right edges, and a gradient texture also puts a hard step on
+    /// its very first row. Over the distant village that left a bright slab
+    /// with a ruler-straight edge lying on the snow under every far house -
+    /// the "white box" the player kept pointing at.
+    ///
+    /// This one fades out in every direction: alpha ramps up from the top,
+    /// and the left and right ends taper to nothing, so there is no edge
+    /// anywhere for the eye to catch.
+    /// </summary>
+    public static ImageTexture MeltBand(Color tint, float alpha)
+    {
+        int key = ((int)(tint.R * 255f) << 24) ^ ((int)(tint.G * 255f) << 16)
+            ^ ((int)(tint.B * 255f) << 8) ^ ((int)(tint.A * 255f))
+            ^ ((int)(alpha * 1000f) * 7919) ^ 0x5E17;
+        if (_cache.TryGetValue(key, out var cached)) return cached;
+
+        const int w = 128, hgt = 64;
+        var img = Image.CreateEmpty(w, hgt, false, Image.Format.Rgba8);
+        for (int y = 0; y < hgt; y++)
+        for (int x = 0; x < w; x++)
+        {
+            float u = (x + 0.5f) / w;
+            float v = (y + 0.5f) / hgt;
+            float up = v * v * (3f - 2f * v);
+            float side = Mathf.Sin(Mathf.Pi * u);
+            side = Mathf.Pow(side, 0.6f);
+            float a = up * side;
+            img.SetPixel(x, y, new Color(tint.R, tint.G, tint.B, tint.A * alpha * a));
+        }
+
+        var tex = ImageTexture.CreateFromImage(img);
+        _cache[key] = tex;
+        return tex;
+    }
+}
+
+/// <summary>
 /// 关卡 00「嫩江江桥 · 1931.11.4」垂直切片。
 ///
 /// 设计要点（对应这次的明确要求）：
@@ -42,10 +148,10 @@ public partial class JiangqiaoLevel : Node2D
 
     internal FieldPlayer _player;
     private GroundShadow _playerShadow;
-    private Camera2D _cam;
+    internal Camera2D _cam;
     private Node2D _game;
     private Hud _hud;
-    private Label _hpLabel;
+    private VitalsBar _vitals;
     private AmmoBar _ammoBar;
     private ColorRect _flash;
     private ColorRect _blackout;
@@ -59,11 +165,58 @@ public partial class JiangqiaoLevel : Node2D
     internal readonly List<EnterableHouse> _houses = new();
     private HouseInteriorUi _houseUi;
     private readonly List<GrenadeProj> _grenades = new();
+    // v3.53: sandbag cover interaction state
+    private int _coverIdx = -1;
+    private Tween _coverTween;
+    private float _coverCd;            // blocks enter/exit re-triggering on one press
+    private float _enemyNadeTimer = -1f;
     private TracerFx _fx;
     private SnowScreen _snow;
-    private SmokeFx _smokeWorld;    // smoke + fire over the near houses (world layer)
+    private SmokeFx _smokeWorld;    // smoke columns, in front of every house
     private SmokeFx _smokeMid;      // chimney smoke over the distant village (parallax mid)
+    private SmokeFx _fireFarIn;     // fire burning INSIDE the far row houses (behind them)
+    private SmokeFx _fireFarOut;    // fire burning outside the far row houses (in front of them)
+    private SmokeFx _fireNearIn;    // fire burning INSIDE the near row houses (behind them)
+    private SmokeFx _fireNearOut;   // fire burning outside the near row houses (in front of them)
     private const float MidFactor = 0.24f;
+
+    /// <summary>
+    /// A person is 114px tall. The soldier art is 108px and both the player
+    /// and the enemy walk around at scale 1.06, so 108 x 1.06 = 114.5.
+    /// Everything in the level that has to sit next to a human - a house
+    /// wall, a bridge - is measured against this number.
+    ///
+    /// v3.39: this 114.5px is the protagonist's height, anchored to 170cm
+    /// (a normal East-Asian male; the 160-180cm band, with rare outliers
+    /// like Yao Ming ~200cm+). So 1px ~= 1.484cm. Houses stand 1.5x this
+    /// (WallH = 255cm) and the bridge 2.5x (BridgeH). Soldier/enemy share
+    /// the same PersonH reference, so the protagonist reads as a normal
+    /// built man next to them.
+    /// </summary>
+    public const float PersonH = 114.5f;
+
+    /// <summary>
+    /// v3.25: the house rule the user set again - a house that is not burnt
+    /// down stands one and a half man-heights at the eave. Burnt shells and
+    /// charred stumps keep the size they have: a ruin with no wall has no
+    /// wall to measure, and the village only reads as a village while the
+    /// standing houses are the big ones.
+    /// </summary>
+    public const float WallH = PersonH * 1.5f;
+
+    /// <summary>
+    /// v3.25: the bridge is two and a half man-heights tall. Measured from
+    /// the snow line it stands on up to the top of the truss - that is the
+    /// height the eye reads, and it is what puts the span over the person's
+    /// head instead of at his shoulder.
+    /// </summary>
+    public const float BridgeH = PersonH * 2.5f;
+
+    // viewport 1280x720 -> half width 640 / half height 360.
+    // used when the camera clamps itself: the lens must not cross the left
+    // and right edges of the world, and must not drift off the snow vertically.
+    private const float ViewHalfW = 640f;
+    private const float ViewHalfH = 360f;
 
     private float _shake;
     private float _flashA;
@@ -89,6 +242,14 @@ public partial class JiangqiaoLevel : Node2D
     private const float ClockMax = 19.2f;
     /// <summary>实机截图用：强制指定钟点（&lt;0 = 正常走时）。</summary>
     public float DebugClock = -1f;
+
+    /// <summary>v2.8: verification switch, hides the falling snow so the shake
+    /// check can measure the backdrop on its own.</summary>
+    public bool DebugNoSnow;
+
+    /// <summary>v2.8: verification switch, hides the chimney smoke so the
+    /// shake check can measure the backdrop on its own.</summary>
+    public bool DebugNoSmoke;
     private float _lastDryToast = -99f;
 
     public JiangqiaoLevel(Main main) { _main = main; }
@@ -125,7 +286,17 @@ public partial class JiangqiaoLevel : Node2D
             {
                 _started = true;
                 _hud.ShowTutorial("A / D 移动 · 空格 跳跃 · S 蹲下 · Ctrl 匍匐 · E 记录/捡枪/进屋 · G 手榴弹 · 鼠标左键射击");
-                Artillery(0.55f);
+                // v3.48: the opening barrage used to land on the SAME frame the
+                // intro overlay vanished - the player's very first sight of the
+                // level was a full-screen flash plus a camera jolt, which read
+                // as a rendering glitch ("按回车闪一下抖一下"). Now the scene
+                // gets one breath (~1s), THEN the distant shell lands: same
+                // drama, but it reads as intentional instead of broken.
+                GetTree().CreateTimer(1.0).Timeout += () =>
+                {
+                    if (IsInsideTree() && !_ended)
+                        Artillery(0.4f);
+                };
             });
     }
 
@@ -147,24 +318,106 @@ public partial class JiangqiaoLevel : Node2D
     /// </summary>
     private void BuildHouses()
     {
-        // far row: scenery ruins, cannot enter (lift > 0 = reads further away)
-        AddHouse("f1", 460f + Jit(28), "house_posts", 190f, false, 14f);
-        AddHouse("f2", 1230f + Jit(42), "house_skeleton_near", 235f, false, 16f);
-        AddHouse("f4", 1680f + Jit(45), "house_posts", 145f, false, 19f);
-        AddHouse("f3", 3910f + Jit(35), "house_burned_near", 210f, false, 12f);
+        // v3.25 person-scale audit. The user set the house rule again:
+        // a house that is not burnt down stands 1.5 man-heights at the eave.
+        //
+        // v3.19 did the same arithmetic but the soldier was on 0.87 back
+        // then, so "1.49 heights" meant a 140px wall against a 94px man.
+        // The soldier is 1.06 now (114px) and the wall had stayed at 140px,
+        // so the house had quietly shrunk to 1.02 man-heights - in the
+        // capture the man in front of the farmhouse was exactly as tall as
+        // the farmhouse.
+        //
+        // The rule is measured at the eave, not at the ridge: the eave is
+        // the line the eye actually compares a person against, and a ridge
+        // at 1.5 man-heights would be a doghouse.
+        //
+        // The burnt ones keep the size they have. A shell with no roof and
+        // a stump field have no wall to measure, and the standing houses
+        // have to stay the big ones or the village reads flat.
+        AddHouse("f1", 460f + Jit(28), "house_posts", 250f, false, 14f);
+        AddHouse("f2", 1294f + Jit(42), "house_skeleton_near", 350f, false, 16f);
+        AddHouse("f4", 1680f + Jit(45), "house_posts", 210f, false, 19f);
+        AddHouse("f3", 3910f + Jit(35), "house_burned_near", 331f, false, 12f);
 
         // near row: enterable loot spots, the intact one teaches players
-        // "the house that still looks whole got the goods" lah
-        AddHouse("h1", 845f + Jit(24), "house_ruined_near", 330f, true, 0f);
-        AddHouse("h3", 1885f + Jit(30), "house_intact_near", 312f, true, 0f);
-        AddHouse("h4", 3180f + Jit(45), "house_posts", 235f, false, 0f);
-        AddHouse("h2", 2760f, "house_burned_near", 360f, true, 0f);
+        // "the house that still looks whole got the goods" lah.
+        // h3 sits fixed (no jitter) so the gap after it stays open for the
+        // crater + fallen soldier vignette next to it.
+        AddHouse("h1", 845f + Jit(24), "house_ruined_near", HouseWidthForWall("house_ruined_near", WallH), true, 0f);
+        AddHouse("h3", 1925f, "house_intact_near", HouseWidthForWall("house_intact_near", WallH), true, 0f);
+        // v3.39: h4 is the near roofless ruin (house_posts). The user set
+        // "near non-burnt houses stand 1.5 man-heights", so lock it to WallH
+        // like the intact houses instead of the old fixed 320px width.
+        AddHouse("h4", 3244f + Jit(45), "house_posts", HouseWidthForWall("house_posts", WallH), false, 0f);
+        AddHouse("h2", 2760f, "house_burned_near", 450f, true, 0f);
+    }
+
+    /// <summary>
+    /// Which row of the house texture the eave sits on - the line where the
+    /// roof closes and the wall starts. Measured off the paintings with a
+    /// row scan (the roof silhouette keeps widening until that row, then
+    /// snaps back to the wall width).
+    ///
+    /// intact 1531x995 -> eave row 495, ruined 1467x918 -> eave row 460.
+    /// </summary>
+    private static readonly Dictionary<string, float> HouseEaveRow = new()
+    {
+        ["house_intact_near"] = 495f,
+        ["house_ruined_near"] = 460f,
+        // v3.39: house_posts is a roofless ruined frame, so the whole
+        // standing structure (top of the art down to the snow) is the
+        // "wall" the eave row locks to 1.5 man-heights.
+        ["house_posts"] = 12f,
+    };
+
+    /// <summary>
+    /// How wide the house has to be drawn so its wall stands <paramref name="wallPx"/>
+    /// tall between the eave and the snow line.
+    ///
+    /// The house node sits 8px sunk into the snow and the feet line is 2px
+    /// above the snow, so the wall measures (h * (1 - eave/texH)) - 10. The
+    /// texture is drawn straight, so w = h * texW / texH.
+    /// </summary>
+    private static float HouseWidthForWall(string tex, float wallPx)
+    {
+        if (!HouseEaveRow.TryGetValue(tex, out float eave)) return 400f;
+        var t = GD.Load<Texture2D>($"res://assets/art/props/{tex}.png");
+        if (t == null) return 400f;
+        var sz = t.GetSize();
+        float h = (wallPx + 10f) / (1f - eave / sz.Y);
+        return h * sz.X / sz.Y;
     }
 
     /// <summary>
     /// Smoke + fire for every house. A house that still stands puffs thin
     /// domestic smoke from the chimney, a burnt one chokes out a thick black
     /// column and still has embers crawling in the ashes.
+    ///
+    /// v3.13: every house used to get the SAME size for its texture type, so
+    /// all the fires in the village looked cloned - the user pointed at two
+    /// screenshots of the same kind of house and said the flames and the smoke
+    /// must not be one size. Now each house rolls its own: the damage state
+    /// decides the range, the building width scales it up, and a random pick
+    /// inside the range settles the final look. A house that is nearly burnt
+    /// out rolls a tiny flame and only a thread of smoke left.
+    ///
+    /// v3.25: the fire is split in two, because a flame has to sit either in
+    /// front of a wall or behind it - never in the same layer as the house.
+    /// The user spelled it out: fire burning inside the house has to be
+    /// drawn UNDER the house layer, fire burning outside has to be drawn
+    /// OVER it. Before this every flame shared the single smoke layer, which
+    /// sat in front of the houses, so a fire that was supposed to be inside
+    /// a burnt shell was pasted on top of the wall.
+    ///
+    /// So the fire goes into its own layers:
+    ///   - the fire anchored on the house itself is drawn BEHIND the house,
+    ///     so the wall and the charred beams cross in front of the flame
+    ///     and the house reads as burning from the inside;
+    ///   - the fire on the ground in front of the house is drawn IN FRONT of
+    ///     the house, so it licks up over the wall.
+    /// The smoke column is neither - it climbs into the air, so it stays in
+    /// front of everything and drifts over the roof.
     /// </summary>
     private void AddHouseSmoke(EnterableHouse h, string tex, float x, float w, float lift)
     {
@@ -175,125 +428,369 @@ public partial class JiangqiaoLevel : Node2D
         float hgt = w * sz.Y / sz.X;
 
         // source point in texture space (normalised), then mapped to world
-        float u = 0.5f, v = 0.4f, size = 0.9f, strength = 0.6f, fire = 0f, rise = 80f;
+        float u = 0.5f, v = 0.4f;
+        float sizeLo = 0.8f, sizeHi = 1.0f;
+        float strLo = 0.5f, strHi = 0.7f;
+        float fireLo = 0f, fireHi = 0f;
+        float riseLo = 70f, riseHi = 90f;
+        // where the fire burns inside the house, in texture fractions. The
+        // points are the real openings cut into the paintings, so the wall
+        // frame crosses in front of the flame instead of hiding it.
+        Vector2[] inner = System.Array.Empty<Vector2>();
         var tint = new Color(0.72f, 0.73f, 0.75f);
         switch (tex)
         {
             case "house_intact_near":
                 // the painted smoke that used to sit over this chimney is gone
                 // now, so the anchor goes right onto the chimney mouth itself
-                u = 0.700f; v = 0.147f; size = 0.85f; strength = 0.70f; fire = 0f; rise = 74f;
+                u = 0.700f; v = 0.147f;
+                sizeLo = 0.52f; sizeHi = 0.92f;
+                strLo = 0.42f; strHi = 0.78f;
+                fireLo = 0f; fireHi = 0f;
+                riseLo = 52f; riseHi = 96f;
                 tint = new Color(0.82f, 0.85f, 0.89f);
                 break;
             case "house_burned_near":
-                u = 0.545f; v = 0.615f; size = 1.50f; strength = 1.0f; fire = 0.75f; rise = 145f;
+                // still going strong: big flame, fat black column
+                u = 0.545f; v = 0.615f;
+                sizeLo = 1.05f; sizeHi = 1.85f;
+                strLo = 0.72f; strHi = 1.00f;
+                fireLo = 0.42f; fireHi = 0.95f;
+                riseLo = 108f; riseHi = 178f;
                 tint = new Color(0.33f, 0.32f, 0.34f);
+                // the two big burnt-out window holes on the left bay
+                inner = new[] { new Vector2(0.251f, 0.585f), new Vector2(0.315f, 0.580f) };
                 break;
             case "house_skeleton_near":
-                u = 0.45f; v = 0.42f; size = 1.60f; strength = 0.88f; fire = 0.42f; rise = 160f;
+                // frame still standing, burning hard
+                u = 0.45f; v = 0.42f;
+                sizeLo = 1.08f; sizeHi = 1.95f;
+                strLo = 0.66f; strHi = 1.00f;
+                fireLo = 0.28f; fireHi = 0.80f;
+                riseLo = 118f; riseHi = 190f;
                 tint = new Color(0.38f, 0.38f, 0.41f);
+                // the two big gaps between the standing posts
+                inner = new[] { new Vector2(0.157f, 0.585f), new Vector2(0.251f, 0.575f) };
                 break;
             case "house_ruined_near":
-                u = 0.45f; v = 0.26f; size = 1.05f; strength = 0.62f; fire = 0.22f; rise = 96f;
+                // mostly done, only embers left in the shell
+                u = 0.45f; v = 0.26f;
+                sizeLo = 0.58f; sizeHi = 1.08f;
+                strLo = 0.30f; strHi = 0.60f;
+                fireLo = 0.06f; fireHi = 0.30f;
+                riseLo = 62f; riseHi = 108f;
                 tint = new Color(0.58f, 0.59f, 0.62f);
+                // the wall of this one has no opening cut into it at all, so
+                // there is nothing for an inside fire to show through - it
+                // burns on the snow in front of the ruin instead
                 break;
             default:  // house_posts: nothing left but charred stumps
-                u = 0.50f; v = 0.50f; size = 0.90f; strength = 0.55f; fire = 0.30f; rise = 68f;
+                // nearly burnt out -> tiny flame, only a thin wisp of smoke
+                u = 0.50f; v = 0.50f;
+                sizeLo = 0.26f; sizeHi = 0.54f;
+                strLo = 0.14f; strHi = 0.32f;
+                fireLo = 0.05f; fireHi = 0.20f;
+                riseLo = 32f; riseHi = 62f;
                 tint = new Color(0.46f, 0.46f, 0.49f);
                 break;
         }
+
+        float size = Mathf.Lerp(sizeLo, sizeHi, GD.Randf());
+        float strength = Mathf.Lerp(strLo, strHi, GD.Randf());
+        float fire = Mathf.Lerp(fireLo, fireHi, GD.Randf());
+        float rise = Mathf.Lerp(riseLo, riseHi, GD.Randf());
+
+        // a bigger building burns bigger: 250px -> 0.72x, 360px -> 1.15x
+        float wScale = 0.72f + Mathf.Clamp((w - 250f) / 110f, 0f, 1f) * 0.43f;
+        size *= wScale;
+        fire *= wScale;
 
         float px = x + u * w;
         float py = GroundY - hgt + v * hgt;
         // far row sits deeper in the haze: smaller, dimmer
         float dim = lift > 0f ? 0.6f : 1f;
 
+        // the column is pure smoke now - the fire lives in its own layers
         _smokeWorld.Add(new SmokeFx.Source
         {
             Pos = new Vector2(px, py),
             Size = size * (lift > 0f ? 0.7f : 1f),
             Strength = strength * dim,
-            Fire = fire * dim,
+            Fire = 0f,
             Rise = rise * (lift > 0f ? 0.7f : 1f),
             Drift = 0.5f + Jit(0.25f),
             Phase = GD.Randf(),
             Tint = tint,
         });
 
-        // the fire itself sits on the ground under the smoke column
-        if (fire > 0.01f)
+        // a big fire gets a second, thinner column beside the main one, so
+        // the plume is not one symmetric sausage
+        if (size > 1.15f)
         {
+            float side = Jit(26f) + (GD.Randf() < 0.5f ? -1f : 1f) * 26f;
             _smokeWorld.Add(new SmokeFx.Source
             {
-                Pos = new Vector2(px, GroundY - 3f),
-                Size = size * 0.55f,
-                Strength = 0f,
-                Fire = fire * dim,
-                Rise = 0f,
-                Drift = 0f,
+                Pos = new Vector2(px + side, py - GD.Randf() * 14f),
+                Size = size * 0.52f,
+                Strength = strength * 0.55f * dim,
+                Fire = 0f,
+                Rise = rise * 0.72f * (lift > 0f ? 0.7f : 1f),
+                Drift = 0.5f + Jit(0.3f),
                 Phase = GD.Randf(),
                 Tint = tint,
             });
+        }
+
+        // v3.13: the flame gets its own size, not the smoke column's.
+        // They used to share one number, so a house that rolled a thin
+        // wisp of smoke also got a flame too small to see.
+        float fireSize = 0.45f + fire * 1.35f;
+
+        // the fire inside the house: drawn BEHIND the house layer, so the
+        // wall and the charred beams cross in front of the flame
+        if (fire > 0.01f && inner.Length > 0)
+        {
+            var inLayer = lift > 0f ? _fireFarIn : _fireNearIn;
+            if (inLayer != null)
+            {
+                foreach (var ip in inner)
+                {
+                    inLayer.Add(new SmokeFx.Source
+                    {
+                        Pos = new Vector2(x + ip.X * w, GroundY - hgt + ip.Y * hgt),
+                        Size = fireSize * 0.85f,
+                        Strength = 0f,
+                        Fire = fire * dim,
+                        Rise = 0f,
+                        Drift = 0f,
+                        Phase = GD.Randf(),
+                        Tint = tint,
+                    });
+                }
+            }
+        }
+
+        // the fire itself sits on the ground under the smoke column
+        if (fire > 0.01f)
+        {
+            // drawn IN FRONT of the house layer - this flame is on the snow
+            // outside the building, so it has to lick up over the wall
+            var outLayer = lift > 0f ? _fireFarOut : _fireNearOut;
+            if (outLayer != null)
+                outLayer.Add(new SmokeFx.Source
+                {
+                    Pos = new Vector2(px + Jit(10f), GroundY - 3f),
+                    Size = fireSize,
+                    Strength = 0f,
+                    Fire = fire * dim,
+                    Rise = 0f,
+                    Drift = 0f,
+                    Phase = GD.Randf(),
+                    Tint = tint,
+                });
         }
     }
 
     private void AddHouse(string id, float x, string tex, float w, bool enterable, float lift)
     {
-        var h = new EnterableHouse(id, new Vector2(x, GroundY), tex, w, enterable, lift);
+        // 屋基下沉 8px 进雪面：雪面顶边是起伏波浪线，平的房屋底边会露缝显得"飘在雪上"（#6）
+        var h = new EnterableHouse(id, new Vector2(x, GroundY + 8f), tex, w, enterable, lift);
         _game.AddChild(h);
+        _houseRects.Add((x, w));
         if (enterable) _houses.Add(h);
         AddHouseSmoke(h, tex, x, w, lift);
     }
 
-    /// <summary>远景村落的横向摆位（中景视差层用，炊烟也要跟着一起动）。</summary>
-    public static readonly float[] VillageX = { -760, 260, 690, 2520, 3000, 4180, 4590 };
-    public static float VillageH(int i) => 90f + (i % 3) * 11f;
-    public static bool VillageFlip(int i) => i % 2 == 1;
+    // every house footprint (near AND far rows) - ground clutter such as
+    // barbed-wire stakes must not ride through a wall (v3.46).
+    // static: read from the nested near-layer class (same pattern as
+    // InsideSandbag); the level is a singleton so this stays consistent.
+    private static readonly List<(float X, float W)> _houseRects = new();
 
     /// <summary>
-    /// 远景村落的炊烟：烧塌的屋顶冒黑烟，完好民房的烟囱冒白烟。
-    /// 之前这些烟是画死在贴图里的静止烟云，现在改成程序化动态烟。
+    /// True when x falls under a house footprint (with a small shoulder),
+    /// so ground clutter is kept out of the walls. v3.46: three of the four
+    /// barbed-wire runs used to cross straight through a house base.
+    /// </summary>
+    private static bool InsideHouseFootprint(float x, float margin = 12f)
+    {
+        foreach (var (hx, hw) in _houseRects)
+            if (x > hx - margin && x < hx + hw + margin) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Where the distant village stands.
+    ///
+    /// v2.8: this used to be 578, which is exactly where the snow plain starts,
+    /// so every house sat right on the horizon line and the ridge behind ran
+    /// straight through the roof line. The whole row then read as one stripe
+    /// painted onto the mountain. Dropping it further down the plain puts the
+    /// houses on open ground with the ridge clearly behind them.
+    /// </summary>
+    public const float VillageBaseY = 608f;
+
+    /// <summary>
+    /// One house in the distant village.
+    ///
+    /// v2.8: this used to be a crop cut out of village_ruined.png, but that
+    /// sheet is painted from a top-down three-quarter angle while the level is
+    /// shot from the side. Mixing the two angles is what made the village look
+    /// like stickers glued onto the mountain. Now every house uses the same
+    /// side-on art as the near houses, so the perspective matches.
+    /// </summary>
+    public readonly struct VillageHouse
+    {
+        /// <summary>Texture file name (no extension), under art/props or art/backdrop.</summary>
+        public readonly string Tex;
+        /// <summary>World X (house bottom edge, centred).</summary>
+        public readonly float X;
+        /// <summary>World height (pixels).</summary>
+        public readonly float H;
+        /// <summary>Mirror left/right.</summary>
+        public readonly bool Flip;
+        /// <summary>What kind of smoke this one gives off (0 = none, 1 = domestic, 2 = black).</summary>
+        public readonly int Smoke;
+        /// <summary>Where the chimney sits inside the texture (0~1).</summary>
+        public readonly Vector2 SmokeAt;
+        /// <summary>True when the texture lives under art/backdrop instead of art/props.</summary>
+        public readonly bool Backdrop;
+
+        public VillageHouse(string tex, float x, float h, bool flip, int smoke, Vector2 smokeAt,
+                            bool backdrop = false)
+        {
+            Tex = tex;
+            X = x;
+            H = h;
+            Flip = flip;
+            Smoke = smoke;
+            SmokeAt = smokeAt;
+            Backdrop = backdrop;
+        }
+    }
+
+    /// <summary>
+    /// Where each distant house stands.
+    ///
+    /// Heights vary on purpose (38~118px). The parallax layer runs at 0.24 so
+    /// the horizontal spread gets squashed, and without a real size range every
+    /// house ends up the same size and the row looks printed rather than built.
+    /// </summary>
+    public static readonly VillageHouse[] VillageHouses =
+    {
+        // —— west of the start: the cluster the user pointed at ——
+        new("village", -640f, 104f, false, 1, new Vector2(0.482f, 0.152f), true),
+        new("house_skeleton_near", -395f, 66f, true, 2, new Vector2(0.45f, 0.42f)),
+        new("house_posts", -255f, 44f, false, 0, new Vector2(0.50f, 0.50f)),
+        new("house_ruined_near", -110f, 74f, true, 0, new Vector2(0.45f, 0.26f)),
+
+        // —— village gate: the one house still standing, chimney still smoking ——
+        // v3.19: the intact house at 285 and the village panorama at 470 were
+        // one pixel apart - the roofs touched and the two read as a single
+        // wide building with a chimney in the middle. The panorama is 224
+        // wide, so the house has to sit clear of it.
+        new("house_intact_near", 250f, 96f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("village", 500f, 118f, true, 1, new Vector2(0.482f, 0.152f), true),
+        new("house_skeleton_near", 700f, 62f, false, 2, new Vector2(0.45f, 0.42f)),
+        new("house_posts", 810f, 40f, true, 0, new Vector2(0.50f, 0.50f)),
+
+        // —— middle and back: keep them sparse, never a continuous row ——
+        // v3.19: the intact house at 2990 overlapped the stumps at 3040 by 30
+        // pixels. The stumps moved clear.
+        new("house_ruined_near", 2480f, 70f, true, 0, new Vector2(0.45f, 0.26f)),
+        new("house_intact_near", 2960f, 58f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("house_posts", 3080f, 38f, true, 0, new Vector2(0.50f, 0.50f)),
+        new("house_burned_near", 4180f, 78f, false, 2, new Vector2(0.545f, 0.615f)),
+        new("village", 4580f, 88f, true, 1, new Vector2(0.482f, 0.152f), true),
+    };
+
+    /// <summary>Cached house textures for the distant village (loaded once, then kept).</summary>
+    private static readonly Dictionary<string, Texture2D> _vhouseTex = new();
+
+    /// <summary>
+    /// Loads the art for one distant house.
+    ///
+    /// v2.8: this used to slice the big village_ruined panorama into single
+    /// houses at runtime. That panorama is painted from a top-down angle, so
+    /// the slices never matched the side-on level and the village read as
+    /// stickers pasted on the mountain. Now it is just a plain file load of the
+    /// same side-on art the near houses use.
+    /// </summary>
+    private static Texture2D VillageHouseTex(string name, bool backdrop)
+    {
+        if (_vhouseTex.TryGetValue(name, out var cached)) return cached;
+
+        var path = backdrop
+            ? $"res://assets/art/backdrop/{name}.png"
+            : $"res://assets/art/props/{name}.png";
+        var tex = GD.Load<Texture2D>(path);
+        _vhouseTex[name] = tex;
+        return tex;
+    }
+
+
+    /// <summary>
+    /// Chimney smoke over the distant village: black smoke from the collapsed
+    /// roofs, white smoke from the chimney of the intact house.
+    /// These used to be painted into the texture as a static cloud, now they
+    /// are procedural and animated.
+    /// v2.7: each house carries its own Smoke / SmokeAt in the layout table.
+    /// Before this the position was computed from the proportions of the whole
+    /// panorama, so once the houses were split apart the smoke drifted into
+    /// the neighbour's house.
     /// </summary>
     private void BuildMidSmoke()
     {
         if (_smokeMid == null) return;
-        var tex = GD.Load<Texture2D>("res://assets/art/backdrop/village_ruined.png");
-        if (tex == null) return;
-        var sz = tex.GetSize();
 
-        for (int i = 0; i < VillageX.Length; i++)
+        // v3.13: the distant row used the same size for every house of the same
+        // kind, so the whole village smoked in lockstep. Each one rolls its own
+        // now - a fixed seed keeps the backdrop stable between reloads, but no
+        // two chimneys share a size any more.
+        var rng = new RandomNumberGenerator();
+        rng.Seed = 19311104;
+
+        for (int i = 0; i < VillageHouses.Length; i++)
         {
-            float hgt = VillageH(i);
-            float wid = sz.X / sz.Y * hgt;
-            bool flip = VillageFlip(i);
+            var h = VillageHouses[i];
+            if (h.Smoke == 0) continue;
 
-            // burnt roof on the left of the village art
-            float ux = flip ? 0.78f : 0.22f;
-            _smokeMid.Add(new SmokeFx.Source
-            {
-                Pos = new Vector2(VillageX[i] - wid * 0.5f + ux * wid, 568f - hgt + 0.30f * hgt),
-                Size = 0.62f,
-                Strength = 0.75f,
-                Fire = 0f,
-                Rise = 46f,
-                Drift = 0.6f,
-                Phase = i * 0.37f,
-                Tint = new Color(0.42f, 0.42f, 0.46f),
-            });
+            var ht = VillageHouseTex(h.Tex, h.Backdrop);
+            if (ht == null) continue;
+            float wid = ht.GetSize().X / ht.GetSize().Y * h.H;
+            float ax = h.X - wid * 0.5f + h.SmokeAt.X * wid;
+            float ay = VillageBaseY - h.H + h.SmokeAt.Y * h.H;
 
-            // chimney of the house that is still standing
-            float cx = flip ? 0.104f : 0.896f;
-            _smokeMid.Add(new SmokeFx.Source
+            if (h.Smoke == 2)
             {
-                Pos = new Vector2(VillageX[i] - wid * 0.5f + cx * wid, 568f - hgt + 0.185f * hgt),
-                Size = 0.40f,
-                Strength = 0.52f,
-                Fire = 0f,
-                Rise = 32f,
-                Drift = 0.4f,
-                Phase = i * 0.71f + 0.4f,
-                Tint = new Color(0.84f, 0.86f, 0.90f),
-            });
+                // burnt roof: thick black column
+                _smokeMid.Add(new SmokeFx.Source
+                {
+                    Pos = new Vector2(ax, ay),
+                    Size = Mathf.Lerp(0.40f, 0.82f, rng.Randf()),
+                    Strength = Mathf.Lerp(0.54f, 0.86f, rng.Randf()),
+                    Fire = 0f,
+                    Rise = Mathf.Lerp(32f, 64f, rng.Randf()),
+                    Drift = 0.4f + rng.Randf() * 0.4f,
+                    Phase = i * 0.37f + rng.Randf() * 0.2f,
+                    Tint = new Color(0.40f, 0.40f, 0.44f),
+                });
+            }
+            else
+            {
+                // chimney of the house that is still standing
+                _smokeMid.Add(new SmokeFx.Source
+                {
+                    Pos = new Vector2(ax, ay),
+                    Size = Mathf.Lerp(0.22f, 0.48f, rng.Randf()),
+                    Strength = Mathf.Lerp(0.28f, 0.58f, rng.Randf()),
+                    Fire = 0f,
+                    Rise = Mathf.Lerp(20f, 44f, rng.Randf()),
+                    Drift = 0.3f + rng.Randf() * 0.3f,
+                    Phase = i * 0.71f + 0.4f,
+                    Tint = new Color(0.84f, 0.86f, 0.90f),
+                });
+            }
         }
     }
 
@@ -315,7 +812,9 @@ public partial class JiangqiaoLevel : Node2D
     {
         // 四成冻坏/打不响，六成还有几发——真实战场上捡枪就是这样赌运气
         if (GD.Randf() < 0.4f) return (WeaponPickup.Kind.Broken, 0);
-        return (WeaponPickup.Kind.Usable, (int)GD.RandRange(2, 8));
+        // loose rounds: usually a handful, finding 8+ is a lucky day
+        int n = GD.Randf() < 0.12f ? (int)GD.RandRange(6, 8) : (int)GD.RandRange(1, 5);
+        return (WeaponPickup.Kind.Usable, n);
     }
 
     private void AddPickup(float x, float y, WeaponPickup.Kind kind, int ammo)
@@ -333,8 +832,15 @@ public partial class JiangqiaoLevel : Node2D
         _layers = new[]
         {
             new Backdrop(this, Backdrop.KindFar, 0.06f, -40),
-            new Backdrop(this, Backdrop.KindMid, MidFactor, -30),
-            new Backdrop(this, Backdrop.KindNear, 0.55f, -20),
+            new Backdrop(this, Backdrop.KindMid, MidFactor, -30),            new Backdrop(this, Backdrop.KindNear, 0.55f, -20),
+            // v3.48: the ground band (near trees / willow clumps / wire fence)
+            // moved OUT of the 0.55 parallax layer into the world plane. It
+            // used to share the ground line with the houses (663) and the
+            // railway (654) while scrolling at 0.55, so every step slid the
+            // trunks sideways across doors and walls - the user kept catching
+            // a tree glued to a doorway in screenshots. Factor 1.0 pins the
+            // band to the world: a tree beside a door STAYS beside that door.
+            new Backdrop(this, Backdrop.KindGround, 1f, -5),
             new Backdrop(this, Backdrop.KindFore, 1.32f, 20),
         };
         foreach (var l in _layers) AddChild(l);
@@ -342,6 +848,8 @@ public partial class JiangqiaoLevel : Node2D
         // distant village smoke rides the same parallax as the mid backdrop
         _smokeMid = new SmokeFx { ZIndex = -29 };
         AddChild(_smokeMid);
+        // v2.8: verification switch, lets the shake check cut the smoke
+        if (DebugNoSmoke) _smokeMid.Visible = false;
     }
 
     private void BuildTerrain()
@@ -349,9 +857,40 @@ public partial class JiangqiaoLevel : Node2D
         _game = new Node2D { ZIndex = 0 };
         AddChild(_game);
 
-        // smoke and fire over the near houses: above the houses, below the fighters
-        _smokeWorld = new SmokeFx { ZIndex = -2 };
+        // v3.25: the stack got two more rungs, because a flame has to sit
+        // either behind a house or in front of it and the old single smoke
+        // layer could not do both at once.
+        //
+        //   ground art   -10   snow, rails, craters, the bridge
+        //   footprints    -8   prints on the snow
+        //   fire in far   -7   burning INSIDE the far row houses
+        //   far houses    -6   the scenery ruins, further away
+        //   fire out far  -5   burning outside the far row houses
+        //   fire in near  -4   burning INSIDE the near row houses
+        //   near houses   -3   the ones the player can walk into
+        //   fire out near -2   burning outside the near row houses
+        //   smoke         -1   columns, they climb over the roofs
+        //   people         0   player, enemies, corpses
+        //
+        // Smoke still reads as a backdrop the characters walk in front of.
+        _fireFarIn = new SmokeFx { ZIndex = -7 };
+        _game.AddChild(_fireFarIn);
+        _fireFarOut = new SmokeFx { ZIndex = -5 };
+        _game.AddChild(_fireFarOut);
+        _fireNearIn = new SmokeFx { ZIndex = -4 };
+        _game.AddChild(_fireNearIn);
+        _fireNearOut = new SmokeFx { ZIndex = -2 };
+        _game.AddChild(_fireNearOut);
+        _smokeWorld = new SmokeFx { ZIndex = -1 };
         _game.AddChild(_smokeWorld);
+        if (DebugNoSmoke)
+        {
+            _fireFarIn.Visible = false;
+            _fireFarOut.Visible = false;
+            _fireNearIn.Visible = false;
+            _fireNearOut.Visible = false;
+            _smokeWorld.Visible = false;
+        }
 
         var floor = new StaticBody2D { Position = new Vector2(WorldW * 0.5f, GroundY + 120f) };
         var fs = new CollisionShape2D { Shape = new RectangleShape2D { Size = new Vector2(WorldW + 800f, 240f) } };
@@ -369,59 +908,104 @@ public partial class JiangqiaoLevel : Node2D
             AddChild(wall);
         }
 
-        var art = new GroundArt(this) { ZIndex = -1 };
+        var art = new GroundArt(this) { ZIndex = -10 };
         _game.AddChild(art);
 
         // 尸体（GroundArt 之上、玩家之下）：每场战役都有阵亡者
         AddCorpses();
 
-        // footprint layer at z -1: above the ground art but below corpse/player,
+        // footprint layer: above the ground art but below corpse/player,
         // prints kena stepped on by the body, not covering it
-        _game.AddChild(new FootprintLayer(this) { ZIndex = -1 });
+        _game.AddChild(new FootprintLayer(this) { ZIndex = -8 });
 
         // 掩体沙袋在人之前（ZIndex 5，高于玩家 0 与敌兵 2），
         // 经过时人从垛子后面过，而不是站在垛子顶上。
         _coverArt = new CoverArt { ZIndex = 5 };
         _game.AddChild(_coverArt);
+
     }
 
     private void AddCorpses()
     {
-        // 尸体散布点：弹坑旁、战壕边、碉堡前、桥头、铁丝网附近
-        // CorpseActor ZIndex = -5（GroundArt 之上、玩家 0 之下）
+        // 尸体散布点：弹坑旁、战壕边、烧毁房前、桥头、铁丝网附近
+        // CorpseActor ZIndex = 0（跟玩家同层，站在房子和雪地前面）
 
         // 1. 弹坑旁（日军，身体朝右倒向弹坑）
+        // v3.19: the fixed tilts here used to run up to 0.22 rad. The corpse
+        // paintings already carry their own angle (measured: -4.1 to +10.7
+        // degrees), so the two stacked and the body read as sliding down a
+        // slope. CorpseActor now cancels the painting's tilt, and these
+        // values are only the small variation on top of it.
+        // v3.21: the pose is fixed. It used to be rolled at random, so the
+        // same body could show up face up on one run and face down on the
+        // next, and a spot that read well in one playthrough read broken in
+        // the next. Face down by the crater: he was shot going in.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(1270, GroundY - 2), false, 0.08f));
+            new Vector2(1270, GroundY - 2), false, 0.03f, true, CorpseActor.Pose.Prone));
 
-        // 2. 另一个弹坑（日军，朝向相反）
+        // 2. 弹坑旁（日军，朝向相反）
+        // v3.8: was 2090 — right inside the intact house h3 (1885-2197), body
+        // clipped into the wall.
+        // v3.11: was 2290 — that crater is gone (its rim sat inside the 2320
+        // sandbag stack). The body now drapes the west rim of the blown rail
+        // crater at 2540, clear of the stack and of burned house h2.
+        // v3.21: face up, arms out. This is the painting the illustrator
+        // drew at eighteen degrees, and with the tilt actually cancelled
+        // instead of added to, the body lies level on the snow.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(2090, GroundY - 2), true, -0.12f));
+            new Vector2(2505, GroundY - 2), true, -0.02f, true, CorpseActor.Pose.Supine));
 
         // 3. 战壕边（东北军，头倒在战壕方向）
+        // v3.21: face down, head into the trench.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
-            new Vector2(1550, GroundY - 2), false, 0.22f));
+            new Vector2(1550, GroundY - 2), false, 0.04f, true, CorpseActor.Pose.Prone));
 
-        // 4. 碉堡前（日军，身体挡在碉堡入口前）
+        // 4. 烧毁的房子前（日军，仰卧）
+        // v3.8: was 3000, inside burned house h2.
+        // v3.11: was 3650 — dead centre behind the sandbag stack, so the pile
+        // hid the whole body and only a limb stuck out.
+        // v3.21: face up.
+        // v3.24: the emplacement that used to sit here is gone, so the body
+        // is back on open snow. It had read as a mattress laid over a
+        // sandbag block because the bunker was underneath it.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.IJA,
-            new Vector2(3000, GroundY - 2), true, -0.18f));
+            new Vector2(3870, GroundY - 2), false, -0.03f, true, CorpseActor.Pose.Supine));
 
         // 5. 桥头铁路旁（东北军，头朝冰面倒）
+        // v3.11: was 4380 - dead centre behind the 4388 sandbag stack. Now at
+        // the west abutment of the bridge, on the ice side, clear of the stack.
+        // v3.18: 4520 was still wrong - the bridge span runs 4400-5200, so a
+        // body at 4520 lay under the truss with the steelwork running right
+        // through it. It read as a casualty tangled in the bridge rather than
+        // lying on the ground.
+        // The body now lies on the verge in front of the track, west of the
+        // bridge head. The sandbag wall that used to stand at 4388 is gone
+        // now too - it sat on the bridge head itself - so the ground between
+        // the last wall and the bridge is open snow.
+        // v3.21: face down on the verge by the bridge head.
         _game.AddChild(new CorpseActor(CorpseActor.Faction.NortheastArmy,
-            new Vector2(4380, GroundY - 2), true, 0.14f));
+            new Vector2(4300, GroundY + 9), true, 0.03f, true, CorpseActor.Pose.Prone));
     }
 
     private void BuildPlayer()
-    {
-        _playerShadow = new GroundShadow();
+    {        _playerShadow = new GroundShadow();
         _game.AddChild(_playerShadow);
 
         _player = new FieldPlayer { Position = new Vector2(230, GroundY - 2) };
-        _player.Scale = new Vector2(1.22f, 1.22f);
+        // v3.19: 1.22 was the old scale. The soldier now reads 94px against
+        // a 108px before, which puts the eave of a village house - measured
+        // at 1.25x its old size - at 1.49 soldier heights instead of 1.03.
+        // A man standing in front of a house should be clearly shorter than
+        // the building, not the same height.
+        _player.Scale = new Vector2(1.06f, 1.06f);
         _player.Fired += OnPlayerFired;
         _player.Hit += OnPlayerHit;
         _player.Down += OnPlayerDown;
         _player.DryFired += OnDryFired;
+        // v3.46: the Landed event existed since the coyote/jump-buffer pass
+        // but nothing subscribed - falls ended in silence. A snow burst at
+        // the boots sells the impact the figure animation can't.
+        _player.Landed += OnPlayerLanded;
         _game.AddChild(_player);
         // GroundShadow node owns the player shadow, figure must not draw a second one
         // (two overlapping ellipses = the dark mud puddle under his legs)
@@ -429,8 +1013,17 @@ public partial class JiangqiaoLevel : Node2D
 
         _cam = new Camera2D
         {
-            LimitLeft = 0,
-            LimitRight = (int)WorldW,
+            // v2.7: the left and right limits are opened up, so the camera and
+            // the parallax layers share the same _camX.
+            // Before this LimitLeft=0 / LimitRight=WorldW, so Godot hard clamped
+            // the screen centre into [640, WorldW-640], while the parallax layers
+            // moved by _camX (the player X). Two different sources ->
+            // from x=230 up to x=640 the background kept sliding relative to
+            // the player, and at x=640 it snapped into place all at once.
+            // That is the mystery jolt at the start of the level.
+            // The vertical limit stays (the camera must not leave the snow).
+            LimitLeft = -100000,
+            LimitRight = 100000,
             LimitTop = 0,
             LimitBottom = 900,
             // 不用内置平滑：它与 _Process 里的视差层更新不在同一时序，
@@ -454,7 +1047,7 @@ public partial class JiangqiaoLevel : Node2D
             },
             "依据：江桥抗战公开口述史料改写；人物为复合虚构，不对应单一在世者。");
 
-        AddTestimony("t2", new Vector2(2220, GroundY), "口述 02 · 卫生员 李桂兰（化名，时年 19 岁）",
+        AddTestimony("t2", new Vector2(2100, GroundY), "口述 02 · 卫生员 李桂兰（化名，时年 19 岁）",
             new[]
             {
                 "“担架不够，棉被撕成条。最冷的时候零下二十几度，血一落地就冻住，要用热水化开才能包扎。”",
@@ -487,20 +1080,14 @@ public partial class JiangqiaoLevel : Node2D
 
         var layer = new CanvasLayer { Layer = 11 };
         AddChild(layer);
-        _hpLabel = new Label
-        {
-            Text = "生命  ● ● ●",
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
-        _hpLabel.AddThemeFontSizeOverride("font_size", 15);
-        _hpLabel.AddThemeColorOverride("font_color", new Color(0.86f, 0.82f, 0.72f));
-        _hpLabel.Position = new Vector2(1080, 14);
-        _hpLabel.CustomMinimumSize = new Vector2(180, 0);
-        _hpLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
-        layer.AddChild(_hpLabel);
+
+        // vitals drawn as icons: red hearts + stick grenades, self-redraws
+        _vitals = new VitalsBar { Position = new Vector2(880, 10) };
+        _vitals.Bind(_player);
+        layer.AddChild(_vitals);
 
         // 弹药改用子弹图标：打掉一发暗一发，拾取了再点亮，不再用点点点
-        _ammoBar = new AmmoBar { Position = new Vector2(920, 34) };
+        _ammoBar = new AmmoBar { Position = new Vector2(920, 38) };
         _ammoBar.Bind(_player);
         layer.AddChild(_ammoBar);
     }
@@ -514,6 +1101,9 @@ public partial class JiangqiaoLevel : Node2D
         AddChild(snowLayer);
         _snow = new SnowScreen();
         snowLayer.AddChild(_snow);
+        // v2.8: verification switch, lets the shake check kill the falling snow
+        // so only the backdrop is measured
+        if (DebugNoSnow) _snow.Visible = false;
 
         var flashLayer = new CanvasLayer { Layer = 7 };
         AddChild(flashLayer);
@@ -539,16 +1129,30 @@ public partial class JiangqiaoLevel : Node2D
         float f = Mathf.Min(0.05f, (float)delta);
         _elapsed += f;
 
-        // 视差：相机 X 手动平滑，且必须在同一帧里同时喂给相机与视差层，
-        // 层与层之间才不会互相拉扯出抖动。
+        // parallax: camera X is smoothed by hand, and the same value has to go
+        // to the camera and to the parallax layers in the same frame,
+        // otherwise the layers pull against each other and shake.
         var target = new Vector2(_player.GlobalPosition.X, _player.GlobalPosition.Y - 118f);
         float k = 1f - Mathf.Exp(-6.5f * f);
         _camX += (target.X - _camX) * k;
-        _cam.Position = new Vector2(_camX, target.Y);
+        // v2.7: the camera clamps itself (no more Camera2D.Limit), and the very
+        // same clamped value is then fed to the parallax layers.
+        // Before this Camera2D.Limit clamped the camera while _camX drove the
+        // parallax layers - two different sources ->
+        // at the start the player was at x=230 so the camera was pinned at 640,
+        // but the parallax layers were still computing from 230. The background
+        // slid against the world the whole way, and the instant the camera was
+        // released at x=640 it snapped into place. That is the mystery jolt.
+        float camX = Mathf.Clamp(_camX, ViewHalfW, WorldW - ViewHalfW);
+        float camY = Mathf.Clamp(target.Y, ViewHalfH, 900f - ViewHalfH);
+        _cam.Position = new Vector2(camX, camY);
         foreach (var l in _layers)
-            l.Position = new Vector2(_camX * (1f - l.Factor), 0f);
+            l.Position = new Vector2(camX * (1f - l.Factor), 0f);
+        if (System.Environment.GetEnvironmentVariable("WBDUMP") == "1" && _elapsed > 2f && _elapsed < 2.05f)
+            foreach (var l in _layers)
+                GD.Print($"DIAGDBG layer kind={l.Kind} factor={l.Factor} pos={l.Position} camX={camX}");
         if (_smokeMid != null)
-            _smokeMid.Position = new Vector2(_camX * (1f - MidFactor), 0f);
+            _smokeMid.Position = new Vector2(camX * (1f - MidFactor), 0f);
         _snow.Wind = 0.55f + Mathf.Sin(_elapsed * 0.35f) * 0.35f;
 
         UpdateDayCycle(f);
@@ -580,6 +1184,7 @@ public partial class JiangqiaoLevel : Node2D
 
         UpdateInteractions();
         UpdateGrenades(f);
+        UpdateCover(f);
         UpdateRecording(f);
         UpdateObjective();
         UpdatePrompts();
@@ -639,31 +1244,178 @@ public partial class JiangqiaoLevel : Node2D
 
     // ================= 捡枪 / 进屋 / 手榴弹 =================
 
+    /// <summary>
+    /// v3.54: one referee for the E key. House door, rifle pickup and sandbag
+    /// stack each used to run their own fixed priority (house beat pickup
+    /// outright, cover half-in), so a rifle by a doorstep was unreachable and
+    /// tapping E beside a testimony opened the house instead. Now the CLOSEST
+    /// candidate wins; on a tie pickup beats cover beats house, and the pickup
+    /// gets an 8px favour because it is the smallest, most precise target.
+    /// </summary>
+    private void NearestTargets(float px, out EnterableHouse house,
+        out WeaponPickup pickup, out int cover, out float dist)
+    {
+        house = null;
+        float hd = 9999f;
+        foreach (var h in _houses)
+        {
+            float d = Mathf.Abs(h.DoorX - px);
+            if (d < 78f && d < hd) { hd = d; house = h; }
+        }
+
+        pickup = null;
+        float pd = 9999f;
+        foreach (var p in _pickups)
+        {
+            if (p.Looted || !IsInstanceValid(p)) continue;
+            float d = Mathf.Abs(p.Position.X - px) - 8f;
+            if (d < 64f && d < pd) { pd = d; pickup = p; }
+        }
+
+        cover = -1;
+        float cd = 9999f;
+        int ci = _coverArt?.NearestStack(px, 100f) ?? -1;
+        if (ci >= 0) { cd = Mathf.Abs(_coverArt.StackX(ci) - px); cover = ci; }
+
+        dist = Mathf.Min(hd, Mathf.Min(pd, cd));
+        if (pd > hd || pd > cd) pickup = null;
+        if (hd > pd || hd > cd) house = null;
+        if (cd > pd || cd > hd) cover = -1;
+    }
+
     private void UpdateInteractions()
     {
         if (_houseUi != null) return;
         float px = _player.GlobalPosition.X;
 
-        // enter house?
-        EnterableHouse nearHouse = null;
-        foreach (var h in _houses)
-            if (Mathf.Abs(h.DoorX - px) < 78f) { nearHouse = h; break; }
-
-        // loot rifle?
-        WeaponPickup nearPickup = null;
-        float bestP = 64f;
-        foreach (var p in _pickups)
-        {
-            if (p.Looted || !IsInstanceValid(p)) continue;
-            float d = Mathf.Abs(p.Position.X - px);
-            if (d < bestP) { bestP = d; nearPickup = p; }
-        }
+        NearestTargets(px, out var nearHouse, out var nearPickup, out int coverIdx, out _);
 
         if (Input.IsActionJustPressed("interact"))
         {
-            if (nearHouse != null) OpenHouse(nearHouse);
-            else if (nearPickup != null) LootPickup(nearPickup);
+            if (nearPickup != null) LootPickup(nearPickup);
+            else if (coverIdx >= 0) EnterCover(coverIdx);
+            else if (nearHouse != null) OpenHouse(nearHouse);
         }
+    }
+
+    // —— v3.53 沙袋掩体：E 躲入、挡子弹不挡手榴弹、可被炸毁 ——
+
+    private void EnterCover(int idx)
+    {
+        if (_coverIdx >= 0 || _coverCd > 0f || _coverArt == null || _player == null) return;
+        if (!_player.IsOnFloor()) return;
+        _coverIdx = idx;
+        _coverCd = 0.3f;
+        _player.CoverHold = true;
+        _player.Velocity = Vector2.Zero;
+        // v3.54: the old instant teleport read as a glitch-frame ("怪怪的").
+        // A short eased slide into the tuck spot keeps the world continuous.
+        // Bound to the PLAYER node (always in-tree while physics runs) - the
+        // level-bound CreateTween() returned null inside the capture harness
+        // and the tuck silently broke. Falls back to the instant tuck so the
+        // interaction can never die to a tween hiccup.
+        var tuck = new Vector2(_coverArt.StackX(idx) - 36f, GroundY - 2f);
+        var tw = _player.CreateTween();
+        if (tw != null && tw.IsValid())
+        {
+            _coverTween = tw;
+            _coverTween.TweenProperty(_player, "position", tuck, 0.14f)
+                .SetTrans(Tween.TransitionType.Quad).SetEase(Tween.EaseType.Out);
+        }
+        else
+        {
+            _player.Position = tuck;
+        }
+        _hud.Toast("你缩到沙袋后面——挡子弹，挡不住手榴弹（E 或移动键离开）");
+    }
+
+    private void ExitCover()
+    {
+        _coverTween?.Kill();
+        _coverTween = null;
+        _coverIdx = -1;
+        _coverCd = 0.3f;
+        if (_player != null) _player.CoverHold = false;
+    }
+
+    // ---- v3.53: capture-scene test hooks (also handy for tuning) ----
+    internal float DebugCoverX(int i) => _coverArt == null ? 0f : _coverArt.StackX(i);
+    internal void DebugBlast(float x) => Explode(new Vector2(x, GroundY - 20f));
+
+    private void UpdateCover(float f)
+    {
+        if (_coverCd > 0f) _coverCd -= f;
+
+        if (_coverIdx >= 0 && _ended)
+        {
+            ExitCover();
+            return;
+        }
+        if (_noteOpen || _houseUi != null || _ended) return;
+
+        if (_coverIdx >= 0)
+        {
+            if (_coverArt.IsDestroyed(_coverIdx))
+            {
+                ExitCover();
+                _hud.Toast("沙袋被炸烂了——这里不能再躲了！");
+            }
+            else if (_coverCd <= 0f
+                     && (Input.IsActionJustPressed("interact")
+                         || Mathf.Abs(Input.GetAxis("move_left", "move_right")) > 0.3f
+                         || Input.IsActionJustPressed("advance")))
+            {
+                ExitCover();
+                _hud.Toast("离开了沙袋掩体。");
+            }
+            else if (PlayerAlive)
+            {
+                // 敌兵不会让你永远缩着：定时掷木柄手榴弹逼你挪窝
+                if (_enemyNadeTimer < 0f) _enemyNadeTimer = (float)GD.RandRange(6.0, 10.0);
+                _enemyNadeTimer -= f;
+                if (_enemyNadeTimer <= 0f)
+                {
+                    _enemyNadeTimer = (float)GD.RandRange(8.0, 13.0);
+                    EnemyThrowGrenade();
+                }
+            }
+        }
+    }
+
+    private void EnemyThrowGrenade()
+    {
+        EnemySoldier thrower = null;
+        float best = 820f;
+        foreach (var e in _enemies)
+        {
+            if (!IsInstanceValid(e) || e.Gone) continue;
+            float d = Mathf.Abs(e.Position.X - _player.GlobalPosition.X);
+            if (d < best) { best = d; thrower = e; }
+        }
+        if (thrower == null || thrower._throwing) return;
+
+        var start = thrower.Position + new Vector2(-20f, -70f);
+        var target = new Vector2(_coverArt.StackX(_coverIdx) + 10f, GroundY - 8f);
+        float T = 1.05f;                      // flight time
+        float g = 1500f;                      // matches GrenadeProj gravity
+        var vel = new Vector2((target.X - start.X) / T,
+                              (target.Y - start.Y - 0.5f * g * T * T) / T);
+
+        // v3.55: 标准投弹动作——拉弦（摆出挥臂待掷姿）→ 蓄力半秒 → 出手。
+        // 以前是凭空出现一颗雷，既没有动作也没有预警帧。
+        thrower._throwing = true;
+        thrower._fig.ThrowPose = 1f;
+        GetTree().CreateTimer(0.5f).Timeout += () =>
+        {
+            if (!IsInstanceValid(thrower) || thrower.Gone) return;
+            thrower._fig.ThrowPose = 0f;
+            thrower._throwing = false;
+            var nade = new GrenadeProj(start, vel);
+            _game.AddChild(nade);
+            _grenades.Add(nade);
+            _hud.Toast("敌兵拉弦掷来木柄手榴弹——快离开落点！");
+            Shake(0.08f);
+        };
     }
 
     private void LootPickup(WeaponPickup p)
@@ -674,9 +1426,10 @@ public partial class JiangqiaoLevel : Node2D
             _hud.Toast("枪栓冻死了，拉不开——这支打不响。");
             return;
         }
-        _player.Ammo += p.Ammo;
-        if (_player.Ammo > _player.AmmoMax) _player.AmmoMax = _player.Ammo;
-        _hud.Toast($"捡获一支步枪，里面还剩 {p.Ammo} 发。");
+        int took = _player.AddAmmo(p.Ammo);
+        _hud.Toast(took >= p.Ammo
+            ? $"捡获一支步枪，里面还剩 {p.Ammo} 发。"
+            : $"捡获步枪，弹袋满了，只带上 {took} 发。");
         Shake(0.06f);
     }
 
@@ -689,24 +1442,49 @@ public partial class JiangqiaoLevel : Node2D
             _ => "烧塌的院落",
         };
         var ui = new HouseInteriorUi(h.Id, title);
-        ui.GotAmmo += n => { _player.Ammo += n; if (_player.Ammo > _player.AmmoMax) _player.AmmoMax = _player.Ammo; };
-        ui.GotGrenade += n => _player.Grenades += n;
+        ui.CanHeal = () => _player.Wounded;
+        ui.GotAmmo += n =>
+        {
+            int took = _player.AddAmmo(n);
+            if (took < n) _hud.Toast($"弹袋只装得下 {took} 发，剩下的只好留在盒里。");
+        };
+        ui.GotGrenade += n => _player.AddGrenade(n);
+        ui.GotHeal += n =>
+        {
+            int before = _player.Hp;
+            _player.Heal(n);
+            int gained = _player.Hp - before;
+            _hud.Toast(gained > 0
+                ? (n > 1 ? "医药包把伤全处理了。" : "纱布裹紧伤口，好受了些。")
+                : "身上没伤口，用不上。");
+        };
         ui.Closed += () => _houseUi = null;
         AddChild(ui);
         _houseUi = ui;
     }
 
+    private bool _playerThrowing;
+
     private void UpdateGrenades(float f)
     {
         if (_noteOpen || _houseUi != null || _ended) return;
-        if (Input.IsActionJustPressed("grenade") && _player.Grenades > 0)
+        // v3.55: 玩家掷弹也走标准动作——拉弦挥臂 0.45s 蓄力，出手位置按松手瞬间算
+        if (Input.IsActionJustPressed("grenade") && _player.Grenades > 0 && !_playerThrowing)
         {
             _player.Grenades--;
-            var g = new GrenadeProj(_player.GlobalPosition + new Vector2(_player.Facing * 14f, -46f),
-                _player.Facing);
-            _game.AddChild(g);
-            _grenades.Add(g);
-            _hud.Toast("手榴弹出手——卧倒！");
+            _playerThrowing = true;
+            _player.Figure.ThrowPose = 1f;
+            GetTree().CreateTimer(0.45f).Timeout += () =>
+            {
+                _playerThrowing = false;
+                if (_ended || !IsInstanceValid(_player)) return;
+                _player.Figure.ThrowPose = 0f;
+                var g = new GrenadeProj(_player.GlobalPosition + new Vector2(_player.Facing * 14f, -46f),
+                    _player.Facing);
+                _game.AddChild(g);
+                _grenades.Add(g);
+                _hud.Toast("手榴弹出手——卧倒！");
+            };
         }
 
         for (int i = _grenades.Count - 1; i >= 0; i--)
@@ -735,6 +1513,17 @@ public partial class JiangqiaoLevel : Node2D
                 e.Hit();   // blast kills outright
             }
         }
+        // v3.53: the blast chews through sandbag cover too - direct hit
+        // flattens the wall, a blast one wall over mangles it. The player
+        // damage check below deliberately ignores cover: a grenade does not
+        // care that you are hiding.
+        if (_coverArt != null && _coverArt.Blast(at.X))
+        {
+            _hud.Toast("沙袋掩体被炸毁了！");
+            // v3.55: 墙被炸开的瞬间一蓬沙袋真的飞出去（散落场由 DrawWreck 留下）
+            if (!float.IsNaN(_coverArt.WreckX))
+                _game.AddChild(new CoverBurstFx { Position = new Vector2(_coverArt.WreckX, GroundY - 14f) });
+        }
         if (_player.GlobalPosition.DistanceTo(at) < 120f)
             _player.TakeHit(at.X);
     }
@@ -743,6 +1532,11 @@ public partial class JiangqiaoLevel : Node2D
     public bool PlayerInCover()
     {
         if (_player == null || !_player.IsOnFloor()) return false;
+        // v3.54: E-tuck counts even without holding the crouch key - the pose
+        // is already crouched (CoverHold), but this check only read raw input,
+        // so a tucked player who never touched crouch was shot at standing
+        // odds. That was the real "hiding behind sandbags and still got hit".
+        if (_coverIdx >= 0) return true;
         bool low = Input.IsActionPressed("crouch") || Input.IsActionPressed("prone");
         if (!low) return false;
         float px = _player.GlobalPosition.X;
@@ -814,18 +1608,9 @@ public partial class JiangqiaoLevel : Node2D
     {
         float px = _player.GlobalPosition.X;
 
-        EnterableHouse nearHouse = null;
-        foreach (var h in _houses)
-            if (Mathf.Abs(h.DoorX - px) < 78f) { nearHouse = h; break; }
-
-        WeaponPickup nearPickup = null;
-        float bestP = 64f;
-        foreach (var p in _pickups)
-        {
-            if (p.Looted || !IsInstanceValid(p)) continue;
-            float d = Mathf.Abs(p.Position.X - px);
-            if (d < bestP) { bestP = d; nearPickup = p; }
-        }
+        // v3.54: same referee as the E handler, so the prompt never lies
+        // (a doorstep rifle used to show "进屋搜索").
+        NearestTargets(px, out var nearHouse, out var nearPickup, out _, out _);
 
         Testimony near = null;
         float bestT = 86f;
@@ -836,12 +1621,12 @@ public partial class JiangqiaoLevel : Node2D
             if (d < bestT) { bestT = d; near = t; }
         }
 
-        if (nearHouse != null)
-            _hud.ShowPrompt("按 E · 进屋搜索");
-        else if (nearPickup != null)
+        if (nearPickup != null)
             _hud.ShowPrompt(nearPickup.Condition == WeaponPickup.Kind.Broken
                 ? "按 E · 捡起步枪（可能打不响）"
                 : "按 E · 捡枪拿子弹");
+        else if (nearHouse != null)
+            _hud.ShowPrompt("按 E · 进屋搜索");
         else if (near != null)
             _hud.ShowPrompt("按住 E · 记录口述");
         else if (GameState.I.S.JiangqiaoTestimony.Count >= 3 && px > 4200f)
@@ -849,9 +1634,7 @@ public partial class JiangqiaoLevel : Node2D
         else
             _hud.ShowPrompt("");
 
-        // 右上生命 / 弹药（图标条自己重绘） / 手榴弹
-        string dots = _player.Hp >= 3 ? "● ● ●" : _player.Hp == 2 ? "● ● ○" : _player.Hp == 1 ? "● ○ ○" : "○ ○ ○";
-        _hpLabel.Text = $"生命  {dots}    手榴弹 ×{_player.Grenades}";
+        // target arrow below; vitals + ammo bars redraw themselves
 
         // 目标在屏幕外时给纸色箭头
         Vector2 target = near != null
@@ -914,14 +1697,30 @@ public partial class JiangqiaoLevel : Node2D
         _hud.Toast("前方雪梁后出现关东军尖兵");
     }
 
+    /// <summary>
+    /// 敌人的景深比例。同一个波次里三个人站三条 lane，lane 越小站得越远，
+    /// 越远的人要明显小一号 —— 不然三个人站一排像三胞胎，一眼假。
+    /// 玩家站在最前面那一层（1.0），远一排 0.82，更远一排 0.92。
+    /// </summary>
+    private static float EnemyScaleForLane(float lane)
+    {
+        if (lane < -1f) return 1.06f * 0.82f;   // 最远的一排
+        if (lane > 1f) return 1.06f * 1.00f;    // 最近的一排，跟玩家同层
+        return 1.06f * 0.92f;                   // 中间
+    }
+
     private void SpawnEnemy(float x, float lane)
     {
         if (x > WorldW - 120f) x = WorldW - 120f;
         var e = new EnemySoldier(this, new Vector2(x, GroundY), lane);
-        // 敌人体型与玩家统一（玩家 1.22f），景深用 Modulate 淡化
-        e.Scale = new Vector2(1.22f, 1.22f);
-        e.Modulate = lane < 0f 
-            ? new Color(0.86f, 0.87f, 0.88f, 1f) 
+        // v3.25: the far lane used to be the same size as the near one and
+        // only a little paler, so three men of the same height stood in a
+        // row at three different depths and the whole depth read collapsed.
+        // Now the lane decides the size as well as the tint: the further
+        // back a man stands the smaller he is, the closer the bigger.
+        e.Scale = new Vector2(EnemyScaleForLane(lane), EnemyScaleForLane(lane));
+        e.Modulate = lane < 0f
+            ? new Color(0.86f, 0.87f, 0.88f, 1f)
             : new Color(0.97f, 0.97f, 0.98f, 1f);
         _game.AddChild(e);
         _enemies.Add(e);
@@ -960,7 +1759,11 @@ public partial class JiangqiaoLevel : Node2D
 
     private void OnPlayerFired(Vector2 origin, bool faceRight)
     {
-        Shake(0.55f);
+        // v3.51: was 0.55 - trauma^2 put every bolt shot at +-13px of screen
+        // jolt, which read as a glitch rather than recoil (user report
+        // 2026-10-31). 0.20 -> ~+-2px: a nudge in the shoulder, the real
+        // feedback stays with the muzzle flash and the body pushback.
+        Shake(0.20f);
         EnemySoldier target = null;
         float best = 980f;
         foreach (var e in _enemies)
@@ -1018,8 +1821,10 @@ public partial class JiangqiaoLevel : Node2D
 
     private void OnPlayerHit()
     {
-        Shake(0.5f);
-        _flashA = Mathf.Max(_flashA, 0.30f);
+        // v3.51: was 0.5 + full-screen flash 0.30 - read as a render fault.
+        // 0.32 / 0.15 keeps the hurt feedback but below the glitch line.
+        Shake(0.32f);
+        _flashA = Mathf.Max(_flashA, 0.15f);
         _hud.Toast("你中弹了——蹲下能减少暴露");
     }
 
@@ -1028,6 +1833,22 @@ public partial class JiangqiaoLevel : Node2D
         if (_elapsed - _lastDryToast < 1.2f) return;
         _lastDryToast = _elapsed;
         _hud.Toast("弹仓空了——去尸体边捡枪，或者进屋搜弹药。");
+    }
+
+    /// <summary>
+    /// v3.46: snow burst where the player lands. Impact speed (fall speed at
+    /// touchdown) scales the puff - a hop kicks a whisper of powder, a leap
+    /// off a rubble pile throws a real spray.
+    /// </summary>
+    private void OnPlayerLanded()
+    {
+        float vy = _player.Velocity.Y;
+        if (vy < 90f) return;
+        var puff = new SnowPuffFx(vy / 460f)
+        {
+            Position = new Vector2(_player.GlobalPosition.X, GroundY - 3f)
+        };
+        _game.AddChild(puff);
     }
 
     private void OnPlayerDown()
@@ -1052,9 +1873,17 @@ public partial class JiangqiaoLevel : Node2D
         Vector2 to = _player.GlobalPosition + new Vector2(0, -38);
         bool crouching = Input.IsActionPressed("crouch") && _player.IsOnFloor();
         bool cover = PlayerInCover();
-        // 沙袋后面趴着基本打不中（真实掩体），站着挨打最惨
-        float hitChance = cover ? 0.04f : crouching ? 0.10f : 0.28f;
+        // v3.54: sandbags stop the bullet, not the grenade - tucked in means
+        // 0% bullet hits (was 0.02, read as "cover leaked"). Suppressing fire
+        // still chews the wall, grenades still land, so cover stays consumable.
+        float hitChance = cover ? 0f : crouching ? 0.10f : 0.28f;
         bool hit = GD.Randf() < hitChance;
+
+        if (cover && _coverArt != null)
+        {
+            int si = _coverArt.StackAt(_player.GlobalPosition.X);
+            if (si >= 0) _coverArt.Damage(si, 1.8f);
+        }
 
         if (hit)
         {
@@ -1072,8 +1901,12 @@ public partial class JiangqiaoLevel : Node2D
 
     private void Artillery(float strength)
     {
-        _flashA = Mathf.Max(_flashA, strength);
-        Shake(0.7f * strength + 0.2f);
+        // v3.51: was full-strength flash + 0.7s+0.2 shake. The full-screen
+        // warm wash at 0.4-0.65 alpha read as a screen fault every time a
+        // wave spawned (user report 2026-10-31). Halved flash, softer jolt:
+        // a distant shell you feel, not a screen you distrust.
+        _flashA = Mathf.Max(_flashA, strength * 0.55f);
+        Shake(0.45f * strength + 0.1f);
         // 远处的雪雾
         _snow.Burst();
     }
@@ -1116,6 +1949,34 @@ public partial class JiangqiaoLevel : Node2D
             private float[] _starS;
 
             public float DayT = 5.6f;   // game clock, hours
+
+            /// <summary>
+            /// The sky has to be redrawn whenever the clock moves.
+            /// Before this SkyArt only drew once on the first _Draw and never
+            /// refreshed when DayT changed -
+            /// so the sky stayed the colour of the opening moment (before dawn)
+            /// for the whole match, the sun came up and the sky was still full
+            /// of stars, and the day/night cycle did nothing.
+            /// </summary>
+            public override void _Process(double delta)
+            {
+                // v3.13: this used to redraw the sky every single frame. The
+                // sky only depends on DayT, which creeps along at ClockRate, so
+                // most frames painted the exact same pixels. Now it redraws
+                // only when the clock actually moved (or when the window was
+                // resized, which changes the band layout).
+                float t = DayT;
+                var vp = GetViewportRect().Size;
+                if (_drawnT < 0f || Mathf.Abs(t - _drawnT) > 0.0015f || vp != _drawnSize)
+                {
+                    _drawnT = t;
+                    _drawnSize = vp;
+                    QueueRedraw();
+                }
+            }
+
+            private float _drawnT = -1f;
+            private Vector2 _drawnSize = new(-1f, -1f);
 
             private static readonly Vector4 NightTop = new(0.05f, 0.07f, 0.13f, 1f);
             private static readonly Vector4 PreDawnTop = new(0.07f, 0.10f, 0.18f, 1f);
@@ -1297,7 +2158,7 @@ public partial class JiangqiaoLevel : Node2D
 
     private partial class Backdrop : Node2D
     {
-        public const int KindFar = 0, KindMid = 1, KindNear = 2, KindFore = 3;
+        public const int KindFar = 0, KindMid = 1, KindNear = 2, KindFore = 3, KindGround = 4;
 
         private readonly JiangqiaoLevel _lvl;
         public int Kind { get; }
@@ -1325,6 +2186,7 @@ public partial class JiangqiaoLevel : Node2D
                 case KindFar: DrawFar(); break;
                 case KindMid: DrawMid(); break;
                 case KindNear: DrawNear(); break;
+                case KindGround: DrawGroundBand(); break;
                 default: DrawFore(); break;
             }
         }
@@ -1335,8 +2197,13 @@ public partial class JiangqiaoLevel : Node2D
         public override void _Ready()
         {
             // preload so first _Draw never hitches
-            foreach (var n in new[] { "mountains", "village_ruined", "tree_elm", "tree_birch", "willow", "grass" })
+            // v2.7: "willow" no longer preloads, the procedural willow clump replaced it
+            foreach (var n in new[] { "mountains", "tree_elm", "tree_birch", "grass" })
                 Tex(n);
+            // v2.8: the distant village reuses the side-on house art
+            foreach (var n in new[] { "village", "house_intact_near", "house_ruined_near",
+                                      "house_skeleton_near", "house_burned_near", "house_posts" })
+                VillageHouseTex(n, n == "village");
         }
 
         private Texture2D Tex(string name)
@@ -1348,7 +2215,10 @@ public partial class JiangqiaoLevel : Node2D
         }
 
         // ground-anchored sprite: baseCenter = bottom-middle, h = world height
-        private void Sprite(string name, Vector2 baseCenter, float h, float alpha = 1f, bool flip = false)
+        // fade: 0 = no fade, 1 = fully transparent at the bottom (kills the
+        // hard cut line where a pasted texture meets the snow field)
+        private void Sprite(string name, Vector2 baseCenter, float h, float alpha = 1f, bool flip = false,
+                            float fade = 0f)
         {
             var t = Tex(name);
             if (t == null || h <= 0f) return;
@@ -1365,10 +2235,23 @@ public partial class JiangqiaoLevel : Node2D
             {
                 DrawTextureRect(t, new Rect2(baseCenter.X - w * 0.5f, baseCenter.Y - h, w, h), false, col);
             }
+
+            // vertical fade: paint the snow colour back over the lower part of
+            // the sprite so it melts into the snow field instead of showing
+            // the texture's own hard bottom edge
+            if (fade > 0f)
+            {
+                // v3.16: was a GradientTexture2D over a rectangle - the
+                // rectangle's left and right edges stayed hard, so every tree
+                // wore a straight-edged pale slab around its feet.
+                DrawTextureRect(SoftSnow.MeltBand(new Color(0.775f, 0.795f, 0.795f), fade),
+                    new Rect2(baseCenter.X - w * 0.5f, baseCenter.Y - h * fade * 1.6f, w, h * fade * 1.6f), false);
+            }
         }
 
         // —— 远山：三层山脊，越远越淡（空气透视），山脊线用值噪声做出真锯齿 ——
         private static Rect2 Full(float x, float y, float h) => new(x, y, WorldW + 3800f, h);
+
 
         private void DrawFar()
         {
@@ -1408,9 +2291,26 @@ public partial class JiangqiaoLevel : Node2D
                 CrestLine(r2, new Color(0.92f, 0.95f, 0.96f, 0.45f), 1.3f);
             }
 
-            // 山脚雾：一条窄带，只把山脚和雪原接起来
-            var haze = VGradient(new Color(0.82f, 0.86f, 0.87f, 0f), new Color(0.82f, 0.86f, 0.87f, 0.72f));
-            DrawTextureRect(haze, Full(-1400, 542, 62), false);
+            // 山脚雾：一条窄带，只把山脚和雪原接起来。
+            // v3.6: the old haze colour (0.82,0.86,0.87) is BRIGHTER than the
+            // snow field (0.775,...), and the panorama texture carries a near
+            // pure-white strip along its bottom edge (rows 526-538 avg 232/255
+            // vs 72 above). In day light all that read as a soft foot haze,
+            // but the pre-dawn CanvasModulate multiplies everything down and
+            // the band popped out as a hard white line across the whole
+            // horizon. Now the haze uses the snow colour itself and stops
+            // where the solid snow takes over, so no band can ever end up
+            // brighter than the field it melts into.
+            // v3.8: the texture's snow-covered foot (rows ~440-530, mean 215-237)
+            // was STILL brighter than the plain (198) and popped as a thick
+            // white band in daylight. Texture is darkened in place now; this
+            // haze stays weak and long so it only softens, never bands.
+            // v3.13: the foot is melted by MeltFoot() in the mid layer now.
+            // This far haze is drawn with BandFade instead of one gradient
+            // rect - a gradient rect puts a hard edge on its first row, and
+            // across the whole screen that edge reads as a white line.
+            BandFade(472f, 88f, new Color(0.775f, 0.795f, 0.795f, 0f),
+                                new Color(0.775f, 0.795f, 0.795f, 0.24f));
         }
 
         private List<Vector2> Ridge(float baseY, float amp, Color color, float seed, float f1, float f2)
@@ -1491,19 +2391,36 @@ public partial class JiangqiaoLevel : Node2D
         private static float Ridged(float t, float seed)
             => 1f - Mathf.Abs(Noise1(t, seed) * 2f - 1f);
 
-        private static GradientTexture2D VGradient(Color from, Color to)
+        // 雪山下缘溶解：不用整块渐变矩形，改成很多细条、每条自己算 alpha。
+        // 整块渐变贴图在顶端会留一条硬边，横贯整屏就是一条白线；
+        // 细条没有边，只有渐变，所以山脚是"化进去"而不是"切下去"。
+        private void MeltFoot(Color snow)
         {
-            var g = new Gradient();
-            g.SetColor(0, from);
-            g.SetColor(1, to);
-            return new GradientTexture2D
+            const int bands = 64;
+            const float top = 430f;
+            const float bandH = 2.25f;
+            for (int i = 0; i < bands; i++)
             {
-                Gradient = g,
-                Width = 8,
-                Height = 256,
-                FillFrom = new Vector2(0.5f, 0f),
-                FillTo = new Vector2(0.5f, 1f),
-            };
+                float t = (i + 0.5f) / bands;
+                float a = Mathf.SmoothStep(0f, 1f, t) * 0.97f;
+                if (a <= 0.004f) continue;
+                DrawRect(new Rect2(-1400f, top + i * bandH, WorldW + 3800f, bandH + 0.7f),
+                    new Color(snow, a));
+            }
+        }
+
+        // 全宽的渐变带：一样切成细条，每条自己算 alpha。
+        // GradientTexture2D 铺出来的带子，第一行就是硬边 ——
+        // 一条横贯 1280px 的硬边，看着就是"白线"。
+        private void BandFade(float y, float h, Color from, Color to, int bands = 28)
+        {
+            float bh = h / bands;
+            for (int i = 0; i < bands; i++)
+            {
+                float t = (i + 0.5f) / bands;
+                DrawRect(new Rect2(-1400f, y + i * bh, WorldW + 3800f, bh + 0.7f),
+                    from.Lerp(to, t));
+            }
         }
 
         // —— 中景：雪原、村落、电报杆、树线、烟 ——
@@ -1511,19 +2428,36 @@ public partial class JiangqiaoLevel : Node2D
         {
             var snow = new Color(0.775f, 0.795f, 0.795f);
 
-            // 雪原上缘：先渐变到实色，避免一条生硬的地平线
-            var fade = VGradient(new Color(snow, 0f), new Color(snow, 1f));
-            DrawTextureRect(fade, Full(-1400, 520, 58), false);
-            DrawRect(Full(-1400, 578, 240), snow);
+            // 雪原上缘：先渐变到实色，避免一条生硬的地平线。
+            // v3.6: the gradient used to complete at y=578 while the mountain
+            // texture already ends at 570 - its white bottom strip (563-570)
+            // showed through the 74-86% fade as a thin bright line. Solid snow
+            // now starts at 560 and the fade runs 500-560, so the strip is
+            // buried under full-strength snow no matter the tint.
+            // v3.8: fade widened to 468-560 so the mountain foot blends over
+            // 90px instead of 60 — no leftover bright ledge above the plain.
+            // v3.13: that single gradient rect is gone (see MeltFoot below) —
+            // its top edge was the hard line across the screen.
+            DrawRect(Full(-1400, 560, 258), snow);
 
             // 雪原起伏的亮边与投影
+            // v2.9: tone it down. At 0.65 alpha this crest also ran as a
+            // full-width white line behind the village row, stacking with the
+            // ground one into two horizon stripes.
             var crest = new List<Vector2>();
             for (float x = -1400; x <= WorldW + 2400; x += 70)
                 crest.Add(new Vector2(x, 574 + Mathf.Sin(x * 0.0031f) * 6f + Mathf.Sin(x * 0.011f) * 3f));
-            DrawPolyline(crest.ToArray(), new Color(0.92f, 0.94f, 0.945f, 0.65f), 2.2f, true);
+            DrawPolyline(crest.ToArray(), new Color(0.88f, 0.91f, 0.92f, 0.26f), 1.6f, true);
             // 只留一条极淡的投影带，别做成一排平行线（会像贴纸）
-            var under = VGradient(new Color(0.60f, 0.67f, 0.71f, 0.18f), new Color(0.60f, 0.67f, 0.71f, 0f));
-            DrawTextureRect(under, Full(-1400, 578, 26), false);
+            // v3.13: 用细条画，两端都是 0，中间才到最深 ——
+            // 整块渐变矩形的首行是硬边，横贯全屏又是一条线。
+            for (int i = 0; i < 26; i++)
+            {
+                float t = i / 25f;
+                float a = Mathf.Sin(t * Mathf.Pi) * 0.18f;
+                DrawRect(new Rect2(-1400f, 578f + i, WorldW + 3800f, 1.8f),
+                    new Color(0.60f, 0.67f, 0.71f, a));
+            }
 
             // 风蚀纹：长而软的灰度条，让雪原不是一整片死白
             for (int i = 0; i < 52; i++)
@@ -1535,12 +2469,77 @@ public partial class JiangqiaoLevel : Node2D
                     new Color(0.62f, 0.69f, 0.73f, 0.10f), 3f + (i % 3), true);
             }
 
-            // village cluster: war-torn watercolor art, mirror alternate
-            // (炮火下的村子：破损的屋顶、烧黑的墙——1931 年嫩江沿岸村庄的真实样貌)
-            float[] villages = VillageX;
-            for (int i = 0; i < villages.Length; i++)
-                Sprite("village_ruined", new Vector2(villages[i], 568f),
-                    VillageH(i), 1f, flip: VillageFlip(i));
+            // Snow haze first, THEN the village.
+            //
+            // v2.8: the haze used to be painted after the houses, so that opaque
+            // white band (y 520~578) swallowed most of every roof and the row
+            // came out as a thin smear. Distance haze belongs behind the
+            // village anyway — the fog is out on the plain, the houses stand
+            // in front of it.
+            //
+            // v3.13: this used to be ONE rect carrying a vertical gradient
+            // (468..560). The panorama still had dark ridge strokes right at
+            // the top of that band, so the moment the overlay stepped in it
+            // cut across the whole screen as one straight bright line right
+            // under the snow range — the "white line" the player pointed at.
+            // Now the foot is dissolved strip by strip: 64 thin bands, each
+            // with its own alpha on a smoothstep. No edge anywhere, only a
+            // gradient, and the range melts into the plain.
+            MeltFoot(snow);
+
+            // The distant village: war-torn farmhouses on the open snow.
+            //
+            // v2.8 rewrite. The old art was sliced out of village_ruined.png,
+            // a sheet painted from a top-down three-quarter angle, so the pieces
+            // never matched this side-on level and the village looked like
+            // stickers glued onto the mountain. Now every house is the same
+            // side-on art as the near houses: correct perspective, one drawing
+            // style across the whole scene, and a real damage ladder (intact /
+            // ruined / burnt frame / charred stumps only).
+            foreach (var vh in VillageHouses)
+            {
+                var at = VillageHouseTex(vh.Tex, vh.Backdrop);
+                if (at == null) continue;
+                float wid = at.GetSize().X / at.GetSize().Y * vh.H;
+
+                // Aerial perspective: the further off to the side, the more the
+                // haze eats into the contrast. Deterministic, no random.
+                float depth = 1f - Mathf.Clamp(Mathf.Abs(vh.X - 200f) / 5200f, 0f, 1f) * 0.18f;
+
+                // Contact shadow first, so the house stands on the snow instead
+                // of floating above it.
+                DrawSetTransform(new Vector2(vh.X, VillageBaseY - 1f), 0, new Vector2(wid * 0.42f, 0.16f));
+                DrawTextureRect(SoftBlob(new Color(0.42f, 0.47f, 0.52f), 0.22f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                if (vh.Flip)
+                {
+                    DrawSetTransform(new Vector2(vh.X, VillageBaseY), 0, new Vector2(-1f, 1f));
+                    DrawTextureRect(at, new Rect2(-wid * 0.5f, -vh.H, wid, vh.H), false,
+                        new Color(1f, 1f, 1f, depth));
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                }
+                else
+                {
+                    DrawTextureRect(at, new Rect2(vh.X - wid * 0.5f, VillageBaseY - vh.H, wid, vh.H),
+                        false, new Color(1f, 1f, 1f, depth));
+                }
+
+                // Melt the foot of the house into the snow. A rectangular
+                // gradient would leave a hard white box where the texture is
+                // transparent, so the snow is laid on as a soft ellipse that
+                // only touches the bottom of the building.
+                // v3.16: the "rectangular gradient" was the white slab the
+                // player kept pointing at - the rectangle's left and right
+                // edges were ruler-straight. MeltBand tapers on every side.
+                DrawTextureRect(SoftSnow.MeltBand(new Color(0.775f, 0.795f, 0.795f), 0.95f),
+                    new Rect2(vh.X - wid * 0.5f, VillageBaseY - vh.H * 0.22f, wid, vh.H * 0.22f), false);
+                DrawSetTransform(new Vector2(vh.X, VillageBaseY), 0, new Vector2(wid * 0.30f, 0.13f));
+                DrawTextureRect(SoftBlob(new Color(0.80f, 0.82f, 0.83f), 0.80f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
 
             // mid tree line: generated birch/elm sprites, fixed seed layout
             var midTreeRng = new RandomNumberGenerator();
@@ -1583,76 +2582,154 @@ public partial class JiangqiaoLevel : Node2D
         // —— 近景：枯树带、灌木柳丛、雪坎、铁丝网、废车（一律低于人物腰部，绝不遮脸）——
         private void DrawNear()
         {
-            // near band: generated elm / willow sprites, fixed seed, sparse gaps
-            var nearRng = new RandomNumberGenerator();
-            nearRng.Seed = 19311105;
-            float nx = -1400f;
-            while (nx < WorldW + 1200)
-            {
-                float gap = 280f + nearRng.Randf() * 140f;
-                float kind = nearRng.Randf();
-                if (kind < 0.5f)
-                    Sprite("tree_elm", new Vector2(nx, 672f), 60f + nearRng.Randf() * 60f, 1f,
-                        flip: nearRng.Randf() < 0.5f);
-                else if (kind < 0.85f)
-                    Sprite("willow", new Vector2(nx, 672f), 26f + nearRng.Randf() * 22f, 1f,
-                        flip: nearRng.Randf() < 0.5f);
-                nx += gap;
-            }
-            // three taller lone trees to break the rhythm
-            foreach (var (tx2, th) in new[] { (-820f, 138f), (2460f, 112f), (4900f, 158f) })
-                Sprite("tree_elm", new Vector2(tx2, 676f), th, 1f, flip: tx2 < 0f);
-
             // 雪坎：软边（三层同心椭圆），不是一个个白泡泡
+            // v3.48: this is all that is left in the 0.55 parallax layer.
+            // The trees, willow clumps and wire fence used to live here too,
+            // but they stand on the same ground line as the world-plane
+            // houses and railway, so the 0.55 scroll made them slide across
+            // doors and walls as the player walked. They moved to
+            // DrawGroundBand (factor 1.0, world pinned) below.
             for (int i = 0; i < 22; i++)
             {
                 var c = new Vector2(-1300 + i * 410, 626);
                 Drift(c, 130f + (i % 3) * 34f, 30f + (i % 2) * 8f, new Color(0.92f, 0.94f, 0.94f));
             }
+        }
 
-            // 铁丝网：木桩 + 三道下垂铁丝（几处断口，不铺满整条路）
+        /// <summary>
+        /// v3.48: the ground band - near trees, willow clumps, wire fence -
+        /// drawn in the WORLD plane (factor 1.0, z -5: in front of the
+        /// ground art / railway, behind the near houses). Everything here
+        /// stands within a few pixels of the houses' ground line (663), so
+        /// it has to share the houses' parallax or it visibly swims against
+        /// them. Tree baselines moved 650/654 -> 660 so they stand just
+        /// behind the house line, and trees skip house footprints (the same
+        /// rule the fence stakes got in v3.46 - which only ever worked at
+        /// one camera position while the band was still parallaxed).
+        ///
+        /// v3.50: 660 was still IN FRONT of the railway (rail top 654) and
+        /// the loop ran to WorldW+1200, so elms stood on the ballast and
+        /// grew on the bridge deck / frozen river (user screenshot
+        /// 2026-10-31). Baseline moved back to 642 - behind the track -
+        /// and the band now stops 240px short of the bridge approach: no
+        /// tree grows on the deck, the wreck pile or the river.
+        /// </summary>
+        private void DrawGroundBand()
+        {
+            const float TreeLine = 642f;      // behind the rail top (654)
+            const float BandEnd = GroundArt.BridgeDeckX - 240f;  // no trees at the bridge
+            // near band: generated elm / willow sprites, fixed seed, sparse gaps
+            var nearRng = new RandomNumberGenerator();
+            nearRng.Seed = 19311105;
+            float nx = -1400f;
+            while (nx < BandEnd)
+            {
+                float gap = 280f + nearRng.Randf() * 140f;
+                float kind = nearRng.Randf();
+                bool blocked = InsideHouseFootprint(nx, 30f);
+                if (!blocked)
+                {
+                    if (kind < 0.5f)
+                        Sprite("tree_elm", new Vector2(nx, TreeLine), 60f + nearRng.Randf() * 60f, 1f,
+                            flip: nearRng.Randf() < 0.5f);
+                    else if (kind < 0.85f)
+                    {
+                        // the willow clump is procedural: one clump of arching twigs.
+                        // before this it used the willow.png texture, but that image
+                        // carries a whole white snow base, and scaled down to 26~48px
+                        // it became a pile of black spikes radiating out of the
+                        // ground, very jarring on open snow - that is the odd object
+                        // the user pointed at in picture 7.
+                        WillowClump(nx, TreeLine, 24f + nearRng.Randf() * 20f);
+                    }
+                }
+                nx += gap;
+            }
+            // three taller lone trees to break the rhythm
+            // v3.50: the third one stood at x=4900 - on the torn bridge deck
+            // over the river. Moved to the open field west of the start.
+            foreach (var (tx2, th) in new[] { (-820f, 138f), (2460f, 112f), (560f, 158f) })
+            {
+                if (InsideHouseFootprint(tx2, 30f)) continue;
+                Sprite("tree_elm", new Vector2(tx2, TreeLine), th, 1f, flip: tx2 < 0f);
+            }
+
+            // 铁丝网：木桩 + 两道下垂铁丝（几处断口，不铺满整条路）
+            // v3.18: the stake spacing was fixed and the run at 3820 dropped
+            // three stakes through the sandbag wall at 4160 and two through
+            // the wall at 4388. A stake standing inside a sandbag stack reads
+            // as a bundle of rods jammed into the pile. Any stake that would
+            // land inside a wall is skipped now, and the wire run stops at
+            // the last valid stake so it never spans a gap either.
+            // v3.46: the same rule now covers HOUSE footprints - three of the
+            // four runs rode straight through a house base (880-1480 through
+            // h1, 2540-3140 through h2, 3820-4360 through f3) and at close
+            // range read as one black torn band across the lower wall, which
+            // is exactly what the user circled. Stakes are gathered first so
+            // a sagging wire only ever joins two adjacent surviving stakes;
+            // the strands are also lightened (3 -> 2, alpha .6 -> .42) so the
+            // run reads as wire, and each stake gets a snow mound at its foot
+            // so it sits in the drift instead of poking out of nothing.
             foreach (float seg in new[] { -980f, 880f, 2540f, 3820f })
             for (float x0 = seg; x0 < seg + 600; x0 += 300)
             {
+                var stakes = new List<float>();
                 for (int p = 0; p < 6; p++)
                 {
                     float x = x0 + p * 50;
-                    DrawLine(new Vector2(x, 668), new Vector2(x - 3, 616), new Color(0.28f, 0.26f, 0.24f), 2.6f, true);
+                    // v3.18: no stake past the bridge head - the wire run at
+                    // 3820 reached 4420, straight into the span.
+                    if (x > 4360f) break;
+                    if (InsideSandbag(x) || InsideHouseFootprint(x)) continue;
+                    stakes.Add(x);
+                }
+                for (int s = 0; s < stakes.Count; s++)
+                {
+                    float x = stakes[s];
+                    DrawLine(new Vector2(x, 668), new Vector2(x - 3, 616), new Color(0.30f, 0.28f, 0.26f), 2.2f, true);
                     DrawCircle(new Vector2(x - 3, 616), 2f, new Color(0.90f, 0.92f, 0.92f, 0.7f));
-                    if (p < 5)
-                        for (int w = 0; w < 3; w++)
+                    // snow kicked up around the stake foot: grounds the post
+                    DrawSetTransform(new Vector2(x, 666f), 0f, new Vector2(0.7f, 0.32f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.94f, 0.95f, 0.95f), 0.7f),
+                        new Rect2(-32f, -32f, 64f, 64f), false);
+                    DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
+                    if (s + 1 < stakes.Count && stakes[s + 1] - x < 60f)
+                        for (int w = 0; w < 2; w++)
                         {
-                            float y = 622 + w * 15;
-                            var wire = Curved(new Vector2(x, y), new Vector2(x + 25, y + 9), new Vector2(x + 50, y), 4);
-                            DrawPolyline(wire, new Color(0.26f, 0.25f, 0.23f, 0.6f), 1f, true);
+                            float y = 626 + w * 18;
+                            var wire = Curved(new Vector2(x, y), new Vector2(x + 25, y + 8), new Vector2(x + 50, y), 4);
+                            DrawPolyline(wire, new Color(0.28f, 0.27f, 0.25f, 0.42f), 0.9f, true);
                         }
                 }
             }
 
-            // 废弃的辎重车（半埋进雪里）
-            var cx = 1760f;
-            DrawRect(new Rect2(cx, 592, 74, 24), new Color(0.40f, 0.32f, 0.23f));
-            DrawRect(new Rect2(cx, 592, 74, 24), new Color(0.26f, 0.21f, 0.16f, 0.7f), false, 1.2f);
-            DrawRect(new Rect2(cx - 4, 584, 86, 8), new Color(0.92f, 0.94f, 0.94f, 0.9f));
-            DrawCircle(new Vector2(cx + 14, 620), 11f, new Color(0.24f, 0.22f, 0.20f));
-            DrawCircle(new Vector2(cx + 14, 620), 4f, new Color(0.48f, 0.42f, 0.34f));
-            DrawCircle(new Vector2(cx + 60, 620), 11f, new Color(0.24f, 0.22f, 0.20f));
-            DrawLine(new Vector2(cx + 70, 592), new Vector2(cx + 104, 570), new Color(0.36f, 0.29f, 0.20f), 4f, true);
-            DrawLine(new Vector2(cx + 68, 589), new Vector2(cx + 104, 567), new Color(0.90f, 0.92f, 0.92f, 0.7f), 2f, true);
+
         }
 
-        /// <summary>雪堆：外浅内白，边缘柔，避免硬边圆片。</summary>
+
+        /// <summary>
+        /// A snow drift: pale rim, brighter core, soft edge.
+        ///
+        /// v2.8: this used to be plain DrawCircle blobs. A circle has a hard
+        /// rim, and on flat snow those rims showed up as bright white arcs
+        /// lying on the ground — the "white lines flashing across the screen"
+        /// the player kept reporting. Now the shape is a soft radial falloff,
+        /// so the drift melts into the snow with no edge to catch the light.
+        /// </summary>
         private void Drift(Vector2 c, float w, float h, Color snow)
         {
             DrawSetTransform(c + new Vector2(0, 4), 0, new Vector2(w / 20f, h / 20f * 1.4f));
-            DrawCircle(Vector2.Zero, 20f, new Color(0.62f, 0.68f, 0.71f, 0.16f));
+            DrawTextureRect(SoftBlob(snow, 0.16f), new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(c, 0, new Vector2(w / 20f, h / 20f));
-            DrawCircle(Vector2.Zero, 20f, new Color(snow, 0.55f));
-            DrawCircle(Vector2.Zero, 15f, new Color(snow, 0.9f));
+            DrawTextureRect(SoftBlob(snow, 0.55f), new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(c + new Vector2(-w * 0.12f, -h * 0.16f), 0, new Vector2(1.2f, 0.42f));
-            DrawCircle(Vector2.Zero, 20f, new Color(0.98f, 0.99f, 0.99f, 0.5f));
+            DrawTextureRect(SoftBlob(new Color(0.98f, 0.99f, 0.99f), 0.5f), new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
+
+    /// <summary>Radial falloff sprite for soft snow shapes, cached per colour.</summary>
+    private static ImageTexture SoftBlob(Color tint, float alpha)
+        => SoftSnow.Blob(tint, alpha);
 
         /// <summary>
         /// 落叶枯树（史实：嫩江平原的蒙古黄榆/小叶杨，11 月阔叶树全部落叶只剩枝桠）：
@@ -1737,24 +2814,65 @@ public partial class JiangqiaoLevel : Node2D
             return pts[pts.Length - 1];
         }
 
-        /// <summary>灌木柳丛（史实：旱柳沿江洼地成丛）：贴地一蓬拱形细枝 + 根部积雪。</summary>
-        private void WillowClump(float x, float baseY, float h)
+    /// <summary>
+    /// Shrub willow (historically: sallow grows in clumps along the river
+    /// hollows): a low clump of arching thin twigs plus snow at the roots.
+    /// </summary>
+    /// <remarks>
+    /// v2.7 rewrite: before this all 7 branches shot out of the same point
+    /// (0,0), which drew a bunch of black spikes radiating from the centre.
+    /// On open snow that was very jarring - it is the odd object the user
+    /// pointed at in picture 7.
+    /// Now each branch grows from its own spot inside a small patch at the
+    /// base, arches up first and then droops down, each branch going from
+    /// thick to thin, with a layer of snow on top. It is a clump of willow,
+    /// not a pile of spikes.
+    /// </remarks>
+    private void WillowClump(float x, float baseY, float h)
+    {
+        var c = new Color(0.31f, 0.28f, 0.22f);
+        var rng = new RandomNumberGenerator();
+        rng.Seed = (ulong)(int)(x * 7919f) + 19311105UL;
+
+        // a small patch at the base, each branch grows from a different spot
+        // (no more squeezing them all into one point)
+        int stems = 6;
+        for (int b = 0; b < stems; b++)
         {
-            var c = new Color(0.31f, 0.28f, 0.22f);
-            DrawSetTransform(new Vector2(x, baseY), 0, Vector2.One);
-            for (int b = 0; b < 7; b++)
-            {
-                float t = b / 6f - 0.5f;
-                float tipX = t * h * 1.6f + Mathf.Sin(b * 2.3f + x) * 3f;
-                float tipY = -h * (0.55f + 0.45f * Mathf.Abs(Mathf.Cos(b * 1.1f + x * 0.01f)));
-                var stem = Curved(new Vector2(0, 0), new Vector2(tipX * 0.5f, tipY * 1.2f),
-                    new Vector2(tipX, tipY), 4);
-                DrawPolyline(stem, c, 1.5f, true);
-            }
-            DrawSetTransform(new Vector2(x, baseY + 1f), 0, new Vector2(1.7f, 0.28f));
-            DrawCircle(Vector2.Zero, 12f, new Color(0.95f, 0.96f, 0.97f, 0.75f));
+            float t = b / (stems - 1f) - 0.5f;          // -0.5 .. 0.5
+            float rootX = t * h * 0.62f;
+            float spread = t * h * 1.35f;               // spread to the sides
+            float rise = h * (0.62f + 0.38f * Mathf.Cos(t * 2.2f));  // tall in the middle, short at the edges
+            // arch up first, then droop outwards (sallow branches hang down like this)
+            var arch = Curved(new Vector2(rootX, 0f),
+                new Vector2(rootX + spread * 0.25f, -rise * 1.12f),
+                new Vector2(rootX + spread * 0.82f, -rise * 0.42f), 6);
+            DrawPolyline(arch, c, 1.6f, true);
+
+            // the tip droops one more stretch, thinnest at the end
+            var tail = Curved(arch[^1],
+                arch[^1] + new Vector2(spread * 0.10f, rise * 0.16f),
+                arch[^1] + new Vector2(spread * 0.16f, rise * 0.52f), 4);
+            DrawPolyline(tail, new Color(c.R, c.G, c.B, 0.85f), 1.1f, true);
+        }
+
+        // snow on the branches: a small pinch on the back of a few upward branches only
+        for (int s = 0; s < 3; s++)
+        {
+            float sx = (rng.Randf() - 0.5f) * h * 0.9f;
+            float sy = -h * (0.42f + rng.Randf() * 0.30f);
+            DrawSetTransform(new Vector2(x + sx, baseY + sy), 0, new Vector2(0.9f, 0.26f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.95f, 0.96f, 0.97f), 0.62f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
+
+        // snow at the base: a soft edged ellipse that buries the roots
+        DrawSetTransform(new Vector2(x, baseY + 1f), 0, new Vector2(1.5f, 0.26f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.95f, 0.96f, 0.97f), 0.78f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+    }
 
         // —— 前景：贴镜头掠过的芦苇与雪檐（加深景深）——
         private void DrawFore()
@@ -1899,6 +3017,20 @@ public partial class JiangqiaoLevel : Node2D
             }
             return pts;
         }
+
+        /// <summary>
+        /// True when x falls inside one of the sandbag walls, so the barbed
+        /// wire stakes can be kept out of the piles. v3.18: the stakes used to
+        /// be dropped on a fixed grid and three of them stood inside the wall
+        /// at 4160 while two more stood inside the wall at 4388, which read
+        /// as rods jammed into the sandbags.
+        /// </summary>
+        private static bool InsideSandbag(float x)
+        {
+            foreach (float bx in CoverArt.SandbagBaseX)
+                if (Mathf.Abs(x - bx) < CoverArt.SandbagHalfWidth) return true;
+            return false;
+        }
     }
 
     /// <summary>贴在地面的角色影子：随腾空高度缩小、变淡，给跳跃一个重量参照。</summary>
@@ -1914,10 +3046,13 @@ public partial class JiangqiaoLevel : Node2D
             // same kit tone + sun direction as everything else on the ground
             float dir = SnowShadow.DirX();
             float skew = (3f + Air * 0.045f) * (dir == 0f ? -0.6f : dir);
+            // v2.8: radial falloff, a hard rimmed circle leaves a visible arc
             DrawSetTransform(new Vector2(X - skew, GroundY - 1f), 0, new Vector2(1f, 0.24f));
-            DrawCircle(Vector2.Zero, 20f * k, new Color(0.12f, 0.13f, 0.16f, a));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.12f, 0.13f, 0.16f), a),
+                new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(new Vector2(X - skew * 2.1f, GroundY - 1f), 0, new Vector2(1f, 0.15f));
-            DrawCircle(Vector2.Zero, 13f * k, new Color(0.12f, 0.13f, 0.16f, a * 0.5f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.12f, 0.13f, 0.16f), a * 0.5f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
     }
@@ -1933,10 +3068,24 @@ public partial class JiangqiaoLevel : Node2D
         private float[] _crateX = System.Array.Empty<float>();     // 弹药木箱：位置/高矮/歪斜每只不同
         private float[] _crateH = System.Array.Empty<float>();
         private float[] _crateRot = System.Array.Empty<float>();
-        private float[] _bunkerX = System.Array.Empty<float>();
-        private float[] _bunkerBW = System.Array.Empty<float>();
-        private float[] _bunkerFH = System.Array.Empty<float>();
         private int[] _railSkipIdx = System.Array.Empty<int>();       // 被去掉的枕木序号（破损感）
+        private float[] _railDmgX = System.Array.Empty<float>();      // shell damage spots along the whole rail line
+
+        /// <summary>
+        /// Where the span stands in world coordinates, measured off
+        /// bridge.png (1530x812, drawn with a vertical scale of 420/812 and
+        /// shifted 48px east): the deck starts at source column 9 and the
+        /// collapsed span begins at source column 870.
+        ///
+        /// v3.25: the railway needs both numbers. The track has to run
+        /// onto the deck and stop at the wreck - otherwise the line is cut
+        /// off in front of the bridge and the two read as two pictures
+        /// laid side by side with nothing joining them.
+        /// </summary>
+        // v3.50: internal (was private) - the Backdrop ground band also needs
+        // the deck position to keep trees off the bridge and the river.
+        internal const float BridgeDeckX = 4457f;
+        private const float BridgeWreckX = 4902f;
         private int[] _trussSkipDiags = System.Array.Empty<int>();    // 桥桁架被去掉的斜腹杆
         private int[] _pierDamageIdx = System.Array.Empty<int>();     // 被炮弹蹭过的桥墩（画烧黑斑）
 
@@ -1955,10 +3104,19 @@ public partial class JiangqiaoLevel : Node2D
             var rng = new RandomNumberGenerator();
             rng.Randomize();
 
-            // 弹坑位置 ±20、半径 ±6
+            // 弹坑位置 ±20、半径 ±6。
+            // anchors picked so the rim never kisses a sandbag wall, bunker or
+            // ammo crate - a shell hole right against the cover reads wrong.
+            // v3.8: dropped 2080/2890/3260 — all three sat inside near-house
+            // footprints (h3/h2/h4) and would vanish behind them now that the
+            // houses draw in front of the ground art. 2540/3780 stay to break
+            // the rails where they are visible.
+            // v3.11: dropped 2290 as well — its rim sat inside the sandbag
+            // stack at 2320, so the stack hid half the hole. 1640 moved to
+            // 1760: the old rim ran under bunker 1550's right base.
             var craterListX = new List<float>();
             var craterListR = new List<float>();
-            foreach (float x in new[] { 1260f, 1640f, 2080f, 2480f, 2890f, 3260f, 3720f, 4060f })
+            foreach (float x in new[] { 1260f, 1760f, 2540f, 3780f })
             {
                 craterListX.Add(x + rng.RandfRange(-22f, 22f));
                 craterListR.Add(26f + rng.RandfRange(-6f, 15f));
@@ -1967,10 +3125,13 @@ public partial class JiangqiaoLevel : Node2D
             _craterR = craterListR.ToArray();
 
             // 弹药木箱：错开沙包垛位摆放，每只高矮/歪斜略不同（不再像贴图一样复制叠上去）
+            // v3.54: 730 sat on top of testimony t1 (720), 3960 stood inside
+            // the f3 ruin wall (3910..4241). 790 clears t1, 3855 threads
+            // between the 3780 crater rim and f3's west edge.
             var crateListX = new List<float>();
             var crateListH = new List<float>();
             var crateListRot = new List<float>();
-            foreach (float x in new[] { 730f, 1450f, 2680f, 3960f })
+            foreach (float x in new[] { 790f, 1450f, 2680f, 3855f })
             {
                 crateListX.Add(x + rng.RandfRange(-18f, 18f));
                 crateListH.Add(30f + rng.RandfRange(-3f, 4f));
@@ -1980,25 +3141,28 @@ public partial class JiangqiaoLevel : Node2D
             _crateH = crateListH.ToArray();
             _crateRot = crateListRot.ToArray();
 
-            // 碉堡位置 ±18、宽 ±6、高 ±5
-            var bxList = new List<float>();
-            var bwList = new List<float>();
-            var fhList = new List<float>();
-            foreach (float bx in new[] { 1550f, 3050f, 4050f })
-            {
-                bxList.Add(bx + rng.RandfRange(-18f, 18f));
-                bwList.Add(56f + rng.RandfRange(-4f, 8f));
-                fhList.Add(38f + rng.RandfRange(-5f, 5f));
-            }
-            _bunkerX = bxList.ToArray();
-            _bunkerBW = bwList.ToArray();
-            _bunkerFH = fhList.ToArray();
-
-            // 铁路：随机挑 8~12 根枕木去掉（每 60 根里去掉 1 根 = 稀疏破损）
+            // 铁路：随机挑约 30 根枕木去掉（画得到的就是 84 根，三成缺失 = 战时打烂的样子）
             var railSkip = new HashSet<int>();
-            int railCount = (int)(5200f / 34f);  // ≈ 152 根
-            for (int k = 0; k < 22; k++) railSkip.Add((int)rng.RandfRange(0, railCount));
+            int railCount = (int)((WorldW - 2400f) / 34f) + 2;
+            for (int k = 0; k < 30; k++) railSkip.Add((int)rng.RandfRange(0, railCount));
             _railSkipIdx = railSkip.ToArray();
+
+            // shell damage strung out along the whole run of track, not only
+            // where the big craters sit - shelling never lands in one spot
+            // v3.25: it stops before the bridge. The track on the span has
+            // no sleepers to twist, and the twisted stubs would have been
+            // painted over the deck.
+            var railDmg = new List<float>();
+            float dmgX = 2620f;
+            while (dmgX < BridgeDeckX - 90f)
+            {
+                bool nearCrater = false;
+                for (int i = 0; i < _craterX.Length; i++)
+                    if (Mathf.Abs(_craterX[i] - dmgX) < 110f) nearCrater = true;
+                if (!nearCrater) railDmg.Add(dmgX);
+                dmgX += rng.RandfRange(260f, 430f);
+            }
+            _railDmgX = railDmg.ToArray();
 
             // 桥桁架：随机去掉 2~4 根斜腹杆
             var diagSkip = new HashSet<int>();
@@ -2021,9 +3185,14 @@ public partial class JiangqiaoLevel : Node2D
             ground.Add(new Vector2(WorldW + 600, 900));
             ground.Add(new Vector2(-400, 900));
             DrawColoredPolygon(ground.ToArray(), new Color(0.855f, 0.875f, 0.875f));
-            DrawPolyline(surface.ToArray(), new Color(0.98f, 0.99f, 0.99f, 0.9f), 3f, true);
+            // v2.9: the old edge highlight was near-white at 0.9 alpha, so a
+            // crisp white line ran the full width of the level straight behind
+            // every character. Soften it into the snow fill: same line, but a
+            // tone close to the surface and low alpha, just enough to suggest
+            // a wind-packed crest instead of drawing a horizon stripe.
+            DrawPolyline(surface.ToArray(), new Color(0.92f, 0.945f, 0.945f, 0.4f), 2f, true);
             DrawPolyline(surface.Select(p => p + new Vector2(0, 8)).ToArray(),
-                new Color(0.66f, 0.72f, 0.76f, 0.55f), 6f, true);
+                new Color(0.70f, 0.75f, 0.78f, 0.32f), 5f, true);
 
             // 冰面裂缝与车辙
             for (int i = 0; i < 26; i++)
@@ -2034,27 +3203,69 @@ public partial class JiangqiaoLevel : Node2D
             }
 
             DrawRiverIce();
-            DrawRailway();
+                // v3.25: the span is laid down BEFORE the track now. It used to
+                // be painted over the rails, which cut the line dead in front
+                // of the bridge - the user called it "the bridge and the rails
+                // do not connect, a texture just stuck on top with nothing
+                // linking them". With the bridge down first the railway can
+                // run onto the deck and stop where the span is blown apart.
+                DrawBridge();
+                // the snow band that swallows the foot of the piers. Every
+                // tree and every house in this level already gets one, and
+                // the bridge without it is the one object standing in the
+                // scene with a hard cut at its base - that is the "pasted
+                // on" the player kept seeing.
+                DrawRailway();
+            DrawSupplyCart();
+
             DrawCraters();
-            DrawBridge();
+            DrawRailBlastDamage();
             DrawTrenchLines();
         }
 
         private void DrawRiverIce()
         {
             // 桥下的江面（冰封）
-            var ice = new[]
-            {
-                new Vector2(4460, GroundY), new Vector2(5220, GroundY), new Vector2(5220, 780),
-                new Vector2(4460, 780),
-            };
-            DrawColoredPolygon(ice, new Color(0.72f, 0.79f, 0.82f));
+            //
+            // v3.25: this used to be a plain rectangle - four hard corners, a
+            // ruler-straight near edge running the whole width of the screen
+            // and a vertical cut at the west end. It read as a grey slab
+            // lying on the snow, not as a frozen river, and the bridge
+            // piers stood on top of it like blocks set on a table.
+            //
+            // The banks are irregular now and snow has drifted over the
+            // near edge, so there is no straight line anywhere for the eye
+            // to catch.
+            const float iceL = 4436f, iceR = 5244f;
+            const float bot = 792f;
+            var ice = new List<Vector2>();
+            // far edge, hidden under the bridge deck
+            for (float x = iceL; x <= iceR; x += 34f)
+                ice.Add(new Vector2(x, GroundY));
+            // east bank slants in
+            ice.Add(new Vector2(iceR + 30f, bot - 44f));
+            // near edge: wind-blown snow over the ice, so it is a wave
+            for (float x = iceR + 30f; x >= iceL - 30f; x -= 34f)
+                ice.Add(new Vector2(x, bot - 44f + Mathf.Sin(x * 0.019f) * 15f));
+            // west bank slants out
+            ice.Add(new Vector2(iceL - 30f, GroundY + 16f));
+            DrawColoredPolygon(ice.ToArray(), new Color(0.685f, 0.755f, 0.79f));
             // 冰面上层：更亮的冰壳（半透明白）
             DrawColoredPolygon(new[]
             {
-                new Vector2(4460, GroundY), new Vector2(5220, GroundY),
-                new Vector2(5220, GroundY + 28), new Vector2(4460, GroundY + 28),
-            }, new Color(0.88f, 0.92f, 0.93f, 0.5f));
+                new Vector2(iceL, GroundY), new Vector2(iceR, GroundY),
+                new Vector2(iceR, GroundY + 34), new Vector2(iceL, GroundY + 34),
+            }, new Color(0.90f, 0.935f, 0.945f, 0.62f));
+
+            // v3.25: the span's own shadow on the ice. Everything else in
+            // this level casts a shadow - the houses, the trees, the sandbag
+            // walls, the bodies - and the bridge was the one thing standing
+            // on the ground without one, so it hovered over the river
+            // instead of standing on it.
+            DrawSetTransform(new Vector2((iceL + iceR) * 0.5f, GroundY + 46f), 0, new Vector2(13f, 0.85f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.40f, 0.45f, 0.50f), 0.32f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
             // 冰裂缝：不规则折线（用噪声偏移中间点，不是直竖线）
             for (int i = 0; i < 14; i++)
@@ -2094,7 +3305,8 @@ public partial class JiangqiaoLevel : Node2D
                 var c = new Vector2(4485 + i * 52 + Mathf.Sin(i * 1.9f) * 14f,
                     GroundY + 24 + (i % 4) * 22);
                 DrawSetTransform(c, 0, new Vector2(1.6f, 0.28f));
-                DrawCircle(Vector2.Zero, 13f + (i % 3) * 3f, new Color(0.93f, 0.95f, 0.95f, 0.75f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.93f, 0.95f, 0.95f), 0.75f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
             // 远处冰面上的冻土堆（小冰丘）
@@ -2102,9 +3314,165 @@ public partial class JiangqiaoLevel : Node2D
             {
                 var c = new Vector2(4520 + i * 140, GroundY + 540);
                 DrawSetTransform(c, 0, new Vector2(1.8f, 0.5f));
-                DrawCircle(Vector2.Zero, 10f, new Color(0.78f, 0.83f, 0.86f, 0.6f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.78f, 0.83f, 0.86f), 0.6f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
+        }
+
+        /// <summary>
+        /// v3.8 dressing at every rail break: scorch on the ballast, twisted
+        /// rail stubs curling out of both cut ends, splinters and debris.
+        /// Without this the segmented rails just showed a naked gap in the
+        /// line - "why would the track stop mid-air for no reason".
+        /// Deterministic per crater index, stable between frames.
+        /// Drawn after the crater textures so the twisted steel stays visible.
+        /// </summary>
+        private void DrawRailBlastDamage()
+        {
+            float railY = GroundY - 1f;
+            for (int i = 0; i < _craterX.Length; i++)
+            {
+                float cx = _craterX[i];
+                if (cx <= 2420f || cx >= WorldW - 24f) continue;
+                float r = _craterR[i] * 0.82f;
+
+                var rng = new RandomNumberGenerator();
+                rng.Seed = (ulong)(i * 7919 + 13);
+
+                // scorched bed under the gap
+                DrawSetTransform(new Vector2(cx, railY + 9f), 0, new Vector2(r / 20f, 0.42f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.19f, 0.175f, 0.16f), 0.5f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                // twisted stubs curling up and out from both cut ends, one pair per rail line
+                foreach (float ry in new[] { railY, railY + 12 })
+                foreach (float sgn in new[] { -1f, 1f })
+                {
+                    float ex = cx + sgn * r;
+                    for (int s = 0; s < 2; s++)
+                    {
+                        float len = rng.RandfRange(8f, 15f);
+                        float tilt = 0.35f + 0.45f * s + rng.RandfRange(-0.12f, 0.12f);
+                        float dx = sgn * len * Mathf.Cos(tilt);
+                        float dy = -len * Mathf.Sin(tilt);
+                        DrawLine(new Vector2(ex, ry), new Vector2(ex + dx, ry + dy),
+                            InkStyle.InkColor, InkStyle.ThinStroke, true);
+                        // bright torn steel at the tip
+                        DrawCircle(new Vector2(ex + dx, ry + dy), 1.3f, new Color(0.85f, 0.86f, 0.84f));
+                    }
+                }
+
+                // splinters and kicked-up ballast around the hole
+                for (int s = 0; s < 6; s++)
+                {
+                    float px = cx + rng.RandfRange(-r, r) * 1.15f;
+                    float py = railY + rng.RandfRange(2f, 16f);
+                    DrawCircle(new Vector2(px, py), rng.RandfRange(0.8f, 1.7f),
+                        new Color(0.27f, 0.25f, 0.23f, 0.8f));
+                }
+            }
+
+            // lighter shell nicks all along the track - short broken rail with
+            // curled stubs, scorch on the bed, kicked ballast. one every few
+            // hundred px so no stretch of line reads as untouched.
+            foreach (float dxp in _railDmgX)
+            {
+                var rng2 = new RandomNumberGenerator();
+                rng2.Seed = (ulong)(int)(dxp * 0.71f) + 977;
+
+                DrawSetTransform(new Vector2(dxp, railY + 9f), 0, new Vector2(0.55f, 0.34f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.21f, 0.19f, 0.17f), 0.5f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                foreach (float ry in new[] { railY, railY + 12 })
+                foreach (float sgn in new[] { -1f, 1f })
+                {
+                    float ex = dxp + sgn * 10f;
+                    float len = rng2.RandfRange(6f, 11f);
+                    float tilt = 0.4f + rng2.RandfRange(-0.1f, 0.25f);
+                    float tx = ex + sgn * len * Mathf.Cos(tilt);
+                    float ty = ry - len * Mathf.Sin(tilt);
+                    DrawLine(new Vector2(ex, ry), new Vector2(tx, ty),
+                        InkStyle.InkColor, InkStyle.ThinStroke, true);
+                    DrawCircle(new Vector2(tx, ty), 1.1f, new Color(0.85f, 0.86f, 0.84f));
+                }
+
+                for (int s = 0; s < 3; s++)
+                {
+                    float px = dxp + rng2.RandfRange(-12f, 12f);
+                    float py = railY + rng2.RandfRange(2f, 15f);
+                    DrawCircle(new Vector2(px, py), rng2.RandfRange(0.7f, 1.4f),
+                        new Color(0.27f, 0.25f, 0.23f, 0.8f));
+                }
+            }
+        }
+
+
+        /// <summary>
+        /// The abandoned supply cart at the head of the level: a plank crate
+        /// body on two wheels with a snapped shaft lying in the snow.
+        ///
+        /// v3.19: this was a separate node in the game layer, and it never
+        /// appeared on screen at all - the node drew, but the game layer put
+        /// it outside the camera and nothing showed. It is painted here in
+        /// the ground art now, the same place the craters and the ammo
+        /// crates live, so it sits in the snow with the track running behind
+        /// it.
+        ///
+        /// The body is the real crate texture, painted in the same hand as
+        /// every other prop. The player was right that the earlier version -
+        /// flat filled rectangles and circles - looked like a different art
+        /// style pasted next to the watercolour props. Only the wheels and
+        /// the snapped shaft are code, because a rectangle cannot fake them.
+        /// </summary>
+        private void DrawSupplyCart()
+        {
+            // v3.19: was 280, which is where the player starts - the soldier
+            // spawned right on top of it and hid the whole thing. 350 puts
+            // it a stride ahead, still the first thing the player walks past.
+            const float cartX = 350f;
+            const float boxW = 46f;
+            const float wheelR = 7f;
+
+            var crate = CrateTex();
+            if (crate == null) return;
+            var csz = crate.GetSize();
+
+            // drift behind and a soft contact shadow, same treatment the
+            // ammo crates get
+            DrawSetTransform(new Vector2(cartX + boxW * 0.5f, GroundY - 2f), 0, new Vector2(1.8f, 0.5f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.88f, 0.91f, 0.92f), 0.5f),
+                new Rect2(-boxW, -boxW, boxW * 2f, boxW * 2f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            SnowShadow.Draw(this, new Vector2(cartX + boxW * 0.5f, GroundY - 1f), boxW * 0.6f, 0.22f);
+
+            // the crate body, tipped over on its side with a slight tilt
+            float tw = boxW * 1.3f;
+            float th = tw * csz.Y / csz.X;
+            DrawSetTransform(new Vector2(cartX + boxW * 0.5f, GroundY - 1f - wheelR * 0.6f), -0.05f,
+                Vector2.One);
+            DrawTextureRect(crate, new Rect2(-tw * 0.5f, -th, tw, th), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+            // the two wheels, sunk into the drift
+            foreach (float wx in new[] { cartX + 9f, cartX + boxW - 9f })
+            {
+                DrawCircle(new Vector2(wx, GroundY - wheelR + 1.5f), wheelR, new Color(0.24f, 0.21f, 0.19f));
+                DrawCircle(new Vector2(wx, GroundY - wheelR + 1.5f), wheelR * 0.62f, new Color(0.50f, 0.43f, 0.35f));
+                DrawCircle(new Vector2(wx, GroundY - wheelR + 1.5f), wheelR * 0.22f, new Color(0.30f, 0.26f, 0.21f));
+                DrawLine(new Vector2(wx - wheelR * 0.8f, GroundY - wheelR * 1.7f),
+                    new Vector2(wx + wheelR * 0.8f, GroundY - wheelR * 1.7f),
+                    new Color(0.92f, 0.94f, 0.94f, 0.85f), 1.3f, true);
+            }
+
+            // the shaft, snapped off and lying in the snow beside the wreck
+            DrawLine(new Vector2(cartX - 24f, GroundY - 2f), new Vector2(cartX - 4f, GroundY - 12f),
+                new Color(0.34f, 0.27f, 0.19f), 2.4f, true);
+            DrawLine(new Vector2(cartX - 24f, GroundY - 3f), new Vector2(cartX - 4f, GroundY - 13f),
+                new Color(0.90f, 0.92f, 0.92f, 0.55f), 1f, true);
         }
 
         private void DrawRailway()
@@ -2112,25 +3480,72 @@ public partial class JiangqiaoLevel : Node2D
             var skip = new HashSet<int>(_railSkipIdx);
             float railY = GroundY - 1f;
 
-            // ballast bed: packed darker snow with soft top edge, rails cannot
-            // just float on white paper
-            DrawColoredPolygon(new[]
+            // v3.25: the track now runs ONTO the bridge.
+            //
+            //   fieldEnd - the open field's ballast bed and its sleepers
+            //              stop at the west end of the deck. A railway
+            //              bridge carries its track on a steel plate, it
+            //              has no ballast and no sleepers.
+            //   trackEnd - the rails carry on across the deck and stop
+            //              where the span is blown apart. Past that there
+            //              is no bridge left to run on.
+            //
+            // Before this the whole line was drawn first and the bridge
+            // was painted over the end of it, so the track stopped in
+            // mid snow and the bridge stood next to it like a separate
+            // picture - no joint, no rails running onto the deck.
+            float fieldEnd = BridgeDeckX;
+            float trackEnd = BridgeWreckX;
+
+            // a crater sitting on the rail line means the shelling broke the
+            // track - skip sleepers and leave a gap in the rails there, so the
+            // pits read as battlefield damage instead of holes punched through
+            // a pristine line.
+            bool OnRailCrater(float x)
             {
-                new Vector2(2380, railY + 2), new Vector2(WorldW + 60, railY + 2),
-                new Vector2(WorldW + 60, railY + 22), new Vector2(2380, railY + 22),
-            }, new Color(0.73f, 0.755f, 0.765f, 0.5f));
-            DrawLine(new Vector2(2380, railY + 2), new Vector2(WorldW + 60, railY + 2),
-                new Color(0.90f, 0.925f, 0.93f, 0.75f), 2.6f, true);
+                for (int i = 0; i < _craterX.Length; i++)
+                    if (_craterX[i] > 2380f && _craterX[i] < WorldW && Mathf.Abs(x - _craterX[i]) < _craterR[i] * 0.82f)
+                        return true;
+                return false;
+            }
+
+            bool NearRailDmg(float x, float tol)
+            {
+                foreach (float d in _railDmgX)
+                    if (Mathf.Abs(x - d) < tol) return true;
+                return false;
+            }
+
+            // ballast bed: packed darker snow with a gently wavy top edge so
+            // it doesn't read as a ruler-straight line drawn on white paper
+            var ballast = new List<Vector2>();
+            for (float x = 2380f; x <= fieldEnd; x += 38f)
+                ballast.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
+            ballast.Add(new Vector2(fieldEnd, railY + 22f));
+            ballast.Add(new Vector2(2380f, railY + 22f));
+            DrawColoredPolygon(ballast.ToArray(), new Color(0.76f, 0.745f, 0.72f, 0.5f));
+            // soft top-edge highlight following the same wave
+            var topEdge = new List<Vector2>();
+            for (float x = 2380f; x <= fieldEnd; x += 38f)
+                topEdge.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
+            DrawPolyline(topEdge.ToArray(), new Color(0.92f, 0.91f, 0.885f, 0.7f), 2.6f, false);
 
             int k = 0;
-            for (float x = 2400; x < WorldW; x += 34, k++)
+            for (float x = 2400; x < fieldEnd; x += 34, k++)
             {
-                if (skip.Contains(k)) continue;
+                // v3.25: the last stretch before the deck is never skipped.
+                // One missing tie right at the joint leaves a bare strip of
+                // ballast between the field and the bridge and the line
+                // reads as cut off again.
+                if ((skip.Contains(k) && x < fieldEnd - 150f) || OnRailCrater(x + 11f)) continue;
                 // each sleeper got own height/brightness jitter (deterministic,
                 // picture stays stable between frames)
                 float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
                 float shade = 0.40f + 0.06f * Mathf.Sin(k * 3.7f);
-                var wood = new Color(shade, shade * 0.80f, shade * 0.60f);
+                bool charred = NearRailDmg(x + 11f, 30f);
+                var wood = charred
+                    ? new Color(0.17f, 0.14f, 0.12f)
+                    : new Color(shade, shade * 0.80f, shade * 0.60f);
                 var r = new Rect2(x, railY + 3 + jy, 22, 13);
                 // sleeper: ink frame then wood fill, the hand-drawn manga way
                 InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
@@ -2139,41 +3554,226 @@ public partial class JiangqiaoLevel : Node2D
                     new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
                 // thin snow on the sleeper top for ~60% of them, phase-shifted
                 // so it don't read as a copied row
-                if (Mathf.Sin(k * 7.31f) > -0.2f)
+                if (!charred && Mathf.Sin(k * 7.31f) > -0.2f)
                     DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
                         new Vector2(x + 20, r.Position.Y + 1.2f),
                         new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
             }
 
-            // two parallel rails: dark ink base + steel sheen + snow caps.
-            // snow sits in short patches, wind never piles it one straight line
+            // v3.26: the deck plate.
+            //
+            // The span used to get a flat band of tan sleepers laid straight
+            // onto the texture's riveted girder web. Two full-width bands of
+            // contrasting tone with nothing between them - a tan strip lying
+            // on a dark strip - and the eye read the bridge as having TWO
+            // roads on it. The user called it "one of them is a texture and
+            // the rail is painted on, so it looks like the bridge has two
+            // paths".
+            //
+            // A railway bridge carries its track on a steel deck plate, and
+            // the plate is part of the structure: rail on sleeper, sleeper
+            // on plate, plate on main girder. Drawing that plate here - in
+            // the level's own InkStyle - slots a third, clearly structural
+            // layer between the track and the girder, so the track reads as
+            // ONE continuous line running from the field onto the span.
+            //
+            // The plate's top edge IS the rail line, so the two sit exactly
+            // on each other and the joint with the field track is seamless.
+            const float plateH = 13f;
+            var plate = new[]
+            {
+                new Vector2(fieldEnd - 8f, railY + 1f),
+                new Vector2(trackEnd, railY + 1f),
+                new Vector2(trackEnd, railY + 1f + plateH),
+                new Vector2(fieldEnd - 8f, railY + 1f + plateH),
+            };
+            // steel base - a step darker than the snow, a step lighter than
+            // the girder web below it, so the three layers separate
+            DrawColoredPolygon(plate, new Color(0.36f, 0.335f, 0.30f));
+            // the top flange catches the flat winter light
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(fieldEnd - 8f, railY + 1f),
+                new Vector2(trackEnd, railY + 1f),
+                new Vector2(trackEnd, railY + 4f),
+                new Vector2(fieldEnd - 8f, railY + 4f),
+            }, new Color(0.52f, 0.50f, 0.46f));
+            // closed ink outline - the plate is a cut steel edge, it reads as
+            // one plate and not as a loose stripe
+            var plateEdge = new List<Vector2>(plate) { plate[0] };
+            DrawPolyline(plateEdge.ToArray(), InkStyle.InkColor, 2.2f, true);
+            // the last stretch of ballast tapers into the plate instead of
+            // stopping dead at it
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(fieldEnd - 104f, railY + 2f),
+                new Vector2(fieldEnd - 8f, railY + 2f),
+                new Vector2(fieldEnd - 8f, railY + 12f),
+                new Vector2(fieldEnd - 104f, railY + 22f),
+            }, new Color(0.73f, 0.755f, 0.765f, 0.5f));
+
+            // v3.26: the sleepers on the span go through the SAME routine as
+            // the sleepers on the field - same wood tone, same height
+            // jitter, same shadow strip, same snow on top. The old bridge
+            // sleepers were a flat un-jittered 9px tan bar, and a perfect
+            // repeating row of flat bars reads as a painted stripe rather
+            // than as track. One rhythm, one material, field to span.
+            for (float x = fieldEnd; x < trackEnd; x += 34f)
+            {
+                int tk = Mathf.RoundToInt((x - 2400f) / 34f);
+                float jy = Mathf.Sin(tk * 12.9898f) * 2.2f;
+                float shade = 0.40f + 0.06f * Mathf.Sin(tk * 3.7f);
+                bool charred = NearRailDmg(x + 11f, 30f);
+                var wood = charred
+                    ? new Color(0.17f, 0.14f, 0.12f)
+                    : new Color(shade, shade * 0.80f, shade * 0.60f);
+                // laid flat on the steel plate: thinner than the field ties,
+                // which are sunk in ballast
+                var r = new Rect2(x, railY + 3f + jy, 22, 10f);
+                InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
+                // shadow edge, lower-left away from the light
+                InkStyle.InkRect(this, new Rect2(x - 2, r.Position.Y + 5f, 22, 4f),
+                    new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                // thin snow on the sleeper top, phase-shifted exactly like the
+                // field ties, so the two halves of the line carry the same
+                // hand-placed rhythm
+                if (!charred && Mathf.Sin(tk * 7.31f) > -0.2f)
+                    DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
+                        new Vector2(x + 20, r.Position.Y + 1.2f),
+                        new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
+            }
+
+            // two parallel rails: broken at the craters, drawn as short intact
+            // segments with steel sheen. snow caps sit on top in short patches.
+            // v3.25: they carry on across the bridge deck and stop at the
+            // wrecked span, so the line and the bridge are one thing.
             foreach (float ry in new[] { railY, railY + 12 })
             {
-                DrawLine(new Vector2(2400, ry), new Vector2(WorldW, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
-                DrawLine(new Vector2(2400, ry), new Vector2(WorldW, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
-                // 轨顶积雪：短促的亮段（不是通条白线，雪是被风一段段吹积的）
-                for (float sx = 2420; sx < WorldW; sx += 88)
+                // ink base, segmented around the blast gaps
+                float segStart = 2400f;
+                for (float x = 2400f; x <= trackEnd; x += 10f)
                 {
-                    float seg = 14f + Mathf.Sin(sx * 0.07f) * 8f;
-                    DrawLine(new Vector2(sx, ry - 1.2f), new Vector2(sx + seg, ry - 1.2f),
-                        new Color(0.96f, 0.97f, 0.97f, 0.85f), 2.4f, true);
+                    if (OnRailCrater(x) || NearRailDmg(x, 9f))
+                    {
+                        if (x - segStart > 4f)
+                            DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
+                        segStart = x + 10f;
+                    }
                 }
+                if (trackEnd - segStart > 4f)
+                    DrawLine(new Vector2(segStart, ry), new Vector2(trackEnd, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
+
+                // steel sheen only on the intact lengths
+                segStart = 2400f;
+                for (float x = 2400f; x <= trackEnd; x += 10f)
+                {
+                    if (OnRailCrater(x) || NearRailDmg(x, 9f))
+                    {
+                        if (x - segStart > 4f)
+                            DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), new Color(0.87f, 0.86f, 0.83f), 1.6f, true);
+                        segStart = x + 10f;
+                    }
+                }
+                if (trackEnd - segStart > 4f)
+                    DrawLine(new Vector2(segStart, ry), new Vector2(trackEnd, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
+            }
+
+            // the track is torn apart where the span is blown out: the rails
+            // do not just stop, they end in twisted steel
+            DrawTornTrackEnd(trackEnd, railY);
+
+            // 轨顶积雪：短促的亮段（不是通条白线，雪是被风一段段吹积的），避开被炸断处
+            //
+            // v3.26: on the span these segments used to be exactly as bright
+            // and as long as the ones on the field. Against the flat dark
+            // deck plate that reads as DASHED LANE MARKINGS on a road - and
+            // that is half of what made the bridge look like it carried two
+            // roads. Over the span they are shorter, thinner and half as
+            // opaque: snow lying on a rail in the open, not paint on a
+            // carriageway.
+            for (float sx = 2420; sx < trackEnd; sx += 88)
+            {
+                if (OnRailCrater(sx) || NearRailDmg(sx, 20f)) continue;
+                bool onSpan = sx >= fieldEnd;
+                float seg = onSpan ? 8f + Mathf.Sin(sx * 0.07f) * 4f : 14f + Mathf.Sin(sx * 0.07f) * 8f;
+                float wid = onSpan ? 1.6f : 2.4f;
+                float alp = onSpan ? 0.42f : 0.85f;
+                DrawLine(new Vector2(sx, railY - 1.2f), new Vector2(sx + seg, railY - 1.2f),
+                    new Color(0.96f, 0.97f, 0.97f, alp), wid, true);
+            }
+
+            // scattered gravel / ice specks on the ballast so it isn't a flat wash
+            for (float gx = 2410; gx < fieldEnd; gx += 57f)
+            {
+                if (OnRailCrater(gx) || NearRailDmg(gx, 12f)) continue;
+                float gy = railY + 8f + Mathf.Sin(gx * 0.13f) * 4f;
+                DrawCircle(new Vector2(gx, gy), 1.4f, new Color(0.64f, 0.63f, 0.60f, 0.7f));
             }
         }
 
+        /// <summary>
+        /// The end of the track on the bridge. The rails do not simply stop
+        /// where the span is blown apart - they end in twisted steel, the
+        /// way a rail tears when the structure under it goes. Without this
+        /// the line stopped in a clean cut and read as a rendering seam
+        /// rather than as a destroyed bridge.
+        /// </summary>
+        private void DrawTornTrackEnd(float x, float railY)
+        {
+            var rng = new RandomNumberGenerator();
+            rng.Seed = 19311104u;
+            foreach (float ry in new[] { railY, railY + 12 })
+            {
+                for (int s = 0; s < 3; s++)
+                {
+                    float len = rng.RandfRange(7f, 15f);
+                    float tilt = 0.30f + 0.42f * s + rng.RandfRange(-0.12f, 0.12f);
+                    float dx = len * Mathf.Cos(tilt);
+                    float dy = -len * Mathf.Sin(tilt);
+                    DrawLine(new Vector2(x, ry), new Vector2(x + dx, ry + dy),
+                        InkStyle.InkColor, InkStyle.ThinStroke, true);
+                    DrawCircle(new Vector2(x + dx, ry + dy), 1.2f, new Color(0.85f, 0.86f, 0.84f));
+                }
+            }
+            // splintered ties and kicked up snow around the break
+            for (int s = 0; s < 7; s++)
+            {
+                float px = x + rng.RandfRange(-18f, 14f);
+                float py = railY + rng.RandfRange(3f, 14f);
+                DrawLine(new Vector2(px, py), new Vector2(px + rng.RandfRange(-5f, 5f), py + rng.RandfRange(-2f, 3f)),
+                    new Color(0.30f, 0.26f, 0.22f, 0.85f), 1.6f, true);
+            }
+        }
+
+        private Texture2D _craterTex;
+
         private void DrawCraters()
         {
+            // craters are generated watercolor textures now. The old stacked
+            // ellipses read like a flat bullseye pancake, totally off from the
+            // hand-drawn style of everything else on the field.
+            _craterTex ??= GD.Load<Texture2D>("res://assets/art/props/crater_painted.png");
+            if (_craterTex == null) return;
+            var tsz = _craterTex.GetSize();
             for (int i = 0; i < _craterX.Length; i++)
             {
                 float x = _craterX[i];
                 float r = _craterR[i];
-                DrawSetTransform(new Vector2(x, GroundY + 2), 0, new Vector2(1f, 0.34f));
-                // 外层炸坑土（暗棕）：先描墨边再填色
-                var outer = CircleVerts(r, 10);
-                InkStyle.PenStroke(this, outer, new Color(0.38f, 0.32f, 0.28f, 0.80f), InkStyle.InkSoft, InkStyle.Stroke);
-                // 内层坑底（最深）
-                var inner = CircleVerts(r * 0.72f, 10);
-                InkStyle.PenStroke(this, inner, new Color(0.18f, 0.15f, 0.12f, 0.88f), InkStyle.InkSoft, InkStyle.ThinStroke);
+                // per-crater mirror + size jitter off its own x, stable between frames.
+                // bottom-anchored on the ground line: the texture is a top-down
+                // crater, squashed flat so it reads as a dent in the snow field
+                bool flip = (i % 2 == 1);
+                float jitter = 1f + Mathf.Sin(x * 0.37f) * 0.06f;
+                float w = r * 3.0f * jitter;
+                // v3.22: squashed to 45% the dark interior of the hole became
+                // a thin navy band and the whole thing read as a puddle of
+                // water lying on the snow. The art is remapped now (dark
+                // earth in the bowl, cold snow on the rim) and the squash is
+                // eased off so the bowl keeps its depth.
+                float hEff = w * tsz.Y / tsz.X * 0.58f;
+                float sx = flip ? -1f : 1f;
+                DrawSetTransform(new Vector2(x, GroundY + 3f), 0, new Vector2(sx, 1f));
+                DrawTextureRect(_craterTex, new Rect2(-w * 0.5f, -hEff, w, hEff), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
@@ -2193,15 +3793,143 @@ public partial class JiangqiaoLevel : Node2D
             if (_bridgeTex != null)
             {
                 var bsz = _bridgeTex.GetSize();
-                float bh = 420f;
+                // v3.25: the user set the size rule - the bridge is 2.5 man
+                // heights tall. Measured from the snow line it stands on up
+                // to the top of the truss, because that is the height the
+                // eye reads; the piers go down into the river ice and are
+                // not part of the silhouette.
+                //
+                // Before this the truss top stood 179px over the snow - 1.57
+                // man heights - so the span came up to the shoulder of the
+                // man walking towards it.
+                //
+                // The texture cannot simply be scaled up: it is 1530x812 and
+                // the span only has 800px of world to sit in, so a uniform
+                // 1.55x would push the burnt-out middle of the truss off the
+                // right edge of the level. Instead the truss is drawn DEEPER
+                // (stretched vertically) and the piers keep their own
+                // proportions - a deeper truss is what a big railway bridge
+                // looks like anyway, and the concrete stays a squat pier
+                // instead of turning into a stick.
+                const float bh = 420f;               // whole texture, unchanged scale
                 float bw = bh * bsz.X / bsz.Y;
-                float bx = start + (end - start - bw) * 0.5f;
-                // piers reach into the river ice, deck sits on the ground line
-                DrawTextureRect(_bridgeTex, new Rect2(bx, GroundY + 168f - bh, bw, bh), false);
-                // fresh snow line on the deck edge, ties the texture into the scene
-                DrawLine(new Vector2(start + 6f, GroundY - 6f), new Vector2(end - 6f, GroundY - 6f),
-                    new Color(0.92f, 0.94f, 0.94f, 0.75f), 3f, true);
+                // v3.25: the span moved 48px east. The painting already
+                // carries a concrete pier for the west end, but the deck of
+                // the texture runs on past it - the girder under the last
+                // 45px of the deck had nothing under it and the span read
+                // as a piece of bridge dropped in the field and stopping
+                // in mid air over the snow.
+                //
+                // Instead of bolting a grey slab onto the side (the v3.15
+                // abutment, which the player called a stray box), the span
+                // is simply set down on the pier that is already in the
+                // painting. The west end of the deck now lands on the
+                // concrete, and the bank edge of the frozen river sits just
+                // under it - so the bridge is standing on the ground
+                // instead of hovering over it.
+                //
+                // BridgeDeckX is the deck's west end in world coordinates
+                // and the railway is laid along it - both come from the
+                // same two measurements off the painting.
+                float bx = BridgeDeckX - 9f * (bh / bsz.Y);
+                // v3.17 seat fix: the old note claimed the deck sits at 53% of
+                // the texture height and put row 430 on the rail line. A row
+                // scan of bridge.png says otherwise - the truss runs 0-340,
+                // the railing 340-365, the rail-bearing deck 365-400, the pier
+                // caps 400-440 and the piers 440-803. So the old factor parked
+                // the deck 40px ABOVE the rails: the track ran across the
+                // frozen river band under the bridge instead of along its
+                // deck, which is what made the two look like they had
+                // nothing to do with each other. Seat row 355 on the rail
+                // line instead and the rails run onto the bridge.
+                const float deckRow = 355f;
+                const float apexRow = 10f;          // where the truss reaches its top
+                float scale = bh / bsz.Y;
+
+                // how deep the truss has to be so its top stands BridgeH
+                // above the snow line
+                float trussScale = (BridgeH - 1f) / (deckRow - apexRow);
+                float trussH = deckRow * trussScale;
+                float trussTop = (GroundY - 1f) - deckRow * trussScale;
+
+                // v3.21: the bridge art is a photoreal render while the whole
+                // level is watercolour, and next to the painted houses it
+                // read as a different game - the player called it a pyramid
+                // dropped in the snow. Two passes push it back into the
+                // picture: a cool tint so the steel takes the colour of the
+                // air, then a pale blue haze over the whole span so the
+                // distance eats its contrast the way it eats the
+                // mountains behind it.
+                // v3.24: the original art was right all along. The rendered
+                // steel with its rivets and dark beams sits in the snowfield
+                // perfectly well next to the burnt timber houses, and every
+                // pass I made over it - desaturating it, flattening the
+                // shading, washing it in blue - only pushed it further from
+                // the level. It is back to the plain texture, untouched.
+                // The two halves meet exactly on the deck row, so there is no
+                // seam where the deeper truss hands over to the piers.
+                DrawTextureRectRegion(_bridgeTex,
+                    new Rect2(bx, trussTop, bw, trussH),
+                    new Rect2(0f, 0f, bsz.X, deckRow));
+                // the deck and the piers keep the original scale, so the
+                // concrete does not turn into a tall thin post
+                float pierH = (bsz.Y - deckRow) * scale;
+                DrawTextureRectRegion(_bridgeTex,
+                    new Rect2(bx, GroundY - 1f, bw, pierH),
+                    new Rect2(0f, deckRow, bsz.X, bsz.Y - deckRow));
+
+                // v3.25: snow drifted against the west end of the deck.
+                // The painting ends in a straight vertical cut of the steel
+                // and that cut is the clearest "this is a texture" tell in
+                // the whole shot - the deck looked like a strip of picture
+                // hanging in the air. A drift piled against the end is what
+                // a real bridge head looks like in a northern winter.
+                DrawSetTransform(new Vector2(bx + 24f, GroundY + 18f), 0, new Vector2(2.2f, 0.95f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.95f, 0.965f, 0.975f), 0.95f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                // v3.25: the west end of the span used to die in mid air.
+                // The first concrete pier of the texture stands 46px in
+                // from the end of the deck, and there is nothing under that
+                // 46px - the river ice only starts further east - so the
+                // deck stopped over open snow with its underside showing.
+                // The user said the bridge has to sit ON the snow.
+                //
+                // An abutment carries the end of the deck down into the
+                // bank now: a concrete block in the same tone the piers
+                // use, a snow cap on top of it and a couple of ink lines
+                // for the edges, so it belongs to the level and does not
+                // read as a second art style dropped next to the render.
+                // v3.19: the "fresh snow line on the deck edge" is gone too.
+                // It was a straight 3px white DrawLine running 788px from
+                // 4406 to 5194 at a fixed height - the deck edge is not
+                // straight, the span is not that long above the snow, and
+                // the line floated over the truss and the far bank as a thin
+                // bright streak whose tone did not match the mountains
+                // behind it. That streak was the white line the player kept
+                // seeing. The texture already carries snow along the deck.
+
+                // v2.9 float fix, part 2: bury the texture bottom edge. The pier
+                // feet ended on a hard horizontal cut against the snow - every
+                // support read as "standing on the snow, not in it". Soft drift
+                // blobs melt the base line into the ice and snow.
+                // pier feet now land at ~GroundY+141 with the new seat, so the
+                // drift blobs bury that cut line where the feet meet the ice
+                for (float dx2 = start + 90f; dx2 < end - 40f; dx2 += 150f)
+                {
+                    DrawSetTransform(new Vector2(dx2, GroundY + 138f), 0, new Vector2(2.1f, 0.42f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.90f, 0.93f, 0.94f), 0.75f),
+                        new Rect2(-20f, -20f, 40f, 40f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                }
+                // contact shading where the span crosses the near snowfield
+                DrawSetTransform(new Vector2(start + 130f, GroundY + 12f), 0, new Vector2(3.2f, 0.5f));
+                DrawTextureRect(SoftSnow.Blob(new Color(0.55f, 0.60f, 0.64f), 0.30f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 return;
+                            return;
             }
 
             // 远端桁架（偏后，颜色淡 + 墨边更细）——完好
@@ -2324,7 +4052,10 @@ public partial class JiangqiaoLevel : Node2D
                 new Vector2(1120, GroundY + 9), new Vector2(1700, GroundY + 10),
             }, new Color(0.97f, 0.98f, 0.98f, 0.55f), 3f, true);
 
-            // trench-side ammo crates, generated watercolor sprite now
+            // trench-side ammo crates, generated watercolor sprite now.
+            // blended into the snow: a drift behind, a snow cap on top and a
+            // base mound so the box reads as weathered/half-buried, not a hard
+            // black block dropped on white paper.
             var crate = CrateTex();
             if (crate != null)
             {
@@ -2335,10 +4066,26 @@ public partial class JiangqiaoLevel : Node2D
                     float ch = _crateH[ci];
                     float cw = ch * csz.X / csz.Y;
                     float rot = _crateRot[ci];
-                    // half-buried look: sink 2px into the snow, tilt each box its own way
-                    SnowShadow.Draw(this, new Vector2(x + 10f, GroundY - 1f), cw * 0.55f, 0.28f);
+                    // snow drift behind the crate
+                    DrawSetTransform(new Vector2(x + 2f, GroundY - 2f), 0, new Vector2(1.6f, 0.5f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.88f, 0.91f, 0.92f), 0.5f),
+                        new Rect2(-cw * 0.7f, -cw * 0.7f, cw * 1.4f, cw * 1.4f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    // soft contact shadow
+                    SnowShadow.Draw(this, new Vector2(x + 10f, GroundY - 1f), cw * 0.55f, 0.22f);
+                    // the crate itself, tilted, sunk a touch
                     DrawSetTransform(new Vector2(x + 8f, GroundY - 1f), rot, Vector2.One);
                     DrawTextureRect(crate, new Rect2(-cw * 0.5f, -ch + 2f, cw, ch), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    // snow piled on the crate top -> half-buried look
+                    DrawSetTransform(new Vector2(x + 8f, GroundY - 1f - ch + 4f), rot, Vector2.One);
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.95f, 0.97f, 0.97f), 0.7f),
+                        new Rect2(-cw * 0.55f, -6f, cw * 1.1f, 12f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    // snow mound at the base front
+                    DrawSetTransform(new Vector2(x + 6f, GroundY + 1f), 0, new Vector2(1.4f, 0.4f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.94f, 0.96f, 0.96f), 0.55f),
+                        new Rect2(-cw * 0.5f, -8f, cw, 16f), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
             }
@@ -2350,70 +4097,6 @@ public partial class JiangqiaoLevel : Node2D
                 DrawLine(new Vector2(x + 18, GroundY - 1), new Vector2(x + 60, GroundY - 12), new Color(0.22f, 0.20f, 0.18f), 2f, true);
             }
 
-            // 碉堡（梯形混凝土 + 射击孔 + 积雪）：1931 江桥阵地的土木碉堡
-            for (int bi = 0; bi < _bunkerX.Length; bi++)
-            {
-                float bx = _bunkerX[bi];
-                float bw = _bunkerBW[bi];
-                float fh = _bunkerFH[bi];
-                // 接触阴影（先画，在碉堡下面）
-                SnowShadow.Draw(this, new Vector2(bx + 24f, GroundY - 1f), 40f, 0.28f);
-
-                // 碉堡本体：梯形（前窄后宽）
-                var bunker = new[]
-                {
-                    new Vector2(bx + 28f, GroundY),
-                    new Vector2(bx + bw + 28f, GroundY),
-                    new Vector2(bx + bw + 10f, GroundY - fh),
-                    new Vector2(bx + 46f, GroundY - fh),
-                };
-                DrawColoredPolygon(bunker, new Color(0.48f, 0.46f, 0.42f));
-                // 侧面受光（高光条）
-                var hl = new[]
-                {
-                    new Vector2(bx + bw + 10f, GroundY - fh),
-                    new Vector2(bx + bw + 28f, GroundY),
-                    new Vector2(bx + bw + 34f, GroundY),
-                    new Vector2(bx + bw + 16f, GroundY - fh),
-                };
-                DrawColoredPolygon(hl, new Color(0.58f, 0.56f, 0.52f));
-                // 碉堡描边
-                DrawPolyline(new[]
-                {
-                    new Vector2(bx + 28f, GroundY), new Vector2(bx + 46f, GroundY - fh),
-                    new Vector2(bx + bw + 10f, GroundY - fh), new Vector2(bx + bw + 28f, GroundY),
-                }, new Color(0.20f, 0.19f, 0.17f, 0.85f), 1.6f, true);
-
-                // 射击孔（暗色长条 + 十字线表示射击位）
-                float spx = bx + 38f; float spy = GroundY - 22f;
-                DrawRect(new Rect2(spx, spy, 22, 10), new Color(0.08f, 0.09f, 0.10f, 0.95f));
-                DrawLine(new Vector2(spx + 11, spy), new Vector2(spx + 11, spy + 10),
-                    new Color(0.40f, 0.38f, 0.34f, 0.7f), 1.4f, true);
-                DrawLine(new Vector2(spx, spy + 5), new Vector2(spx + 22, spy + 5),
-                    new Color(0.40f, 0.38f, 0.34f, 0.7f), 1.4f, true);
-
-                // 碉堡顶上的积雪（梯形积雪帽）
-                var snow = new[]
-                {
-                    new Vector2(bx + 43f, GroundY - fh - 1),
-                    new Vector2(bx + bw + 12f, GroundY - fh - 1),
-                    new Vector2(bx + bw + 6f, GroundY - fh - 6),
-                    new Vector2(bx + 49f, GroundY - fh - 6),
-                };
-                DrawColoredPolygon(snow, new Color(0.92f, 0.94f, 0.94f, 0.9f));
-                DrawPolyline(new[]
-                {
-                    new Vector2(bx + 43f, GroundY - fh - 1),
-                    new Vector2(bx + bw + 12f, GroundY - fh - 1),
-                }, new Color(0.98f, 0.99f, 0.99f), 2.2f, true);
-
-                // 碉堡旁边的铁丝网桩（一根木桩 + 一根铁丝连到远处）
-                float fx = bx - 30f;
-                DrawLine(new Vector2(fx, GroundY), new Vector2(fx - 2, GroundY - 52),
-                    new Color(0.30f, 0.28f, 0.26f), 2.8f, true);
-                DrawLine(new Vector2(fx - 2, GroundY - 44), new Vector2(fx + 4, GroundY - 44),
-                    new Color(0.30f, 0.28f, 0.26f), 1.6f, true);
-            }
         }
     }
 
@@ -2434,28 +4117,191 @@ public partial class JiangqiaoLevel : Node2D
             public float H;        // drawn wall height
         }
 
+        /// <summary>
+        /// v3.18: the sandbag walls live in this node but the barbed wire is
+        /// drawn in GroundArt, so the wire had no way to know where the walls
+        /// are. The stake positions were hardcoded, and the run at 3820 put
+        /// three stakes straight through the wall at 4160 and two through the
+        /// wall at 4388 - the stakes poked out of the sandbags like a bundle
+        /// of rods someone had stuck in them. The base positions are shared
+        /// here so the wire can skip any stake that would land inside a wall.
+        ///
+        /// The wall at 4388 is gone as well. It sat at 4319-4457, which is
+        /// right on top of the bridge head at 4400 and the abutment under it
+        /// - a sandbag wall parked in the gateway of the bridge blocked the
+        /// view of the span and sat across the structure. A bridge mouth is a
+        /// passage, not a place to stack cover.
+        /// </summary>
+        internal static readonly float[] SandbagBaseX = { 980f, 2320f, 3640f, 4160f };
+        internal static readonly float SandbagHalfWidth = 54f * 2.55f * 0.5f + 24f;
+
+        internal const float FullHp = 100f;
+
         private StackSpec[] _stacks = System.Array.Empty<StackSpec>();
         private Texture2D _sackTex;
+        private float[] _hp = System.Array.Empty<float>();
 
-        /// <summary>沙袋是给主角躲的：蹲/趴在垛子投影范围内算进掩体。</summary>
+        /// <summary>v3.55: one scattered bag of the wreck debris field.</summary>
+        private sealed class WreckBag
+        {
+            public Vector2 Pos;      // world
+            public float Rot;
+            public Vector2 Size;
+            public bool Torn;        // darker, torn-open bag
+            public bool Snow;        // snow-capped (half-buried look)
+        }
+
+        private List<WreckBag>[] _wreck;
+
+        /// <summary>
+        /// v3.55: build the scattered debris layout for one stack. A blast does
+        /// not leave a tidy mound: the wall bursts into a low chaotic pile at
+        /// the old footprint PLUS bags flung out into the snow on both sides,
+        /// half-buried, some torn open, sand spilled between them. Seeded per
+        /// stack so the field never reshimmers frame to frame.
+        /// </summary>
+        private void BuildWreckLayout(int i)
+        {
+            var rng = new RandomNumberGenerator();
+            rng.Seed = 7311UL + (ulong)i * 977UL;
+            var s = _stacks[i];
+            var list = new List<WreckBag>();
+
+            // —— 低矮乱堆：旧墙脚印内 9~13 只随机旋转的散袋 ——
+            int mound = rng.RandiRange(9, 13);
+            for (int k = 0; k < mound; k++)
+            {
+                float w = rng.RandfRange(19f, 27f);
+                list.Add(new WreckBag
+                {
+                    Pos = new Vector2(s.X + rng.RandfRange(-s.W * 0.48f, s.W * 0.48f),
+                                      GroundY - 2f - rng.RandfRange(1f, 15f)),
+                    Rot = rng.RandfRange(-0.55f, 0.55f),
+                    Size = new Vector2(w, w * rng.RandfRange(0.42f, 0.55f)),
+                    Torn = rng.Randf() < 0.30f,
+                    Snow = rng.Randf() < 0.35f,
+                });
+            }
+            // —— 抛飞散袋：砸到雪里，两侧 0.6~1.8 倍墙宽处，半埋 + 积雪 ——
+            int flung = rng.RandiRange(5, 8);
+            for (int k = 0; k < flung; k++)
+            {
+                float w = rng.RandfRange(17f, 24f);
+                float side = rng.Randf() < 0.5f ? -1f : 1f;
+                list.Add(new WreckBag
+                {
+                    Pos = new Vector2(s.X + side * rng.RandfRange(s.W * 0.60f, s.W * 1.80f),
+                                      GroundY - 2f - rng.RandfRange(0f, 5f)),
+                    Rot = rng.RandfRange(-1.35f, 1.35f),
+                    Size = new Vector2(w, w * rng.RandfRange(0.36f, 0.46f)),
+                    Torn = rng.Randf() < 0.25f,
+                    Snow = true,
+                });
+            }
+            list.Sort((a, b) => a.Pos.Y.CompareTo(b.Pos.Y));   // 远的先画
+            _wreck[i] = list;
+        }
+
+        /// <summary>v3.55: 本轮爆炸把哪一垛炸飞了（无则 NaN），Explode 用来挂飞散特效。</summary>
+        internal float WreckX { get; private set; } = float.NaN;
+
+        /// <summary>沙袋是给主角躲的：蹲/趴在垛子投影范围内算进掩体。
+        /// v3.53: destroyed walls cover nobody.</summary>
         public bool Covers(float x)
         {
-            foreach (var s in _stacks)
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                if (_hp[i] <= 0f) continue;
+                var s = _stacks[i];
                 if (Mathf.Abs(x - s.X) < s.W * 0.5f + 26f) return true;
+            }
             return false;
+        }
+
+        // ---- v3.53: destructible cover ----
+
+        internal bool IsDestroyed(int i) => _hp[i] <= 0f;
+
+        internal float StackX(int i) => _stacks[i].X;
+
+        /// <summary>Nearest intact stack within range of px, or -1.</summary>
+        internal int NearestStack(float px, float range)
+        {
+            int best = -1;
+            float bd = range;
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                if (_hp[i] <= 0f) continue;
+                float d = Mathf.Abs(px - _stacks[i].X);
+                if (d < bd) { bd = d; best = i; }
+            }
+            return best;
+        }
+
+        /// <summary>The intact stack covering x, or -1 (bullet chips land here).</summary>
+        internal int StackAt(float x)
+        {
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                if (_hp[i] <= 0f) continue;
+                var s = _stacks[i];
+                if (Mathf.Abs(x - s.X) < s.W * 0.5f + 26f) return i;
+            }
+            return -1;
+        }
+
+        internal void Damage(int i, float dmg)
+        {
+            if (i < 0 || i >= _hp.Length || _hp[i] <= 0f) return;
+            _hp[i] = Mathf.Max(0f, _hp[i] - dmg);
+            QueueRedraw();
+        }
+
+        /// <summary>Grenade blast at world x: a direct hit flattens the wall
+        /// (unusable, visual swaps to the wreck), a blast one wall over just
+        /// mangles it. Returns true when a wall was destroyed by THIS blast.</summary>
+        internal bool Blast(float x)
+        {
+            bool wrecked = false;
+            WreckX = float.NaN;
+            for (int i = 0; i < _stacks.Length; i++)
+            {
+                if (_hp[i] <= 0f) continue;
+                float d = Mathf.Abs(x - _stacks[i].X);
+                if (d < 75f)
+                {
+                    wrecked = true;
+                    Damage(i, 999f);
+                    WreckX = _stacks[i].X;
+                }
+                else if (d < 175f)
+                {
+                    float before = _hp[i];
+                    Damage(i, 65f);
+                    if (before > 0f && _hp[i] <= 0f) wrecked = true;
+                }
+            }
+            return wrecked;
         }
 
         public override void _Ready()
         {
             var rng = new RandomNumberGenerator();
             rng.Randomize();
-            float[] bases = { 980f, 2320f, 3580f, 4160f, 4388f };
+            // v3.11: 3580 -> 3640. The old anchor's left edge could reach into
+            // the h4 footprint (3180-3545), so the house corner poked out
+            // behind the stack like a random block. 3640 clears h4 fully and
+            // still stops short of the rail crater at 3780.
+            float[] bases = SandbagBaseX;
             var list = new List<StackSpec>();
             for (int i = 0; i < bases.Length; i++)
             {
                 // waist-high cover: a standing rifleman must top the wall by half a torso,
                 // wall wide enough for one man prone behind it
-                float h = 54f + rng.RandfRange(-4f, 5f);
+                // v3.19: was 54. The soldier is 94px now instead of 108, so
+                // the wall has to come down with him or it reads as chest
+                // high cover.
+                float h = 47f + rng.RandfRange(-4f, 5f);
                 list.Add(new StackSpec
                 {
                     X = bases[i] + rng.RandfRange(-24f, 24f),
@@ -2466,6 +4312,13 @@ public partial class JiangqiaoLevel : Node2D
             }
             _stacks = list.ToArray();
             _sackTex = GD.Load<Texture2D>("res://assets/art/props/sandbags.png");
+            // v3.55: the tidy wreck texture is retired - an explosion SCATTERS
+            // the wall, it does not leave a neat mound. Each stack gets a
+            // deterministic debris layout (seeded, built once) used by _Draw.
+            _wreck = new List<WreckBag>[_stacks.Length];
+            for (int i = 0; i < _stacks.Length; i++) BuildWreckLayout(i);
+            _hp = new float[_stacks.Length];
+            for (int i = 0; i < _hp.Length; i++) _hp[i] = FullHp;
         }
 
         public override void _Draw()
@@ -2475,10 +4328,23 @@ public partial class JiangqiaoLevel : Node2D
             {
                 var s = _stacks[i];
                 float cx = s.X;
+                bool destroyed = _hp[i] <= 0f;
+                bool damaged = !destroyed && _hp[i] < 60f;
 
-                SnowShadow.Draw(this, new Vector2(cx, GroundY - 1f), s.W * 0.55f, 0.30f);
+                SnowShadow.Draw(this, new Vector2(cx, GroundY - 1f),
+                    destroyed ? s.W * 0.8f : s.W * 0.55f, 0.30f);
 
                 bool flip = i % 2 == 1;
+                if (destroyed)
+                {
+                    // v3.55: the wall SCATTERED - a low chaotic pile of torn
+                    // bags where it stood plus bags flung out into the snow,
+                    // half-buried, sand spilled between them. The old tidy
+                    // wreck texture read as "still a neat wall, just shorter".
+                    DrawWreck(i);
+                    continue;
+                }
+
                 if (flip)
                 {
                     DrawSetTransform(new Vector2(cx, GroundY + 1f), 0, new Vector2(-1f, 1f));
@@ -2489,11 +4355,172 @@ public partial class JiangqiaoLevel : Node2D
                 {
                     DrawTextureRect(_sackTex, new Rect2(cx - s.W * 0.5f, GroundY + 1f - s.H, s.W, s.H), false);
                 }
+
+                if (damaged)
+                {
+                    // chipped wall: scorch blotch on the face + one bag knocked
+                    // loose at the foot. Still usable, visibly worse for wear.
+                    float side = flip ? -1f : 1f;
+                    DrawSetTransform(new Vector2(cx - side * s.W * 0.22f, GroundY - s.H * 0.55f), 0.10f * side,
+                        new Vector2(1.4f, 1.1f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.14f, 0.12f, 0.09f), 0.5f),
+                        new Rect2(-14f, -14f, 28f, 28f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    var sack = new Color(0.62f, 0.55f, 0.42f);
+                    float lx = cx + side * s.W * 0.62f;
+                    DrawRect(new Rect2(lx - 11f, GroundY - 10f, 22f, 12f), sack);
+                    DrawRect(new Rect2(lx - 11f, GroundY - 10f, 22f, 12f),
+                        new Color(0.2f, 0.17f, 0.12f, 0.75f), false, 1.2f);
+                }
+            }
+        }
+
+        /// <summary>
+        /// v3.55: draw the scattered wreck. Bags share the hand-drawn language
+        /// of the chipped-wall loose bag above (same tan fill + ink outline),
+        /// torn ones darker with the seam split open, snow-capped ones get a
+        /// white cap so the flung bags read as half-buried in drift.
+        /// </summary>
+        private void DrawWreck(int i)
+        {
+            var bags = _wreck[i];
+            if (bags == null) return;
+            var s = _stacks[i];
+            var sack = new Color(0.62f, 0.55f, 0.42f);
+            var sackDark = new Color(0.46f, 0.39f, 0.29f);
+            var ink = new Color(0.2f, 0.17f, 0.12f, 0.8f);
+            var spill = new Color(0.55f, 0.48f, 0.36f, 0.30f);
+
+            // 溢出的沙：堆间几摊浅色
+            for (int k = 0; k < 3; k++)
+            {
+                float px = s.X + (k - 1) * s.W * 0.35f;
+                DrawSetTransform(new Vector2(px, GroundY - 2f), 0, new Vector2(1f, 0.45f));
+                DrawTextureRect(SoftSnow.Blob(spill, 0.5f), new Rect2(-22f, -22f, 44f, 44f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+
+            // 焦痕：爆点中央
+            DrawSetTransform(new Vector2(s.X, GroundY - 2f), 0, new Vector2(s.W * 0.045f, 0.6f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.16f, 0.14f, 0.11f), 0.40f),
+                new Rect2(-32f, -32f, 64f, 64f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+            foreach (var b in bags)
+            {
+                DrawSetTransform(b.Pos, b.Rot, Vector2.One);
+                var fill = b.Torn ? sackDark : sack;
+                DrawRect(new Rect2(-b.Size.X * 0.5f, -b.Size.Y * 0.5f, b.Size.X, b.Size.Y), fill);
+                // 撕口：袋身中缝一道深色裂线
+                if (b.Torn)
+                    DrawRect(new Rect2(-b.Size.X * 0.5f, -1f, b.Size.X, 2f),
+                        new Color(0.25f, 0.2f, 0.14f, 0.9f));
+                DrawRect(new Rect2(-b.Size.X * 0.5f, -b.Size.Y * 0.5f, b.Size.X, b.Size.Y), ink, false, 1.2f);
+                if (b.Snow)
+                    DrawRect(new Rect2(-b.Size.X * 0.5f, -b.Size.Y * 0.5f, b.Size.X, b.Size.Y * 0.34f),
+                        new Color(0.94f, 0.95f, 0.97f, 0.85f));
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
     }
 
+    /// <summary>
+    /// The abandoned supply cart, standing in the snow.
+    ///
+    /// v3.18: it used to live in the parallax near band, which meant the
+    /// ground-layer railway drew straight across it and the near houses
+    /// chopped it into pieces - the cart looked like a few brown scraps
+    /// floating between the rails. It is a world object now, drawn in the
+    /// cover layer so the track passes behind it the way it passes behind
+    /// the sandbag walls.
+    ///
+    /// v3.19: the drawing was still the weak part. Every rectangle and
+    /// circle in it was a flat fill, and the player was right that it looked
+    /// like a different art style pasted next to the watercolour props -
+    /// a flat brown box with two coins under it. The body is now the real
+    /// crate texture, painted in the same hand as everything else, and only
+    /// the wheels and the snapped shaft are code, because those are the two
+    /// shapes a rectangle cannot fake.
+    ///
+    /// It stands at 280, the stretch of open snow the player walks into at
+    /// the start of the level. Everywhere past that is occupied - a house, a
+    /// sandbag wall, a crater, a bunker or the railway - and the only other
+    /// gap on the whole map is the frozen river beyond the bridge.
+    /// </summary>
+
     // ================= 特效 =================
+
+    /// <summary>
+    /// v3.55: one-shot bag burst when a sandbag wall dies. A handful of bags
+    /// flies out on real ballistics (gravity, one snow bounce), sand puffs
+    /// along the way, everything fades into the debris field that _Draw now
+    /// leaves behind. Self-freeing.
+    /// </summary>
+    private partial class CoverBurstFx : Node2D
+    {
+        private sealed class Bag
+        {
+            public Vector2 Pos, Vel;
+            public float Rot, RotV, W, H;
+            public bool Landed;
+        }
+
+        private readonly List<Bag> _bags = new();
+        private float _t;
+        private const float Life = 1.1f;
+
+        public CoverBurstFx()
+        {
+            var rng = new RandomNumberGenerator();
+            rng.Randomize();
+            for (int k = 0; k < 7; k++)
+            {
+                float w = rng.RandfRange(18f, 26f);
+                _bags.Add(new Bag
+                {
+                    Pos = new Vector2(rng.RandfRange(-24f, 24f), rng.RandfRange(-26f, -6f)),
+                    Vel = new Vector2(rng.RandfRange(-190f, 190f), rng.RandfRange(-330f, -140f)),
+                    Rot = 0f,
+                    RotV = rng.RandfRange(-7f, 7f),
+                    W = w, H = w * 0.48f,
+                });
+            }
+        }
+
+        public override void _Process(double delta)
+        {
+            float f = (float)delta;
+            _t += f;
+            if (_t > Life) { QueueFree(); return; }
+            foreach (var b in _bags)
+            {
+                if (b.Landed) continue;
+                b.Vel += new Vector2(0f, 980f * f);
+                b.Pos += b.Vel * f;
+                b.Rot += b.RotV * f;
+                if (b.Pos.Y > -3f)              // 砸进雪里就停住、转势归零
+                {
+                    b.Pos = new Vector2(b.Pos.X, -3f);
+                    b.Landed = true;
+                }
+            }
+            QueueRedraw();
+        }
+
+        public override void _Draw()
+        {
+            float fade = Mathf.Clamp((Life - _t) / 0.3f, 0f, 1f);
+            var sack = new Color(0.62f, 0.55f, 0.42f, fade);
+            var ink = new Color(0.2f, 0.17f, 0.12f, 0.8f * fade);
+            foreach (var b in _bags)
+            {
+                DrawSetTransform(b.Pos, b.Rot, Vector2.One);
+                DrawRect(new Rect2(-b.W * 0.5f, -b.H * 0.5f, b.W, b.H), sack);
+                DrawRect(new Rect2(-b.W * 0.5f, -b.H * 0.5f, b.W, b.H), ink, false, 1.1f);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+        }
+    }
 
     private partial class TracerFx : Node2D
     {
@@ -2726,15 +4753,24 @@ public partial class JiangqiaoLevel : Node2D
             public override void _Draw()
             {
                 var s = GetViewportRect().Size;
+
+                // Soft drifting mist.
+                //
+                // v2.8: this used to be four big DrawCircle blobs. A circle has a
+                // hard rim, so on the flat snow those rims showed up as bright
+                // white arcs that crawled around — exactly the "white lines
+                // flashing across the screen" the player reported. Now each band
+                // is painted with a soft radial falloff texture, so there is no
+                // edge to catch the light and the mist just breathes.
+                var soft = SoftSnow.Blob(new Color(0.95f, 0.97f, 0.98f), 0.10f);
                 for (int i = 0; i < 4; i++)
                 {
                     float y = 430 + i * 52 + Mathf.Sin(_t * 0.22f + i * 1.7f) * 18f;
                     float x = -120 + Mathf.Sin(_t * 0.11f + i) * 180f;
                     DrawSetTransform(new Vector2(x + s.X * 0.5f, y), 0, new Vector2(3.4f, 0.22f));
-                    DrawCircle(Vector2.Zero, 220f, new Color(0.93f, 0.95f, 0.96f, 0.045f));
-                    DrawCircle(Vector2.Zero, 150f, new Color(0.95f, 0.97f, 0.98f, 0.05f));
+                    DrawTextureRect(soft, new Rect2(-220f, -220f, 440f, 440f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
         }
     }
@@ -2759,6 +4795,9 @@ public partial class EnemySoldier : Node2D
 
     public bool Gone { get; private set; }
     public bool Alerted => _alertT > 0f;
+
+    /// <summary>v3.55: 正在拉弦蓄力掷弹（同一次只掷一颗）。</summary>
+    internal bool _throwing;
 
     public EnemySoldier(JiangqiaoLevel level, Vector2 pos, float lane)
     {
@@ -2880,13 +4919,29 @@ public partial class GrenadeProj : Node2D
         ZIndex = 3;
     }
 
+    /// <summary>v3.53: explicit ballistics for enemy throws at the player's
+    /// sandbag cover.</summary>
+    public GrenadeProj(Vector2 pos, Vector2 vel)
+    {
+        Position = pos;
+        _vel = vel;
+        ZIndex = 3;
+    }
+
     public override void _Process(double delta)
     {
         if (Exploded) return;
         float f = (float)delta;
         _vel += new Vector2(0, 1500f * f);
         Position += _vel * f;
-        _spin += f * 9f;
+
+        // 投掷的木柄手榴弹：空中随弹道缓慢翻滚（约 1.1 rad/s，整段飞行不到半圈，
+        // 不再像"转圈圈"的轮子），落雪后立直静置、引信火花在顶端闪——去掉原先
+        // 全程 2.4 rad/s 的连续自旋（#5 已降速仍被读成"转圈圈爆炸"）。
+        if (Position.Y > JiangqiaoLevel.GroundY - 8f)
+            _spin = Mathf.Lerp(_spin, 0f, f * 8f);
+        else
+            _spin += f * 1.1f;
 
         // bounce once on snow, roll a little
         if (Position.Y > JiangqiaoLevel.GroundY - 6f && _vel.Y > 0f)
@@ -3000,7 +5055,7 @@ public partial class Testimony : Node2D
 
 /// <summary>
 /// HUD 弹药条：一颗子弹一个图标。开枪打掉的那发不消失——变成暗壳留在弹排里；
-/// 拾取补给时把新弹点亮、并把总容量撑大。右上角一排右对齐。
+/// 弹袋最多 15 发，右上角一排右对齐。
 /// </summary>
 public partial class AmmoBar : Control
 {
@@ -3014,7 +5069,7 @@ public partial class AmmoBar : Control
     public override void _Draw()
     {
         if (_p == null) return;
-        int total = Mathf.Max(_p.AmmoMax, _p.Ammo);
+        int total = FieldPlayer.AmmoCap;
         int shown = Mathf.Min(total, 40);
         float step = IconW + Gap;
 
@@ -3042,6 +5097,91 @@ public partial class AmmoBar : Control
         DrawString(font, new Vector2(RowW - shown * step - 40f, 15f),
             $"{_p.Ammo}/{total}", HorizontalAlignment.Left, -1, 12,
             new Color(0.86f, 0.82f, 0.72f));
+    }
+}
+
+/// <summary>
+/// 生命 / 手榴弹图标条：鲜红心形一排（最多 5，空掉的是暗色空心），
+/// 下面一排小木柄手榴弹（最多 5），全部自绘，不用文字点。
+/// </summary>
+public partial class VitalsBar : Control
+{
+    private FieldPlayer _p;
+    private const int MaxHearts = FieldPlayer.HpMax;
+    private const int MaxGrenades = FieldPlayer.GrenadeCap;
+    private const float HeartW = 15f, HeartGap = 21f, NadeW = 9f, NadeGap = 14f;
+
+    public void Bind(FieldPlayer p) { _p = p; }
+
+    public override void _Process(double delta) => QueueRedraw();
+
+    public override void _Draw()
+    {
+        if (_p == null) return;
+        var font = ThemeDB.FallbackFont;
+        var labelC = new Color(0.86f, 0.82f, 0.72f);
+        var heart = new Color(0.86f, 0.09f, 0.13f);          // bright fresh red
+        var heartDark = new Color(0.26f, 0.16f, 0.15f, 0.9f); // lost heart: hollow dark
+        float heartRow = 8f, nadeRow = 42f;
+
+        DrawString(font, new Vector2(0, heartRow + 5f), "生命", HorizontalAlignment.Left, -1, 14, labelC);
+        DrawString(font, new Vector2(0, nadeRow + 5f), "手榴弹", HorizontalAlignment.Left, -1, 14, labelC);
+
+        float hx = 62f;
+        for (int i = 0; i < MaxHearts; i++)
+            DrawHeart(new Vector2(hx + i * HeartGap, heartRow), heart, i < _p.Hp);
+
+        float gx = 62f;
+        for (int i = 0; i < MaxGrenades; i++)
+            DrawStickGrenade(new Vector2(gx + i * NadeGap, nadeRow), i < _p.Grenades);
+    }
+
+    private void DrawHeart(Vector2 c, Color col, bool full)
+    {
+        // heart = two lobes + V bottom, filled when alive
+        float r = 3.4f;
+        var lobeL = c + new Vector2(-r * 0.75f, -2.2f);
+        var lobeR = c + new Vector2(r * 0.75f, -2.2f);
+        var pts = new Vector2[]
+        {
+            new(c.X - 6.6f, c.Y - 3.4f), new(c.X, c.Y + 7.4f), new(c.X + 6.6f, c.Y - 3.4f),
+        };
+        if (full)
+        {
+            DrawCircle(lobeL, r, col);
+            DrawCircle(lobeR, r, col);
+            DrawColoredPolygon(pts, col);
+            // tiny paper highlight so it reads as an object, not a flat dot
+            DrawCircle(lobeL + new Vector2(-1.1f, -1.1f), 1.1f, new Color(1f, 0.75f, 0.72f, 0.55f));
+        }
+        else
+        {
+            var dim = new Color(0.30f, 0.24f, 0.22f, 0.55f);
+            DrawCircle(lobeL, r, dim);
+            DrawCircle(lobeR, r, dim);
+            DrawColoredPolygon(pts, dim);
+            DrawArc(c + new Vector2(0, 0.6f), 8.4f, Mathf.Pi, Mathf.Tau, 20,
+                new Color(0.45f, 0.20f, 0.18f, 0.5f), 1.2f, true);
+        }
+    }
+
+    private void DrawStickGrenade(Vector2 basePt, bool full)
+    {
+        // Type 24 style: wooden stick handle + tin oval head + end cap
+        var stick = full ? new Color(0.58f, 0.42f, 0.24f) : new Color(0.30f, 0.26f, 0.22f, 0.55f);
+        var head = full ? new Color(0.36f, 0.38f, 0.33f) : new Color(0.26f, 0.26f, 0.24f, 0.55f);
+        var cap = full ? new Color(0.66f, 0.62f, 0.54f) : new Color(0.34f, 0.33f, 0.30f, 0.55f);
+
+        // stick: vertical, head sits on top
+        DrawRect(new Rect2(basePt.X - 1.6f, basePt.Y - 6f, 3.2f, 12f), stick);
+        // tin head
+        DrawCircle(basePt + new Vector2(0, -8.2f), 4.2f, head);
+        DrawRect(new Rect2(basePt.X - 2.1f, basePt.Y - 14.6f, 4.2f, 2.6f), cap);
+        // pull cord hint on a live one
+        if (full)
+            DrawLine(new Vector2(basePt.X + 1.8f, basePt.Y + 6f),
+                new Vector2(basePt.X + 3.6f, basePt.Y + 8.6f),
+                new Color(0.80f, 0.74f, 0.62f, 0.8f), 1f, true);
     }
 }
 

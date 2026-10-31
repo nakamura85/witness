@@ -10,19 +10,36 @@ namespace Witness;
 public partial class Capture : Node
 {
     private JiangqiaoLevel _lvl;
+    private SubViewport _sub;
     private float _t;
+    private float _frozeAt;
+    private bool _jumped;      // v3.46 TEMP: landing-puff shot bookkeeping
+    private float _landTimer;
+    private float _sx, _pressAt, _blastAt;   // v3.53 sandbag cover test
     private int _stage;
     private bool _started;
-    private const string Dir = "C:/Users/ChangFee/WorkBuddy/2026-10-26-09-06-52/witness-repo/_shots";
+    // v2.9: this used to be a hardcoded absolute path that included the
+    // original author's home folder, so a fresh clone wrote to a directory
+    // that does not exist on anyone else's machine. res:// resolves against
+    // the project folder wherever the project is checked out.
+    private static string Dir
+        => ProjectSettings.GlobalizePath("res://_shots");
 
     public override void _Ready()
     {
         GD.Print("CAPTURE _Ready: building JiangqiaoLevel");
+        // render into an explicit SubViewport: the headless dummy renderer does
+        // not back the main window viewport with a readable texture, so we read
+        // the SubViewport's render target instead (it is allocated reliably).
+        _sub = new SubViewport();
+        _sub.Size = new Vector2I(1280, 720);
+        _sub.RenderTargetUpdateMode = SubViewport.UpdateMode.Always;
+        AddChild(_sub);
         _lvl = new JiangqiaoLevel(new Main());
         // gallery shots in full winter daylight (11:00); the day/night cycle
         // otherwise starts pre-dawn and every shot would be dark blue
         _lvl.DebugClock = 11.0f;
-        AddChild(_lvl);
+        _sub.AddChild(_lvl);
         _started = true;
         _t = 0f;
         _stage = 0;
@@ -115,6 +132,39 @@ public partial class Capture : Node
         {
             GD.Print("CAPTURE stage11 -> shot walk");
             SaveShot("capture_06_walk.png");
+            // v3.46 TEMP: one jump to exercise the landing snow puff - the
+            // shot fires ~0.25s after touchdown, right at puff peak.
+            Input.ActionPress("advance");
+            _stage = 30;
+        }
+        else if (_stage == 30)
+        {
+            Input.ActionRelease("advance");
+            if (_t > 6.05f && !_lvl._player.IsOnFloor()) _jumped = true;
+            if (_jumped && _lvl._player.IsOnFloor())
+            {
+                _landTimer += 1f / 60f;
+                if (_landTimer > 0.05f)
+                {
+                    GD.Print("CAPTURE stage30 -> shot landing puff");
+                    SaveShot("capture_06b_landing.png");
+                    // v3.48: freeze at h1 (ruined, enterable) so the camera
+                    // settles and we can inspect the tree/door overlap the
+                    // user circled in this run's screenshots.
+                    Input.ActionRelease("move_right");
+                    _lvl._player.Position = new Vector2(845f, JiangqiaoLevel.GroundY - 2f);
+                    _frozeAt = _t;
+                    _stage = 40;
+                }
+            }
+        }
+        else if (_stage == 40 && _t > _frozeAt + 2.5f)
+        {
+            // camera converged on h1's centre - full-res look at its door,
+            // the wall beside it and whatever the near trees do there.
+            GD.Print("CAPTURE stage40 -> shot h1 ruined house");
+            SaveShot("capture_40_h1.png");
+            Input.ActionPress("move_right");
             _stage = 12;
         }
         else if (_stage == 12 && (PlayerX() > 1020f || _t > 11.5f))
@@ -149,13 +199,112 @@ public partial class Capture : Node
             SaveShot("capture_10b_chimney_moved.png");
             _stage = 17;
         }
-        else if (_stage == 17 && (PlayerX() > 2760f || _t > 30f))
+        else if (_stage == 17 && (PlayerX() > 2400f || _t > 24f))
         {
-            GD.Print("CAPTURE stage17 -> shot burnt village x="+PlayerX());
-            SaveShot("capture_11_burnt.png");
+            GD.Print("CAPTURE stage17 -> shot burned house x="+PlayerX());
+            SaveShot("capture_10c_burnedhouse.png");
+            // v3.44: freeze at the burnt house h2 and let the camera glide
+            // back before saving. The shot used to fire the same frame while
+            // the camera was still ~1000px ahead (it had been following the
+            // runner toward the bridge), so the h2 doorway landed off screen
+            // left and the frame showed the far-row shell f3 instead, which
+            // has no door by design (enterable=false).
+            Input.ActionRelease("move_right");
+            _lvl._player.Position = new Vector2(2760f, JiangqiaoLevel.GroundY - 2f);
+            _stage = 21;
+        }
+        else if (_stage == 21 && _t > 27f)
+        {
+            // camera smoothing is k=1-exp(-6.5*dt): after ~2s the residual
+            // gap is well under 1px, so the h2 doorway is centred here.
+            foreach (var hh in _lvl._houses)
+            {
+                if (hh.Id != "h2") continue;
+                var ct = _lvl.GetCanvasTransform();
+                Vector2 doorTop = ct * new Vector2(hh.DoorX, JiangqiaoLevel.GroundY - 100f);
+                GD.Print($"CAPTURE stage21 door h2 world={hh.DoorX:F0} screenTop={doorTop}");
+            }
+            GD.Print("CAPTURE stage21 -> burnt door frozen shot saved");
+            SaveShot("capture_10d_burned_door.png");
+            // v3.48: continue on to h4 (roofless posts ruin) and freeze there
+            // too - third spot from the user's screenshot batch.
+            Input.ActionRelease("move_right");
+            _lvl._player.Position = new Vector2(3244f, JiangqiaoLevel.GroundY - 2f);
+            _frozeAt = _t;
+            _stage = 41;
+        }
+        else if (_stage == 41 && _t > _frozeAt + 2.5f)
+        {
+            GD.Print("CAPTURE stage41 -> shot h4 posts ruin");
+            SaveShot("capture_41_h4.png");
+            // v3.53: sandbag cover test - wall #3 (base 4160, no house door
+            // in reach). Freeze just west of it, then press E to tuck in.
+            Input.ActionRelease("move_right");
+            _sx = _lvl.DebugCoverX(2);
+            _lvl._player.Position = new Vector2(_sx - 70f, JiangqiaoLevel.GroundY - 2f);
+            _frozeAt = _t;
+            _stage = 42;
+        }
+        else if (_stage == 42 && _t > _frozeAt + 2.5f)
+        {
+            Input.ActionPress("interact");
+            _pressAt = _t;
+            GD.Print("CAPTURE stage42 -> interact pressed (tuck in)");
+            _stage = 43;
+        }
+        else if (_stage == 43 && _t > _pressAt + 0.25f)
+        {
+            Input.ActionRelease("interact");
+            GD.Print($"CAPTURE stage43 player x={PlayerX():F0} (wall {_sx:F0}, expect {_sx - 36f:F0})");
+            SaveShot("capture_42_cover.png");
+            Input.ActionPress("move_left");
+            _stage = 44;
+        }
+        else if (_stage == 44 && _t > _pressAt + 0.55f)
+        {
+            Input.ActionRelease("move_left");
+            _lvl._player.Position = new Vector2(_sx - 300f, JiangqiaoLevel.GroundY - 2f);
+            _blastAt = _t;
+            _stage = 45;
+        }
+        else if (_stage == 45 && _t > _blastAt + 0.5f)
+        {
+            _lvl.DebugBlast(_sx + 2f);
+            GD.Print("CAPTURE stage45 -> blast on the wall");
+            _stage = 46;
+        }
+        else if (_stage == 46 && _t > _blastAt + 1.9f)
+        {
+            GD.Print("CAPTURE stage46 -> shot wrecked wall");
+            SaveShot("capture_43_wreck.png");
+            Input.ActionPress("move_right");
             _stage = 18;
         }
-        else if (_stage == 18 && _t > 31f)
+        else if (_stage == 18 && PlayerX() > 4290f)
+        {
+            // v3.25: freeze the runner at a fixed spot so the bridge frame
+            // lands the same way every time - the shot used to depend on
+            // where the run happened to be when the frame fired, and the
+            // span drifted in and out of the picture.
+            Input.ActionRelease("move_right");
+            _lvl._player.Position = new Vector2(4350f, JiangqiaoLevel.GroundY - 2f);
+            _frozeAt = _t;
+            GD.Print("CAPTURE stage18 -> frozen at the bridge");
+            _stage = 19;
+        }
+        else if (_stage == 19 && _t > _frozeAt + 2.5f)
+        {
+            // v3.15: was PlayerX() > 2760 - that fired while the runner was
+            // still halfway down the level, so the "burnt village" frame
+            // landed wherever the frame timing happened to stop him and the
+            // bridge often fell outside the shot. Wait until he reaches the
+            // bridge itself so the frame always shows the burnt village AND
+            // the span, and stops drifting from run to run.
+            GD.Print("CAPTURE stage19 -> shot burnt village x="+PlayerX());
+            SaveShot("capture_11_burnt.png");
+            _stage = 20;
+        }
+        else if (_stage == 20 && _t > 48f)
         {
             GD.Print("CAPTURE done");
             GetTree().Quit();
@@ -164,11 +313,30 @@ public partial class Capture : Node
 
     private float PlayerX() => _lvl?._player?.Position.X ?? 0f;
 
+    // once any viewport texture has been read successfully, later shots only
+    // need a couple of attempts - this stops a headless startup race from
+    // cascading into a long hang where every shot waits out its retries.
+    private static bool _texOk;
+
     private async void SaveShot(string name)
     {
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        var tex = GetViewport().GetTexture();
-        var img = tex.GetImage();
+        // headless dummy renderer occasionally hands back a null viewport
+        // texture for the first few frames - wait it out instead of dropping
+        // the shot (the burnt-village frame used to get skipped).
+        Image img = null;
+        int max = _texOk ? 3 : 60;
+        for (int attempt = 0; attempt < max && img == null; attempt++)
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            var tex = _sub.GetTexture();
+            if (tex != null) img = tex.GetImage();
+        }
+        if (img == null)
+        {
+            GD.PrintErr($"CAPTURE skip {name} (no viewport texture after {max} tries)");
+            return;
+        }
+        _texOk = true;
         if (!System.IO.Directory.Exists(Dir)) System.IO.Directory.CreateDirectory(Dir);
         string path = System.IO.Path.Combine(Dir, name);
         img.SavePng(path);

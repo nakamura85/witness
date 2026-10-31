@@ -8,13 +8,28 @@ namespace Witness;
 public partial class VerifyTour : Node
 {
     private string _dir;
+    private string _scratch;
     private string _log;
+
+    // Only these five frames belong to the published gallery. Everything else
+    // is a mid-tour audit frame and must stay out of docs/screenshots, otherwise
+    // every audit run litters the gallery with a dozen unreferenced frames.
+    //
+    // The level frames (v46..v51) are ShotTour's job - it owns those.
+    // Capture.cs is a different thing entirely: it writes to _shots/ for
+    // eyeballing, not to the published gallery.
+    private static readonly string[] GalleryShots =
+    {
+        "v00_title", "v01_map", "v02_note_korea", "v03_note_taiwan", "v04_map_arrows"
+    };
 
     public override void _Ready()
     {
         _dir = ProjectSettings.GlobalizePath("res://docs/screenshots");
         Directory.CreateDirectory(_dir);
-        _log = Path.Combine(_dir, "verify_log.txt");
+        _scratch = ProjectSettings.GlobalizePath("user://verify_shots");
+        Directory.CreateDirectory(_scratch);
+        _log = Path.Combine(_scratch, "verify_log.txt");
         File.WriteAllText(_log, $"start {System.DateTime.Now:HH:mm:ss}\r\n");
         _ = Run();
     }
@@ -63,7 +78,9 @@ public partial class VerifyTour : Node
             await Shot("v06_map_enter");
 
             await Click("进入关卡");
-            await Frames(70);
+            await Frames(35);            // v3.1: the one-time 9.18 archive popup
+            await Click("收起纸条");      // leads the flow now, dismiss it first
+            await Frames(45);
             await Shot("v07_intro");
             await Tap("advance");
             await Frames(45);
@@ -97,17 +114,17 @@ public partial class VerifyTour : Node
                 int corpsesBefore = CountNodes<CorpseActor>(main);
                 Log($"corpses_before={corpsesBefore}");
 
-                var fire = typeof(FieldPlayer).GetMethod("Fire",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                var facing = typeof(FieldPlayer).GetField("_facing",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                facing?.SetValue(p, 1f);         // 巡游没动鼠标：强制朝右（敌人在右侧）
-                fire?.Invoke(p, null);           // 第一枪：命中→敌兵警觉反击
+                // v2.8: the old code reached into the private "Fire" method by
+                // reflection and called it with no arguments. "Fire" now takes
+                // a facing argument, so that call threw
+                // TargetParameterCountException and killed the tour half way
+                // through. FieldPlayer exposes ForceFire for exactly this,
+                // and it takes the facing directly - no field poking needed.
+                p.ForceFire(1f);                 // 第一枪：命中→敌兵警觉反击
                 await Frames(10);
                 await Shot("v13b_player_fire_recoil");
                 await Frames(60);
-                facing?.SetValue(p, 1f);
-                fire?.Invoke(p, null);           // 第二枪：两枪阵亡→留尸体
+                p.ForceFire(1f);                 // 第二枪：两枪阵亡→留尸体
                 await Frames(40);
 
                 int corpsesAfter = CountNodes<CorpseActor>(main);
@@ -231,8 +248,9 @@ public partial class VerifyTour : Node
         // （表现就是“整屏纯白”——之前误判成游戏 bug 的正是这个）。
         await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         var img = GetTree().Root.GetTexture().GetImage();
-        img.SavePng(Path.Combine(_dir, name + ".png"));
-        GD.Print("SHOT " + name);
+        bool gallery = System.Array.IndexOf(GalleryShots, name) >= 0;
+        img.SavePng(Path.Combine(gallery ? _dir : _scratch, name + ".png"));
+        GD.Print("SHOT " + name + (gallery ? " [gallery]" : ""));
         Log($"px300={img.GetPixel(400, 300).ToHtml()}");
     }
 }

@@ -4,18 +4,16 @@ using System.Collections.Generic;
 namespace Witness;
 
 /// <summary>
-/// 脚印层：玩家与敌人走路时在雪地上留下的写实脚印。
-/// 
-/// 设计要点：
-/// - 真正的左右脚交替（Pos.X 偏移 ±5px，方向随移动朝向旋转）
-/// - 军靴细节：靴底纹路弧、后跟更深处的 heel stamp、前掌的 toe drag（被风/惯性带过）
-/// - 雪凹痕三层：最暗的洞（被踩到底）+ 中间的被压实雪 + 边缘被挤到旁边的亮雪
-/// - 脚印随时间老化 alpha 渐淡 + 新雪飘落覆盖（120 秒）
-/// - 上限 300 个，超过后最老的自动移除
+/// Footprint layer: one generated watercolor boot-print texture stamped per
+/// footfall, rotated along the move direction, left/right print mirrored.
+/// Prints age out (alpha fade + shrink) as fresh snow covers them, max 300.
+/// The old six-layer code-drawn ellipse stack looked like a trail of
+/// droppings - totally off from the hand-drawn style of the rest of the scene.
 /// </summary>
 public partial class FootprintLayer : Node2D
 {
     private readonly JiangqiaoLevel _lvl;
+    private Texture2D _tex;
 
     private struct Print
     {
@@ -68,10 +66,13 @@ public partial class FootprintLayer : Node2D
                 float dir = Mathf.Atan2(pvel.Y, pvel.X);
                 AddPrint(new Print
                 {
-                    // side offset also nudges Y a little: alternating feet read
-                    // as depth, not one straight row of dots
+                    // v2.9: sink the print a few px BELOW the boot line. The old
+                    // y sat right on the bright surface polyline, so every print
+                    // straddled the horizon edge and read as a dark blob
+                    // floating on the snow rim. Inside the field it reads as a
+                    // dent pressed into the snow.
                     Pos = new Vector2(ppos.X + (_playerLeftFoot ? -5f : 5f),
-                                      ppos.Y - 1f + (_playerLeftFoot ? 2.4f : -1.6f)),
+                                      ppos.Y + 3f + (_playerLeftFoot ? 1.6f : -0.6f)),
                     Rot = dir,
                     Age = 0f,
                     Side = _playerLeftFoot ? -1f : 1f,
@@ -102,7 +103,7 @@ public partial class FootprintLayer : Node2D
                     AddPrint(new Print
                     {
                         Pos = new Vector2(epos.X + (_enemyLeftFoot ? -4.5f : 4.5f),
-                                          epos.Y - 1f + (_enemyLeftFoot ? 2.2f : -1.5f)),
+                                          epos.Y + 3f + (_enemyLeftFoot ? 1.5f : -0.5f)),
                         Rot = dir,
                         Age = 0f,
                         Side = _enemyLeftFoot ? -1f : 1f,
@@ -137,71 +138,32 @@ public partial class FootprintLayer : Node2D
 
     public override void _Draw()
     {
+        // v3.22: this was the whole snow patch, so a trail of them read as a row
+        // of blue puddles lying on the snow. The new asset is just the boot
+        // print, remapped to the colour of the snow it presses into.
+        _tex ??= GD.Load<Texture2D>("res://assets/art/props/bootprint.png");
+        if (_tex == null) return;
+        var tsz = _tex.GetSize();
+
         foreach (var p in _prints)
         {
             float k = Mathf.Clamp(p.Age / MaxAge, 0f, 1f);
-            float a = (1f - k);
-            // 越旧越被新雪填平：凹痕变浅，亮边消失
-            float depthMul = 1f - k * 0.75f;
-            // every layer re-anchors at the print itself: the old code reset
-            // the transform to Vector2.Zero after the first line, so every
-            // footprint actually piled up at the world origin, never under boots
+            float a = 1f - k;
+            // older prints get covered by fresh snow: fade out and shrink a bit
+            float depthMul = 1f - k * 0.7f;
             var at = p.Pos;
 
-            // 第 1 层：最暗的洞底（雪被踩到底部 → 露出下面的冻土颜色）
-            DrawSetTransform(at, p.Rot, new Vector2(9f, 4f) * depthMul);
-            DrawCircle(Vector2.Zero, 1f, new Color(0.22f, 0.24f, 0.26f, 0.55f * a));
+            float len = 26f * depthMul;
+            float wid = len * tsz.Y / tsz.X;
+            // mirror alternate prints so the trail don't read as one boot stamped
+            float sY = p.Side < 0f ? -1f : 1f;
+            // slight per-print rotation jitter off its own position, deterministic
+            float jrot = Mathf.Sin(at.X * 1.7f + at.Y) * 0.08f;
 
-            // 第 2 层：压实雪层（鞋跟部分更深——heel stamp）
-            DrawSetTransform(at, p.Rot, new Vector2(7.5f, 4.2f) * depthMul);
-            DrawCircle(new Vector2(0.2f * p.Side, -0.5f), 1.1f, new Color(0.36f, 0.39f, 0.42f, 0.50f * a));
-
-            // 第 3 层：鞋整体轮廓（椭圆 = 靴底压实雪）
-            DrawSetTransform(at, p.Rot, new Vector2(8f + p.SpeedMag * 0.02f, 4.6f) * depthMul);
-            DrawCircle(Vector2.Zero, 1f, new Color(0.50f, 0.53f, 0.56f, 0.40f * a));
-
-            DrawSetTransform(at, p.Rot, Vector2.One);
-
-            // 第 4 层：靴底纹路弧（3 条横线 → 军靴纹路），只在年轻脚印可见
-            if (k < 0.5f)
-            {
-                float treadAlpha = 0.55f * (1f - k * 2f) * a;
-                DrawLine(new Vector2(-5f, -0.8f), new Vector2(5f, -0.8f), new Color(0.30f, 0.32f, 0.34f, treadAlpha), 0.8f, true);
-                DrawLine(new Vector2(-5f, 0.2f), new Vector2(5f, 0.2f), new Color(0.30f, 0.32f, 0.34f, treadAlpha), 0.8f, true);
-                DrawLine(new Vector2(-4f, 1.2f), new Vector2(4f, 1.2f), new Color(0.30f, 0.32f, 0.34f, treadAlpha * 0.7f), 0.7f, true);
-            }
-
-            // 第 5 层：toe drag（前掌被拖动的雪屑线）——高速走路才明显
-            if (p.SpeedMag > 45f && k < 0.3f)
-            {
-                float dragAlpha = 0.4f * (1f - k / 0.3f) * a;
-                float dragLen = (p.SpeedMag - 45f) * 0.18f;
-                // 拖动线 = 前掌前方的浅灰色虚线
-                for (int di = 0; di < 3; di++)
-                {
-                    float t0 = 0.3f + di * 0.22f;
-                    float t1 = t0 + 0.08f;
-                    DrawLine(
-                        new Vector2(7f + t0 * dragLen, -0.5f),
-                        new Vector2(7f + t1 * dragLen, -0.3f + di * 0.15f),
-                        new Color(0.55f, 0.58f, 0.60f, dragAlpha), 1.0f, true);
-                }
-            }
-
-            // 第 6 层：被挤到旁边的亮雪边（雪被鞋压出去 → 隆起的亮边）
-            float rimAlpha = 0.50f * (1f - k * 1.5f) * a;
-            if (rimAlpha > 0.02f)
-            {
-                DrawLine(new Vector2(-7f * depthMul, -2.2f * depthMul),
-                    new Vector2(-3f * depthMul, -2.8f * depthMul),
-                    new Color(0.90f, 0.94f, 0.96f, rimAlpha), 1.1f, true);
-                DrawLine(new Vector2(3f * depthMul, -2.8f * depthMul),
-                    new Vector2(7f * depthMul, -2.2f * depthMul),
-                    new Color(0.90f, 0.94f, 0.96f, rimAlpha), 1.1f, true);
-                // 鞋跟后面的小冰碴
-                DrawCircle(new Vector2(1.0f * p.Side, 3.0f * depthMul), 1.2f,
-                    new Color(0.92f, 0.94f, 0.96f, rimAlpha * 0.5f));
-            }
+            var mod = new Color(1f, 1f, 1f, 0.9f * a);
+            DrawSetTransform(at, p.Rot + jrot, new Vector2(depthMul, sY * depthMul));
+            DrawTextureRect(_tex, new Rect2(-len * 0.42f, -wid * 0.55f, len, wid), false, mod);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);

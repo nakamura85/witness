@@ -16,13 +16,31 @@ public partial class FieldPlayer : CharacterBody2D
     public event Action DryFired;               // trigger pulled, no rounds left
 
     public SpriteActor Figure { get; private set; }
-    public int Hp = 3;
+    public const int HpMax = 5;
+    public int Hp = HpMax;
     public bool ControlLocked;
 
     // ammo economy: belt rounds run out, loot rifles from the dead to keep fighting
+    public const int AmmoCap = 15;
     public int Ammo = 15;
-    public int AmmoMax = 15;   // rounds ever carried; spent rounds stay on the HUD as dim shells
+    public int AmmoMax = AmmoCap;   // belt never grows past 15; spent rounds stay on the HUD as dim shells
+    public const int GrenadeCap = 5;
     public int Grenades = 1;
+
+    /// <summary>bandage / medkit healing, clamped at max</summary>
+    public void Heal(int n) => Hp = Mathf.Min(HpMax, Hp + Mathf.Max(0, n));
+
+    public bool Wounded => Hp < HpMax;
+
+    /// <summary>returns rounds actually taken, bag full means fewer</summary>
+    public int AddAmmo(int n)
+    {
+        int took = Mathf.Min(n, AmmoCap - Ammo);
+        Ammo += took;
+        return took;
+    }
+
+    public void AddGrenade(int n) => Grenades = Mathf.Min(GrenadeCap, Grenades + n);
 
     private float _facing = 1f;
     private float _coyote;
@@ -32,11 +50,24 @@ public partial class FieldPlayer : CharacterBody2D
     private float _invuln;
     private bool _wasOnFloor = true;
 
+    // v3.13 手感：移动速度不再硬切。站着→蹲下→趴下之间用一个 0.14 秒的
+    // 过渡量把速度接起来，先慢下来再压低，读起来像"沉下去"，
+    // 而不是一按键速度从 232 直接掉到 96/55（立绘本身仍是即时切换）。
+    private float _poseBlend;
+
     private const float RunSpeed = 232f;
+    /// <summary>v3.53: set by the level while the player is tucked behind a
+    /// sandbag wall (E). Forces the crouch pose; the level clears it when the
+    /// player presses E again, moves, or the wall gets blown up.</summary>
+    public bool CoverHold { get; set; }
+
     private const float CrouchSpeed = 96f;
     private const float ProneSpeed = 55f;
     private const float Gravity = 1980f;
     private const float JumpVel = -610f;
+    // 顶点悬停：接近最高点时重力变轻，跳跃高度与滞空更好控
+    private const float ApexBand = 120f;
+    private const float ApexGravity = 0.62f;
 
     public override void _Ready()
     {
@@ -70,10 +101,17 @@ public partial class FieldPlayer : CharacterBody2D
         if (_jumpBuffer > 0f) _jumpBuffer -= f;
 
         bool wantProne = !ControlLocked && Input.IsActionPressed("prone") && onFloor;
-        bool crouch = !ControlLocked && Input.IsActionPressed("crouch") && onFloor && !wantProne;
+        // v3.53: CoverHold (sandbag interact) forces the crouch pose
+        bool crouch = (!ControlLocked && Input.IsActionPressed("crouch") && onFloor && !wantProne)
+                      || (!ControlLocked && CoverHold);
         float input = ControlLocked ? 0f : Input.GetAxis("move_left", "move_right");
 
-        if (Mathf.Abs(input) > 0.05f && !crouch)
+        // v3.51: facing follows input while CROUCHED too - before this the
+        // facing was locked once crouched (`&& !crouch`), so crouch-walking
+        // backwards slid the pose away tail-first with no mirrored side
+        // (user report 2026-10-31). The aiming branch below still wins while
+        // the mouse aims, so combat facing is unaffected.
+        if (Mathf.Abs(input) > 0.05f)
             _facing = Mathf.Sign(input);
 
         // 瞄准：按住右键，或刚开过枪
@@ -85,10 +123,20 @@ public partial class FieldPlayer : CharacterBody2D
             if (Mathf.Abs(mx) > 24f) _facing = Mathf.Sign(mx);
         }
 
-        float target = input * (wantProne ? ProneSpeed : crouch ? CrouchSpeed : RunSpeed);
+        // 姿势过渡：速度先跟着姿势慢慢变，不要一按键就"啪"地换速度
+        float poseTarget = wantProne ? 2f : (crouch ? 1f : 0f);
+        _poseBlend = Mathf.MoveToward(_poseBlend, poseTarget, f * 7.2f);
+        float poseSpeed = Mathf.Lerp(RunSpeed, CrouchSpeed, Mathf.Clamp(_poseBlend, 0f, 1f));
+        poseSpeed = Mathf.Lerp(poseSpeed, ProneSpeed, Mathf.Clamp(_poseBlend - 1f, 0f, 1f));
+
+        float target = input * poseSpeed;
         float accel = onFloor ? 1900f : 1100f;
         if (Mathf.Abs(input) < 0.05f || crouch)
             accel = onFloor ? 2600f : 700f;
+        // 转身时脚下要"刹"一下，不然反向输入像滑冰
+        if (Mathf.Abs(input) > 0.05f && Mathf.Abs(Velocity.X) > 40f
+            && Mathf.Sign(input) != Mathf.Sign(Velocity.X))
+            accel *= 0.62f;
         Velocity = new Vector2(Mathf.MoveToward(Velocity.X, target, accel * f), Velocity.Y);
 
         // 跳跃（带 coyote 与输入缓冲，落地/起跳都实在）
@@ -100,10 +148,14 @@ public partial class FieldPlayer : CharacterBody2D
             _jumpBuffer = 0f;
             _coyote = 0f;
         }
-        if (!Input.IsActionPressed("advance") && Velocity.Y < -180f)
-            Velocity = new Vector2(Velocity.X, Velocity.Y * 0.90f); // 松键短跳，重力仍全程生效
+        // 松键短跳：以前乘 0.90，轻点一下也几乎跳满，等于没有"小跳"
+        if (!Input.IsActionPressed("advance") && Velocity.Y < -140f)
+            Velocity = new Vector2(Velocity.X, Velocity.Y * 0.55f);
 
-        Velocity += new Vector2(0, Gravity * f);
+        // 顶点悬停：快到最高点时重力减一档，跳起来更"飘"也更好控高度
+        float g = Gravity;
+        if (Velocity.Y < 0f && Velocity.Y > -ApexBand) g *= ApexGravity;
+        Velocity += new Vector2(0, g * f);
         MoveAndSlide();
 
         if (GlobalPosition.Y > 900f)
@@ -174,7 +226,7 @@ public partial class FieldPlayer : CharacterBody2D
     {
         GlobalPosition = pos;
         Velocity = Vector2.Zero;
-        Hp = 3;
+        Hp = HpMax;
         _invuln = 1.2f;
     }
 

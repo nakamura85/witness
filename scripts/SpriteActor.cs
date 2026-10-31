@@ -32,6 +32,8 @@ public partial class SpriteActor : Node2D
     public float Aim;
     public float MuzzleFlash;
     public float HurtFlash;
+    /// <summary>v3.55: 拉弦挥臂掷弹蓄力度 0→1（>0.25 换掷弹专姿图），出手后归 0。</summary>
+    public float ThrowPose;
     /// <summary>开枪后坐量 1→0，躯干短暂后仰 + 后移。</summary>
     public float Recoil;
     /// <summary>自动化截图用：true 时暂停火光/受击/后坐衰减（低帧率下截不到火光）。</summary>
@@ -47,9 +49,13 @@ public partial class SpriteActor : Node2D
     private (Texture2D tex, float s, float pox, float muzY) PoseInfo()
     {
         if (_pose == null) return (null, 0f, 0f, 0f);
-        if (Prone) return (_proneTex, _proneS, -_proneTex.GetSize().X * _proneS * 0.30f, 0.58f);
-        if (Crouched) return (_crouchTex, _crouchS, 0f, 0.31f);
-        if (Aim > 0.5f && !(Airborne || !Grounded) && !Vaulting)
+        if (Prone && _proneTex != null)
+            return (_proneTex, _proneS, -_proneTex.GetSize().X * _proneS * 0.30f, 0.58f);
+        // v3.55: 掷弹蓄力优先于蹲/瞄——标准投弹动作是站直挥臂，不能被瞄准姿吃掉
+        if (ThrowPose > 0.25f && _throwTex != null && !(Airborne || !Grounded) && !Vaulting)
+            return (_throwTex, _throwS, 0f, 0.9f);
+        if (Crouched && _crouchTex != null) return (_crouchTex, _crouchS, 0f, 0.31f);
+        if (Aim > 0.5f && _aimTex != null && !(Airborne || !Grounded) && !Vaulting)
             return (_aimTex, _aimS, 0f, 0.165f);
         return (null, 0f, 0f, 0f);
     }
@@ -77,8 +83,11 @@ public partial class SpriteActor : Node2D
     private Sprite2D _torso, _legBack, _legFront, _hip, _pose;
     /// <summary>hip strip top-left in texture coords, used to glue it to the torso.</summary>
     private Vector2 _hipOrigin;
-    private Texture2D _aimTex, _crouchTex, _proneTex;
-    private float _aimS, _crouchS, _proneS;
+    /// <summary>hip pivot in texture coords (from top-left): the point that must
+    /// stay glued to the leg pieces whenever the torso rotates.</summary>
+    private Vector2 _hipPivot;
+    private Texture2D _aimTex, _crouchTex, _proneTex, _throwTex;
+    private float _aimS, _crouchS, _proneS, _throwS;
     private ShaderMaterial _mat;
     private bool _wasGrounded = true;
     private float _landT;             // 落地缓冲计时 1→0
@@ -89,6 +98,9 @@ public partial class SpriteActor : Node2D
     /// <summary>裆部铰链点，贴图坐标（两条腿共用，绕它转就不会扯开裤裆）。</summary>
     private int _pivotX, _pivotY;
     private float _texH;
+
+    // v2.7 recoil: rotation around the hip line + compensation + upper body push back
+    private float _recoilRot, _recoilBack;
 
     public readonly float Height;
 
@@ -134,11 +146,21 @@ public partial class SpriteActor : Node2D
             _maskedLegs = true;
             _pivotX = parts.PivotX;
             _pivotY = parts.PivotY;
+            _hipPivot = new Vector2(_pivotX, _pivotY);
             _hipY = -(texH - parts.PivotY) * s;
 
             _legBack = MakeMaskedLeg(parts.LegBack, s, texH);
             _legFront = MakeMaskedLeg(parts.LegFront, s, texH);
 
+            // v2.7: the torso rotation pivot moves from "top of head" to "hip line".
+            // The old way did _torso.Position = (0, -texH*s) with Centered=false,
+            // so the node origin landed on the top left of the texture (the head),
+            // and rotating it swung the whole upper body around the head - the
+            // hips swung off the lower body. That is the "upper and lower body
+            // separate when firing" the player keeps reporting.
+            // Use Offset to push the texture down so the node origin sits on the
+            // hip line, then the upper body rotates around the hip and the hips
+            // stay perfectly still.
             _torso = new Sprite2D
             {
                 Texture = tex,
@@ -166,6 +188,7 @@ public partial class SpriteActor : Node2D
             // —— 老路：沿贴图中线竖切（立绘分不出腿缝时用）——
             float hipFromTop = texH * 0.58f;
             float overlap = texH * 0.05f;
+            _hipPivot = new Vector2(texW * 0.5f, hipFromTop);
             _overlapScreen = overlap * s;
             _hipY = -(texH - hipFromTop) * s;                 // 髋线（脚底原点）
             _legTopScreen = hipFromTop - overlap;             // 腿片区域顶部（纹理坐标）
@@ -214,21 +237,34 @@ public partial class SpriteActor : Node2D
         _flip.AddChild(_legFront);
         if (_hip != null) _flip.AddChild(_hip);      // 髋片最后绘制，盖在最上层
 
-        // —— 军人标准专姿立绘（仅玩家）：瞄准/蹲/趴不再用纸娃娃刚性变形，
+        // —— 军人标准专姿立绘（玩家与日军）：瞄准/蹲/趴/掷弹不再用纸娃娃刚性变形，
         // 而是整体换一张同画风、同军服的专项姿势立绘（军事动作标准）——
-        if (kind == Kind.NortheastArmy)
+        // v3.55: 日军 (Kind.Soldier) 也接入同一机制——此前 Aim 只把躯干前倾，
+        // 枪还是行军持枪姿，开枪完全不像瞄准；掷弹更是凭空出现。
+        // 贴图按文件存在性加载：缺哪张就退回纸娃娃，不报错不阻塞。
+        if (kind == Kind.NortheastArmy || kind == Kind.Soldier)
         {
-            _aimTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_aim.jpg", 0.03f, 0.05f);
-            _crouchTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_crouch.jpg", 0.03f, 0.05f);
-            _proneTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_prone.jpg", 0.03f, 0.05f);
+            string stem = kind == Kind.NortheastArmy ? "soldier_na" : "soldier_ija";
+            _aimTex = LoadPoseTex($"{stem}_aim");
+            _crouchTex = LoadPoseTex($"{stem}_crouch");
+            _proneTex = LoadPoseTex($"{stem}_prone");
+            _throwTex = LoadPoseTex($"{stem}_throw");
             // 蹲：跪姿真实高度比 0.74（同一个人只是姿势变矮，头/装备不缩小）
             // 趴：按身体长度=站立身高定缩放（趴下身长不变，横向贴地）
             if (_aimTex != null) _aimS = Height / _aimTex.GetSize().Y;
             if (_crouchTex != null) _crouchS = Height * 0.74f / _crouchTex.GetSize().Y;
             if (_proneTex != null) _proneS = Height / _proneTex.GetSize().X;
+            if (_throwTex != null) _throwS = Height / _throwTex.GetSize().Y;
             _pose = new Sprite2D { Centered = false, Visible = false, Material = _mat };
             _flip.AddChild(_pose);
         }
+    }
+
+    /// <summary>v3.55: 专项姿势贴图按存在性加载（缺失返回 null，不刷错误日志）。</summary>
+    private static Texture2D LoadPoseTex(string name)
+    {
+        string p = $"res://assets/art/sprites/{name}.jpg";
+        return FileAccess.FileExists(p) ? ChromaKey.Cutout(p, 0.03f, 0.05f) : null;
     }
 
     private Sprite2D MakeLeg(Godot.Texture2D tex, float x0, float w, float s)
@@ -297,6 +333,12 @@ public partial class SpriteActor : Node2D
         // 优先级最高的状态用整张专项立绘替换纸娃娃，动作是按军事条令画的，
         // 不再靠刚性贴图变形硬凑。腾空/翻越时不进入专姿。
         var (ptex, ps, pox, muzY) = PoseInfo();
+        // 趴/蹲：无论静止还是前进，一律用整张专项立绘（姿势按军事条令画、解剖正确）。
+        // 之前 v3.12 为了让"前进"有腿部摆动，把移动中的趴/蹲退回纸娃娃——结果把站立的
+        // 上半身立绘竖直压扁到 48% 再配横过来的腿，横板下像人折坏/压扁，观感很怪；
+        // 又或者整张专姿图被冻结、原地滑动（"纸片人滑过去"）。
+        // 现在改为：移动时仍用正确的专姿图，只在图上叠加轻微爬行错动（上下浮动 + 前后微摆），
+        // 既保留正确姿势，又明确读出"正在匍匐 / 正在蹲行"，不再出现压扁或冻结滑动。
         if (ptex != null)
         {
             var sz = ptex.GetSize();
@@ -304,7 +346,28 @@ public partial class SpriteActor : Node2D
             if (_hip != null) _hip.Visible = false;
             _pose.Texture = ptex;
             _pose.Scale = new Vector2(ps, ps);
-            _pose.Position = new Vector2(pox - Facing * 6f * Recoil, -sz.Y * ps);
+
+            float bob = 0f, sway = 0f;
+            if (proneWalk)
+            {
+                // #anim1: prone crawl - make the body clearly heave and rock so
+                // it reads as "dragging forward on elbows", not a frozen sheet
+                // sliding. Amplitude is in px on a ~108px figure.
+                bob = Mathf.Sin(Phase) * 4.6f;
+                sway = Mathf.Cos(Phase) * 3.0f;
+            }
+            else if (crouchWalk)
+            {
+                // #anim1: crouch-walk - heavier weight drop on each step + rock,
+                // so the motion is legible without distorting the crouch silhouette.
+                bob = Mathf.Abs(Mathf.Cos(Phase)) * 3.4f - 1.7f;
+                sway = Mathf.Sin(Phase) * 2.2f;
+            }
+            // v3.13: 落地缓冲也接到专姿立绘上——着地那一瞬间整个人往下沉一下
+            // 再弹回来。以前只有纸娃娃分支有，蹲/趴/站专姿图落地是硬接地的。
+            bob -= _landT * 3.4f;
+
+            _pose.Position = new Vector2(pox - Facing * 6f * Recoil + sway, -sz.Y * ps + bob);
             _pose.Visible = true;
             // 枪口锚点（flip 空间，x 朝前），_Draw 里乘 Facing 转回画面空间
             _poseMuzzle = new Vector2(pox + sz.X * ps * 0.97f, -sz.Y * ps * (1f - muzY));
@@ -324,17 +387,18 @@ public partial class SpriteActor : Node2D
         float frontRot = 0f, backRot = 0f;
         if (standingWalk)
         {
-            // swing kept small: a wide scissor opens the crotch seam of the
-            // split texture and the legs read like ghost doubles
-            frontRot = -swing * 0.20f * Facing;
-            backRot = swing * 0.20f * Facing;
+            // #anim1: widen the scissor so the stride reads as walking, not
+            // sliding-in-place. Kept asymmetric (front lifts a touch more) so
+            // the two leg strips don't fan open at the crotch seam.
+            frontRot = -swing * 0.36f * Facing;
+            backRot = swing * 0.30f * Facing;
         }
         else if (Prone)
         {
             // 匍匐：双腿向后伸平贴地拖行。镜像对称姿势，旋转不乘 Facing
             //（镜像容器会自动把方向翻到角色背后）
             legK = 1f;
-            float crawl = proneWalk ? Mathf.Sin(Phase) * 0.10f : 0f;
+            float crawl = proneWalk ? Mathf.Sin(Phase) * 0.40f : 0f;  // 加大爬行腿摆幅度，明确匍匐前进感（#8）
             frontRot = 1.42f + crawl;
             backRot = 1.56f - crawl;
         }
@@ -342,20 +406,29 @@ public partial class SpriteActor : Node2D
         {
             // 蹲走：低姿蹲行（双膝深弯、重心下坐、上身后倾 sightly），比站姿矮一头
             legK = 0.55f;
-            frontRot = (-0.72f - swing * 0.14f) * Facing;
-            backRot = (0.50f + swing * 0.12f) * Facing;
+            // v2.9: keep the crotch closed. The old pair (-0.72 / +0.50) swung
+            // both leg strips opposite ways around the same hip hinge, the
+            // wedge between them opened wide and the background showed
+            // through the hollow body = legs looking detached from the torso.
+            // 蹲走：保留 v2.9 的"髋部闭合"基准角，仅加大摆幅让腿部明显交替（#8）
+            frontRot = (-0.58f - swing * 0.30f) * Facing;
+            backRot = (0.26f + swing * 0.26f) * Facing;
         }
         else if (air)
         {
-            frontRot = -0.62f * Facing;           // 收腿：前腿抬起
-            backRot = 0.34f * Facing;             // 后腿后拖
+            // #anim1: stronger jump tuck so the leap reads as "push off - tuck -
+            // land" instead of a flat hop. Both knees come up together (same
+            // rotation sign) to keep the hip seam shut.
+            legK = 0.88f;
+            frontRot = -0.62f * Facing;
+            backRot = -0.34f * Facing;
         }
         else if (Crouched)
         {
             // 静蹲：双膝深弯重心坐实，比站姿明显矮一头
             legK = 0.55f;
-            frontRot = -0.72f * Facing;
-            backRot = 0.50f * Facing;
+            frontRot = -0.58f * Facing;
+            backRot = 0.26f * Facing;
         }
         if (_landT > 0f && !Crouched)
             legK *= 1f - 0.10f * _landT;
@@ -380,8 +453,9 @@ public partial class SpriteActor : Node2D
             // 一旦放倒步枪会竖着戳地；压平则枪线保持水平，读作"低姿持枪匍匐"）。
             // 髋部桥片已隐藏，腿部由 Prone 分支向后伸平衔接。
             torsoScale = new Vector2(1.02f, 0.48f);
-            torsoY = -Height * 0.37f + (proneWalk ? Mathf.Abs(Mathf.Cos(Phase)) * 1.5f : 0f);
-            torsoRot = 0.05f;
+            // 前进时躯干随爬行前后错动 + 轻微扭转，给出明确的爬行感（#8）
+            torsoY = -Height * 0.37f + (proneWalk ? Mathf.Sin(Phase) * 2.2f : 0f);
+            torsoRot = 0.05f + (proneWalk ? Mathf.Sin(Phase) * 0.04f : 0f);
         }
         else if (crouchWalk)
         {
@@ -403,8 +477,9 @@ public partial class SpriteActor : Node2D
         }
         else if (standingWalk)
         {
-            torsoY += -Mathf.Abs(Mathf.Cos(Phase)) * 2.6f + 1.3f; // 迈步重心起伏
-            torsoRot = (0.085f + Mathf.Sin(Phase * 2f) * 0.03f) * Facing;
+            // #anim1: bigger weight bounce per step so the stride is obvious
+            torsoY += -Mathf.Abs(Mathf.Cos(Phase)) * 3.6f + 1.8f;
+            torsoRot = (0.10f + Mathf.Sin(Phase * 2f) * 0.04f) * Facing;
         }
         else
         {
@@ -418,11 +493,15 @@ public partial class SpriteActor : Node2D
         }
         if (Recoil > 0f)
         {
-            // recoil toned down: rotating 0.42 rad around the head pivot swings
-            // the whole upper body off the pelvis, look like body pecah dua
-            // when firing. 0.20 still got the kick feel, half the slide back
-            torsoRot -= 0.20f * Recoil * Facing;
-            torsoX -= Facing * 5f * Recoil;
+            // v2.7: the upper body kicks backwards when firing (the stock digs
+            // into the shoulder). The rotation part is handled by the general
+            // hip glue below, together with the walk and aim lean.
+            _recoilRot = -0.20f * Recoil * Facing;
+            _recoilBack = Facing * 5f * Recoil;
+        }
+        else
+        {
+            _recoilRot = 0f; _recoilBack = 0f;
         }
         if (_landT > 0f && !Crouched)
             torsoScale = new Vector2(torsoScale.X * (1f + 0.04f * _landT),
@@ -433,9 +512,35 @@ public partial class SpriteActor : Node2D
         if (!low)
             torsoY += (1f - legK) * (-_hipY);
 
+        // v3.6: general hip glue. ANY torso rotation (walk lean, aim lean,
+        // recoil) used to spin around the texture's top-left corner, so the
+        // cut-out hip hole swung sideways while the legs stayed put - the leg
+        // tops showed through as a bright waist seam, worst while strolling
+        // (0.085 rad lean ≈ 5-7 px of swing, very visible against snow).
+        // Rotating around the corner by theta is the same as rotating around
+        // the hip pixel by theta + translating, so we translate the result
+        // back onto the hip point. The hip (and the bridge patch glued to it)
+        // now stays pinned to the leg pivot for every pose.
+        torsoRot += _recoilRot;
+        torsoX -= _recoilBack;
+        {
+            float sx2 = _s * torsoScale.X, sy2 = _s * torsoScale.Y;
+            float vx2 = _hipPivot.X * sx2, vy2 = _hipPivot.Y * sy2;
+            float c2 = Mathf.Cos(torsoRot), s2 = Mathf.Sin(torsoRot);
+            float rx2 = vx2 * c2 - vy2 * s2, ry2 = vx2 * s2 + vy2 * c2;
+            torsoX += vx2 - rx2;
+            torsoY += vy2 - ry2;
+        }
+
         _torso.Position = new Vector2(torsoX, torsoY);
         _torso.Rotation = torsoRot;
         _torso.Scale = new Vector2(_s * torsoScale.X, _s * torsoScale.Y);
+
+        // v2.7: when the torso kicks backwards the legs have to step back a
+        // little too, otherwise the upper body has already retreated while the
+        // hips stay put, and the seam pulls wider.
+        // (the compensation lives in SetLeg, because SetLeg resets the leg
+        // position every frame)
 
         // hip bridge glued to the torso: same pos/rot/scale so the strip pixels
         // always match the body ones. old version kept it nailed in place, so
@@ -468,15 +573,19 @@ public partial class SpriteActor : Node2D
     {
         leg.Rotation = rot;
         leg.Scale = new Vector2(_s, _s * k);
+        // v2.7: when the torso kicks back on recoil the legs step back a bit
+        // too, so the hips never get pulled out of the seam
+        float back = -_recoilBack * 0.35f;
         if (_maskedLegs)
         {
             // 分件腿：绕裆部铰链点转，压缩时把脚底拉回地面
-            leg.Position = new Vector2(_pivotX * _s,
+            leg.Position = new Vector2(_pivotX * _s + back,
                 float.IsNaN(pivotY) ? -(_texH - _pivotY) * _s * k : pivotY);
         }
         else
         {
-            leg.Position = new Vector2(leg.Position.X, float.IsNaN(pivotY) ? -_legR * k : pivotY);
+            leg.Position = new Vector2(leg.Position.X + back,
+                float.IsNaN(pivotY) ? -_legR * k : pivotY);
         }
     }
 
@@ -493,23 +602,30 @@ public partial class SpriteActor : Node2D
                 Height * 0.13f, 0.26f, stretch);
         }
 
-        // —— 瞄准指示线 ——
-        if (Aim > 0.5f)
-        {
-            var muzzle = MuzzlePoint();
-            DrawLine(muzzle, muzzle + new Vector2(Facing * 14f, -2f),
-                InkStyle.InkColor, 1.5f, true);
-        }
-
-        // —— 枪口火光：亮核 + 外晕 + 前向火舌 ——
+        // 枪口火光提供开火反馈；原本 Aim>0.5 时从枪口向前画的 InkColor 深墨"瞄准指示线"
+        // 被误读成枪口黑线，已移除（鼠标本身即是瞄准参考）。
+        // —— muzzle flash: quick warm pop, gone in a blink, smoke stays a bit ——
         if (MuzzleFlash > 0.05f)
         {
             var muzzle = MuzzlePoint();
-            float r = 4f + MuzzleFlash * 6f;
-            DrawCircle(muzzle, r, new Color(1f, 0.85f, 0.30f, MuzzleFlash * 0.85f));
-            DrawCircle(muzzle, r * 0.55f, new Color(1f, 1f, 0.62f, MuzzleFlash));
-            DrawLine(muzzle, muzzle + new Vector2(Facing * (12f + r * 2.2f), -1f),
-                new Color(1f, 0.92f, 0.55f, MuzzleFlash * 0.8f), 2.2f, true);
+            float a = MuzzleFlash;
+            float r = 3f + a * 3.5f;
+            DrawCircle(muzzle, r * 1.9f, new Color(1f, 0.78f, 0.40f, 0.15f * a));
+            DrawCircle(muzzle, r, new Color(0.98f, 0.80f, 0.44f, 0.50f * a));
+            DrawCircle(muzzle, r * 0.5f, new Color(1f, 0.94f, 0.80f, 0.80f * a));
+            DrawColoredPolygon(new[]
+            {
+                muzzle + new Vector2(0, -r * 0.5f),
+                muzzle + new Vector2(Facing * (r * 2.6f + 4f), -1f),
+                muzzle + new Vector2(0, r * 0.5f),
+            }, new Color(0.98f, 0.82f, 0.48f, 0.45f * a));
+            // smoke lingers one beat longer than the flame itself
+            if (a < 0.85f)
+            {
+                float s = (0.85f - a) / 0.85f;
+                var up = muzzle + new Vector2(Facing * 3f, -6f - 6f * s);
+                DrawCircle(up, 2.5f + 4f * s, new Color(0.60f, 0.62f, 0.65f, 0.28f * s));
+            }
         }
     }
 }

@@ -12,7 +12,8 @@ public partial class DialogueUi : CanvasLayer
     private Label _name, _text;
     private HBoxContainer _buttons;
 
-    public DialogueUi() { Layer = 20; }
+    // 25 > HouseInteriorUi(20)，屋内点选项时对话面板盖在屋内面板之上（#4）
+    public DialogueUi() { Layer = 25; }
 
     public override void _Ready()
     {

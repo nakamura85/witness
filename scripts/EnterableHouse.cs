@@ -12,6 +12,7 @@ namespace Witness;
 public partial class EnterableHouse : Node2D
 {
     private readonly string _id;
+    private readonly string _texName;
     private readonly Texture2D _tex;
     private readonly float _w;
     private readonly bool _enterable;
@@ -19,7 +20,53 @@ public partial class EnterableHouse : Node2D
 
     public string Id => _id;
     public bool Enterable => _enterable;
-    public float DoorX => Position.X + _w * 0.18f;
+
+    /// <summary>
+    /// Where the doorway of each enterable house is, as a fraction of the
+    /// house width, and how tall it stands as a fraction of the house height.
+    ///
+    /// v3.20: this used to be one hardcoded 0.18 for every house, and a flat
+    /// dark slab was painted over that spot to mark it. The slab was the
+    /// only flat fill anywhere in the scene, it sat about 35px below the
+    /// doorway the artist had already drawn, and it covered the plank door
+    /// of the intact house and the torn opening of the ruined one. Players
+    /// read it as a black board propped in front of the wall.
+    ///
+    /// Fx is the centre of the doorway in house-width fractions, Fh the
+    /// height in house-height fractions, and HangLeaf says the texture has
+    /// no door of its own and one has to be put back.
+    /// </summary>
+    private readonly record struct DoorSpec(float Fx, float Fh, bool HangLeaf);
+
+    private static readonly Dictionary<string, DoorSpec> _doorSpecs = new()
+    {
+        // intact house: a plank door with a round knob, painted between the
+        // two timber posts of the front wall
+        ["house_intact_near"] = new(0.492f, 0.36f, false),
+        // ruined house: the wall is torn open beside the door frame, snow
+        // drifted across the sill
+        ["house_ruined_near"] = new(0.200f, 0.50f, false),
+        // burnt shell: the roof burned off and nothing is left to find, so
+        // a half-burnt door leaf leans back into the frame (v3.45: was an
+        // intact plank door - a burned house would not keep one)
+        ["house_burned_near"] = new(0.260f, 0.42f, true),
+    };
+
+    private static Texture2D _leafTex;
+
+    private float _doorFx = -1f;
+
+    private float DoorFx
+    {
+        get
+        {
+            if (_doorFx < 0f)
+                _doorFx = _doorSpecs.TryGetValue(_texName, out var s) ? s.Fx : 0.18f;
+            return _doorFx;
+        }
+    }
+
+    public float DoorX => Position.X + _w * DoorFx;
     public float HalfW => _w * 0.5f;
 
     private static readonly Dictionary<string, Texture2D> _texCache = new();
@@ -28,13 +75,22 @@ public partial class EnterableHouse : Node2D
         bool enterable = true, float lift = 0f)
     {
         _id = id;
+        _texName = texName;
         _tex = LoadTex(texName);
         _w = w;
         _enterable = enterable;
         _lift = lift;
         Position = pos;
-        // lifted houses sit a step further back in the depth row
-        ZIndex = lift > 0f ? -4 : -3;
+        // lifted houses sit a step further back in the depth row.
+        // v3.8: near row now draws IN FRONT of the ground art (the railway
+        // band is part of it), so the track passes behind the village houses
+        // instead of slicing through their front walls.
+        // v3.25: the whole stack was renumbered, because a flame has to be
+        // able to sit behind a wall AND in front of one. The row reads
+        // ground art -10, footprints -8, fire inside the far row -7, far
+        // houses -6, fire outside the far row -5, fire inside the near row
+        // -4, near houses -3, fire outside the near row -2, smoke -1.
+        ZIndex = lift > 0f ? -6 : -3;
     }
 
     private static Texture2D LoadTex(string name)
@@ -56,30 +112,159 @@ public partial class EnterableHouse : Node2D
         var fade = _lift > 0f ? new Color(1f, 1f, 1f, 0.88f) : Colors.White;
 
         // contact shadow along the base
+        // v2.8: this was a hard rimmed DrawCircle. Stretched over the full
+        // house width the rim showed up as a pale slab lying on the snow, so
+        // it now uses the radial falloff sprite.
         DrawSetTransform(new Vector2(_w * 0.5f, gl - 1f), 0, new Vector2(1.15f, 0.24f));
-        DrawCircle(Vector2.Zero, _w * 0.5f, new Color(0.10f, 0.09f, 0.08f, 0.26f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.10f, 0.09f, 0.08f), 0.26f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+        // v3.47: the burned / skeletal / posts / ruined textures are full of
+        // see-through gaps, mostly in their lower half. Through them the
+        // parallax tree layer (z -20) and the railway band showed at a ground
+        // line ABOVE the house's own base, so the ruin read as floating above
+        // the snow, and the burnt shell's hung door leaf read as planted in
+        // open snow right on the track (user screenshots 2026-10-31). A soft
+        // charred-interior wash behind the wall fills those gaps: what shows
+        // through a hole is now the house's own darkness, not the landscape
+        // behind it. The intact house is fully painted and needs none.
+        if (_texName != "house_intact_near")
+        {
+            bool charred = _texName == "house_burned_near" || _texName == "house_skeleton_near";
+            var hole = charred
+                ? new Color(0.055f, 0.045f, 0.038f, 0.56f)   // charred interior
+                : new Color(0.10f, 0.085f, 0.07f, 0.38f);    // ruined / posts: dim interior
+            // lifted far-row houses are drawn at 0.88 fade - keep the wash
+            // one notch lighter so it sinks into the haze with them
+            if (_lift > 0f) hole.A *= 0.82f;
+            // two overlapping soft lobes: a wide low one hugging the base and
+            // a narrower one reaching up the middle - organic coverage, and
+            // the radial falloff means no rim can peek past the wall silhouette
+            DrawSetTransform(new Vector2(_w * 0.5f, gl - h * 0.26f), 0f,
+                new Vector2(_w * 0.85f / 64f, h * 0.55f / 64f));
+            DrawTextureRect(SoftSnow.Blob(hole, 1f), new Rect2(-32f, -32f, 64f, 64f), false);
+            DrawSetTransform(new Vector2(_w * 0.44f, gl - h * 0.42f), 0f,
+                new Vector2(_w * 0.55f / 64f, h * 0.50f / 64f));
+            DrawTextureRect(SoftSnow.Blob(hole, 1f), new Rect2(-32f, -32f, 64f, 64f), false);
+            DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
+        }
 
         // house body, bottom sits on the snow line
         DrawTextureRect(_tex, new Rect2(0f, gl - h, _w, h), false, fade);
 
         if (!_enterable) return;   // scenery ruin: no door light, nothing to search
 
-        // door: dark opening + faint warm light, marks the enterable spot
-        float dx = _w * 0.18f;
-        float dw = 26f;
-        float dh = 52f;
-        DrawRect(new Rect2(dx - dw * 0.5f, gl - dh, dw, dh), new Color(0.10f, 0.08f, 0.07f, 0.96f));
-        DrawRect(new Rect2(dx - dw * 0.5f, gl - dh, dw, 5f), new Color(0.30f, 0.24f, 0.18f, 0.9f));
-        DrawLine(new Vector2(dx - dw * 0.5f, gl - dh), new Vector2(dx - dw * 0.5f, gl),
-            new Color(0.22f, 0.18f, 0.14f, 0.9f), 2f, true);
-        DrawLine(new Vector2(dx + dw * 0.5f, gl - dh), new Vector2(dx + dw * 0.5f, gl),
-            new Color(0.22f, 0.18f, 0.14f, 0.9f), 2f, true);
+        // v3.20: the doorway is wherever the painting put it. Two of the
+        // three enterable houses already have one - a plank door on the
+        // intact house, a torn opening in the ruined one - so all that is
+        // left to draw is the trampled snow on the doorstep.
+        //
+        // v3.5 used to paint a flat near-black slab over the doorway here.
+        // It was the only flat fill in the whole scene, it did not line up
+        // with the painted opening, and it hid the artwork underneath, so
+        // it read as a black board leaning on the wall.
+        //
+        // The burnt shell has no door left to find, so one gets hung back
+        // into the frame - the plank leaf lifted straight out of the intact
+        // house texture, so it carries the same brush and the same ink
+        // outlines as everything else.
+        var spec = _doorSpecs.TryGetValue(_texName, out var ds)
+            ? ds : new DoorSpec(0.18f, 0.42f, false);
+        float dx = _w * spec.Fx;
+        float dh = h * spec.Fh;
+
+        // v3.44: load the leaf once so the cast shadow, the leaf, the ink
+        // jamb and the sill contact can all share its measured width.
+        // v3.45: the burnt shell hangs a fire-damaged leaf (charred planks,
+        // torn corner, splintered foot) so the entrance reads without
+        // claiming the fire skipped the door. The intact leaf
+        // (door_leaf.png) is kept for any future standing-house use.
+        _leafTex ??= GD.Load<Texture2D>("res://assets/art/props/door_leaf_burnt.png");
+        float lw = _leafTex != null ? dh * _leafTex.GetSize().X / _leafTex.GetSize().Y : dh * 0.315f;
+        // v3.45: the burnt leaf's bbox carries the torn spread of the fire
+        // damage, so hung at its natural aspect (0.67) it reads as a cabinet
+        // panel rather than a door. Squash to ~0.46: slimmer than the bbox,
+        // still wider than the intact leaf, keeps the ragged silhouette.
+        lw *= 0.68f;
+        // v3.49: the leaf HANGS from the burnt lintel and sags - pivot moved
+        // from the foot to the top centre, rotated ~11° so the foot swings out
+        // of the opening and sinks into a drift. Before this the leaf stood
+        // bolt upright (only -0.045 rad) with a surviving doorknob, and the
+        // outdoor fire flickering in front of the doorway hid/revealed it as
+        // the flames rose and fell, so to the player a full door kept
+        // "suddenly reappearing" in a burnt-out shell (user report 2026-10-31,
+        // direction chosen: heavy lean + half buried).
+        const float Lean = 0.19f;   // rad (~11°), foot swings toward the right jamb
+        Rect2 leafRect = new Rect2(-lw * 0.5f, 0f, lw, dh);
+        float leafCy = gl - dh;     // top-centre pivot: the hinge side stays up
+
+        if (spec.HangLeaf && _leafTex != null)
+        {
+            // v3.44: the leaf texture has a hard rectangular alpha edge (its
+            // plank frame runs to the image border), so hung as-is it reads
+            // as a flat block pasted on the charred wall. Seat it as a door in
+            // the burnt doorway: a soft cast shadow to the lower-right, a dark
+            // contact strip at the sill, and a thin ink jamb frame. The real
+            // fix is alpha-padding the texture so the edge disappears (flagged
+            // for art).
+            // soft cast shadow pooled at the foot, offset to the lean side
+            DrawSetTransform(new Vector2(dx + dh * Lean * 0.6f + 4f, gl + 2f), 0,
+                new Vector2(lw / 40f * 1.5f, 0.32f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.05f, 0.04f, 0.03f), 0.38f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            // the leaf: hinged at the lintel, sagging out of the opening.
+            // The texture is already soot-dark, so only a whisper of tint.
+            DrawSetTransform(new Vector2(dx, leafCy), Lean, Vector2.One);
+            DrawTextureRect(_leafTex, leafRect, false, new Color(0.92f, 0.90f, 0.87f));
+            // burn-through where the doorknob survived the fire: a soft char
+            // blob over the handle side (texture-relative ~13% from the left,
+            // ~54% down), drawn in leaf-local space so it rides the lean. It
+            // eats the left edge raggedly - one more thing that no longer
+            // reads as "a complete door".
+            DrawTextureRect(SoftSnow.Blob(new Color(0.05f, 0.04f, 0.03f), 0.9f),
+                new Rect2(-lw * 0.52f, dh * 0.42f, lw * 0.38f, dh * 0.24f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            // thin ink jamb frame: two posts and a lintel, kept UPRIGHT - the
+            // burnt frame of the opening stands while the leaf sags in it.
+            // v3.47: no bottom bar (it drew a hard ink line across the
+            // railway band; the sill contact grounds the foot instead).
+            var jamb = InkStyle.InkColor;
+            float jl = dx - lw * 0.5f, jr = dx + lw * 0.5f, jt = gl - dh;
+            DrawLine(new Vector2(jl, jt), new Vector2(jl, gl), jamb, 1.6f, true);
+            DrawLine(new Vector2(jr, jt), new Vector2(jr, gl), jamb, 1.6f, true);
+            DrawLine(new Vector2(jl, jt), new Vector2(jr, jt), jamb, 1.6f, true);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        }
 
         // doorstep snow disturbed
+        // v2.8: radial falloff, so the trodden patch has no hard rim
         DrawSetTransform(new Vector2(dx, gl - 1f), 0, new Vector2(1.4f, 0.3f));
-        DrawCircle(Vector2.Zero, 20f, new Color(0.86f, 0.89f, 0.91f, 0.7f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.86f, 0.89f, 0.91f), 0.7f),
+            new Rect2(-20f, -20f, 40f, 40f), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+        // v3.44: dark contact at the sill, over the snow, so the burnt-house
+        // leaf reads as grounded instead of floating.
+        // v3.49: the contact follows the sagged foot, and a snow bank drifted
+        // OVER the sunken bottom of the leaf finishes the job - the door no
+        // longer stands on the ground line, it is buried in it.
+        if (spec.HangLeaf && _leafTex != null)
+        {
+            DrawSetTransform(new Vector2(dx + dh * Lean * 0.5f, gl - 3f), 0,
+                new Vector2(lw / 40f * 1.3f, 0.34f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.04f, 0.03f, 0.02f), 0.5f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            // snow bank over the foot - drawn last so it sits on the sill
+            // contact and the doorstep patch alike
+            DrawSetTransform(new Vector2(dx + dh * Lean * 0.75f, gl - 2f), 0,
+                new Vector2(lw * 1.7f / 64f, dh * 0.36f / 64f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.90f, 0.92f, 0.94f), 0.85f),
+                new Rect2(-32f, -32f, 64f, 64f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        }
     }
 }
 
@@ -92,6 +277,8 @@ public partial class HouseInteriorUi : CanvasLayer
     public event Action Closed;
     public event Action<int> GotAmmo;
     public event Action<int> GotGrenade;
+    public event Action<int> GotHeal;       // 1 = gauze, 99 = medkit (full)
+    public Func<bool> CanHeal = () => true; // level asks the player; full hp wastes nothing
 
     private readonly string _houseId;
     private readonly string _houseTitle;
@@ -117,7 +304,7 @@ public partial class HouseInteriorUi : CanvasLayer
     private partial class Spot : Button
     {
         public string SpotId;
-        public string Kind;        // ammo / grenade / letter / clue / chest / ash
+        public string Kind;        // ammo / grenade / letter / will / clue / gauze / medkit / chest / ash
         public string ResultText;
         public bool Done;
         public float PryProgress;  // chest only
@@ -187,10 +374,18 @@ public partial class HouseInteriorUi : CanvasLayer
     private void BuildSpots()
     {
         // every house rolls its own loot table, chest always somewhere around
-        AddSpot("ammo1", "弹药盒", "ammo", $"翻出半盒步枪弹（+{_rng.RandiRange(4, 8)} 发）");
+        // ammo: usually just a few rounds, a full box is a rare lucky find
+        int ammoN = _rng.Randf() < 0.12f ? _rng.RandiRange(6, 8) : _rng.RandiRange(1, 5);
+        AddSpot("ammo1", "弹药盒", "ammo", $"翻出一小袋步枪弹（+{ammoN} 发）");
         AddSpot("letter1", "压在灶台下的信", "letter", "");
+        if (_rng.Randf() > 0.5f)
+            AddSpot("will1", "叠得整整齐齐的遗书", "will", "");
         if (_rng.Randf() > 0.35f)
-            AddSpot("grenade1", "木柄手榴弹", "grenade", $"从房梁上摸到一颗手榴弹（+1）");
+            AddSpot("grenade1", "木柄手榴弹", "grenade", "");
+        if (_rng.Randf() < 0.18f)
+            AddSpot("gauze1", "半卷干净的纱布", "gauze", "");
+        if (_rng.Randf() < 0.05f)
+            AddSpot("medkit1", "军医留下的医药包", "medkit", "");
         AddSpot("chest1", "上锁的弹药箱", "chest", "");
         if (_rng.Randf() > 0.5f)
             AddSpot("clue1", "烧剩一半的文件", "clue", "");
@@ -239,17 +434,58 @@ public partial class HouseInteriorUi : CanvasLayer
         {
             case "ammo":
             {
-                int n = _rng.RandiRange(4, 8);
+                int n = _rng.Randf() < 0.12f ? _rng.RandiRange(6, 8) : _rng.RandiRange(1, 5);
                 GotAmmo?.Invoke(n);
-                s.ResultText = $"翻出半盒步枪弹（+{n} 发）";
+                s.ResultText = $"翻出一小袋步枪弹（+{n} 发）";
                 MarkDone(s);
                 break;
             }
             case "grenade":
-                GotGrenade?.Invoke(1);
-                s.ResultText = "从房梁上摸到一颗手榴弹（+1）";
+            {
+                // wet wood and old fuses: some of these things simply won't go off
+                float r = _rng.Randf();
+                if (r < 0.20f)
+                {
+                    s.ResultText = "从房梁上摸到一颗手榴弹——木柄受潮，引信哑了，扔不得。";
+                    MarkDone(s);
+                    break;
+                }
+                int n = r > 0.90f ? 2 : 1;
+                GotGrenade?.Invoke(n);
+                s.ResultText = n == 2
+                    ? "房梁上挂着一小串，两颗还能用（+2）。"
+                    : "从房梁上摸到一颗手榴弹（+1）";
                 MarkDone(s);
                 break;
+            }
+            case "gauze":
+            {
+                if (!CanHeal())
+                {
+                    s.ResultText = "身上没伤口，纱布先留在这儿吧。";
+                    s.Text = s.ResultText;
+                    s.Disabled = false;
+                    break;
+                }
+                GotHeal?.Invoke(1);
+                s.ResultText = "绷带还干净，裹紧伤口好受了些（生命 +1）。";
+                MarkDone(s);
+                break;
+            }
+            case "medkit":
+            {
+                if (!CanHeal())
+                {
+                    s.ResultText = "眼下没伤，医药包先收在原处。";
+                    s.Text = s.ResultText;
+                    s.Disabled = false;
+                    break;
+                }
+                GotHeal?.Invoke(99);
+                s.ResultText = "纱布、碘酒、夹板样样齐全——伤全处理了一遍（生命全回复）。";
+                MarkDone(s);
+                break;
+            }
             case "letter":
                 OpenNote("灶台砖下压着的一封信",
                     new[]
@@ -258,6 +494,16 @@ public partial class HouseInteriorUi : CanvasLayer
                         "“要是我回不去，别叫人把我的名字写错了。是永胜的胜，得胜的胜。”",
                     },
                     "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵家书意象改写。");
+                MarkDone(s);
+                break;
+            case "will":
+                OpenNote("叠得整整齐齐的遗书",
+                    new[]
+                    {
+                        "“若我阵亡，勿念。此身许国，不得许家。”",
+                        "“口袋里余钱四十枚，托同乡带回，给妹妹缴学费。她若问起我，就说我在北边教书的。”",
+                    },
+                    "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵遗书意象改写。");
                 MarkDone(s);
                 break;
             case "clue":
@@ -303,10 +549,13 @@ public partial class HouseInteriorUi : CanvasLayer
                 bool open = _rng.Randf() < 0.6f;
                 if (open)
                 {
-                    int n = _rng.RandiRange(6, 12);
+                    int n = _rng.RandiRange(2, 6);
+                    bool hasNade = _rng.Randf() < 0.5f;
                     GotAmmo?.Invoke(n);
-                    GotGrenade?.Invoke(1);
-                    _chestSpot.ResultText = $"锁开了：整盒步枪弹（+{n} 发）和一颗手榴弹。";
+                    if (hasNade) GotGrenade?.Invoke(1);
+                    _chestSpot.ResultText = hasNade
+                        ? $"锁开了：一小袋步枪弹（+{n} 发）和一颗手榴弹。"
+                        : $"锁开了：一小袋步枪弹（+{n} 发）。";
                     _chestSpot.Text = "弹药箱（已撬开）";
                     MarkDone(_chestSpot);
                     _chestSpot.Disabled = false;

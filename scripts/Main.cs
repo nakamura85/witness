@@ -84,10 +84,18 @@ public partial class Main : Node
         tween.TweenProperty(fade, "color:a", 1f, 0.15f);
         tween.TweenCallback(Callable.From(() =>
         {
-            oldScreen.QueueFree();
-            AddChild(next);
-            if (next is Control c)
-                c.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+            // never let a bad screen _Ready strand us under a black veil
+            try
+            {
+                oldScreen.QueueFree();
+                AddChild(next);
+                if (next is Control c)
+                    c.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+            }
+            catch (System.Exception e)
+            {
+                GD.PushError($"[Main] swap into {next.GetType().Name} failed: {e.Message}");
+            }
         }));
         tween.TweenInterval(0.05f);
         tween.TweenProperty(fade, "color:a", 0f, 0.25f);

@@ -17,6 +17,15 @@
 # 本地截图/日志（不入库）
 _shots/
 _capture.log
+cap_run.log
+capmap_run.log
+godot_*.log
+docs/screenshots/*.txt
 
 # 图生图工作目录（不入库）
 _gen/
+
+# 工具目录里的源图不是游戏资源，不必让 Godot 导入
+tools/**/bridge_PHOTOREAL_ORIGINAL.png.import
+_capture_log.txt
+_import_log.txt

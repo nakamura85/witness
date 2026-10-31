@@ -13,8 +13,7 @@ public partial class TitleScreen : Control
 {
     private readonly Main _main;
     private Label _subtitle, _prompt;
-    private Button _btnNew, _btnContinue, _btnGallery;
-    private OptionButton _lang;
+    private Button _btnNew, _btnContinue, _btnGallery, _btnSettings;
     private Label _ver;
 
     public TitleScreen(Main main) { _main = main; }
@@ -95,29 +94,10 @@ public partial class TitleScreen : Control
         _btnGallery = MakeMenuButton(box);
         _btnGallery.Pressed += () => _main.ShowGallery();
 
-        // 语言选择器
-        var langRow = new HBoxContainer();
-        langRow.AddThemeConstantOverride("separation", 12);
-        langRow.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
-        var langLabel = new Label();
-        langLabel.AddThemeFontSizeOverride("font_size", 16);
-        langLabel.AddThemeColorOverride("font_color", new Color(1f, 1f, 1f));
-        langLabel.AddThemeColorOverride("font_outline_color", new Color(0.05f, 0.04f, 0.03f, 0.7f));
-        langLabel.AddThemeConstantOverride("outline_size", 2);
-        langLabel.Name = "LangLabel";
-        langRow.AddChild(langLabel);
-
-        _lang = new OptionButton();
-        _lang.AddThemeFontSizeOverride("font_size", 16);
-        foreach (var (code, name) in LocCore.Languages)
-            _lang.AddItem(name);
-        _lang.ItemSelected += idx =>
-        {
-            Loc.I.SetLang(LocCore.Languages[(int)idx].Code);
-            UpdateTexts();
-        };
-        langRow.AddChild(_lang);
-        box.AddChild(langRow);
+        // v3.0: the standalone language dropdown moved into the settings
+        // panel; the title only keeps one button that opens it
+        _btnSettings = MakeMenuButton(box);
+        _btnSettings.Pressed += () => AddChild(new SettingsUi());
 
         // 版本脚注
         _ver = new Label();
@@ -189,10 +169,8 @@ public partial class TitleScreen : Control
         _btnContinue.Text = Loc.I.T("ui_continue");
         _btnContinue.Visible = GameState.I.HasSave();
         _btnGallery.Text = Loc.I.T("ui_gallery");
+        _btnSettings.Text = Loc.I.T("ui_settings");
         _ver.Text = Loc.I.T("ui_version");
-        _lang.Select(Array.FindIndex(LocCore.Languages, l => l.Code == Loc.I.Lang));
-        var langLabel = _lang.GetParent().GetNode<Label>("LangLabel");
-        langLabel.Text = Loc.I.T("ui_language");
     }
 
     // =========================================================

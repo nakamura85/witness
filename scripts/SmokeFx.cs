@@ -135,6 +135,10 @@ public partial class SmokeFx : Node2D
             float x = s.Pos.X + (k - 1) * 7.5f * s.Size + Mathf.Sin(ph * 0.5f) * 1.4f;
             float y0 = s.Pos.Y;
 
+            // too small a tongue is a flat line, and Godot cannot triangulate
+            // that - it spams "Invalid polygon data" every frame. Skip it.
+            if (h < 2.2f || w < 0.7f) continue;
+
             var tongue = new[]
             {
                 new Vector2(x - w, y0),
@@ -153,13 +157,18 @@ public partial class SmokeFx : Node2D
             };
             DrawColoredPolygon(mid, new Color(1f, 0.42f, 0.10f, 0.92f * s.Fire));
 
-            var core = new[]
+            // the pale core needs a bit more room than the outer tongue,
+            // otherwise it collapses into a zero-height sliver
+            if (h * 0.40f > 1.1f)
             {
-                new Vector2(x - w * 0.30f, y0),
-                new Vector2(x, y0 - h * 0.40f),
-                new Vector2(x + w * 0.30f, y0),
-            };
-            DrawColoredPolygon(core, new Color(1f, 0.88f, 0.52f, 0.95f * s.Fire));
+                var core = new[]
+                {
+                    new Vector2(x - w * 0.30f, y0),
+                    new Vector2(x, y0 - h * 0.40f),
+                    new Vector2(x + w * 0.30f, y0),
+                };
+                DrawColoredPolygon(core, new Color(1f, 0.88f, 0.52f, 0.95f * s.Fire));
+            }
         }
 
         // embers drifting up and dying out
