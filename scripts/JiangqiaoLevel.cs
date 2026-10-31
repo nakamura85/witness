@@ -167,6 +167,7 @@ public partial class JiangqiaoLevel : Node2D
     private readonly List<GrenadeProj> _grenades = new();
     // v3.53: sandbag cover interaction state
     private int _coverIdx = -1;
+    private Tween _coverTween;
     private float _coverCd;            // blocks enter/exit re-triggering on one press
     private float _enemyNadeTimer = -1f;
     private TracerFx _fx;
@@ -1046,7 +1047,7 @@ public partial class JiangqiaoLevel : Node2D
             },
             "依据：江桥抗战公开口述史料改写；人物为复合虚构，不对应单一在世者。");
 
-        AddTestimony("t2", new Vector2(2220, GroundY), "口述 02 · 卫生员 李桂兰（化名，时年 19 岁）",
+        AddTestimony("t2", new Vector2(2100, GroundY), "口述 02 · 卫生员 李桂兰（化名，时年 19 岁）",
             new[]
             {
                 "“担架不够，棉被撕成条。最冷的时候零下二十几度，血一落地就冻住，要用热水化开才能包扎。”",
@@ -1243,39 +1244,57 @@ public partial class JiangqiaoLevel : Node2D
 
     // ================= 捡枪 / 进屋 / 手榴弹 =================
 
+    /// <summary>
+    /// v3.54: one referee for the E key. House door, rifle pickup and sandbag
+    /// stack each used to run their own fixed priority (house beat pickup
+    /// outright, cover half-in), so a rifle by a doorstep was unreachable and
+    /// tapping E beside a testimony opened the house instead. Now the CLOSEST
+    /// candidate wins; on a tie pickup beats cover beats house, and the pickup
+    /// gets an 8px favour because it is the smallest, most precise target.
+    /// </summary>
+    private void NearestTargets(float px, out EnterableHouse house,
+        out WeaponPickup pickup, out int cover, out float dist)
+    {
+        house = null;
+        float hd = 9999f;
+        foreach (var h in _houses)
+        {
+            float d = Mathf.Abs(h.DoorX - px);
+            if (d < 78f && d < hd) { hd = d; house = h; }
+        }
+
+        pickup = null;
+        float pd = 9999f;
+        foreach (var p in _pickups)
+        {
+            if (p.Looted || !IsInstanceValid(p)) continue;
+            float d = Mathf.Abs(p.Position.X - px) - 8f;
+            if (d < 64f && d < pd) { pd = d; pickup = p; }
+        }
+
+        cover = -1;
+        float cd = 9999f;
+        int ci = _coverArt?.NearestStack(px, 100f) ?? -1;
+        if (ci >= 0) { cd = Mathf.Abs(_coverArt.StackX(ci) - px); cover = ci; }
+
+        dist = Mathf.Min(hd, Mathf.Min(pd, cd));
+        if (pd > hd || pd > cd) pickup = null;
+        if (hd > pd || hd > cd) house = null;
+        if (cd > pd || cd > hd) cover = -1;
+    }
+
     private void UpdateInteractions()
     {
         if (_houseUi != null) return;
         float px = _player.GlobalPosition.X;
 
-        // enter house?
-        EnterableHouse nearHouse = null;
-        foreach (var h in _houses)
-            if (Mathf.Abs(h.DoorX - px) < 78f) { nearHouse = h; break; }
-
-        // loot rifle?
-        WeaponPickup nearPickup = null;
-        float bestP = 64f;
-        foreach (var p in _pickups)
-        {
-            if (p.Looted || !IsInstanceValid(p)) continue;
-            float d = Mathf.Abs(p.Position.X - px);
-            if (d < bestP) { bestP = d; nearPickup = p; }
-        }
-
-        // v3.53: sandbag cover competes with the house door for E - the
-        // stack at 2320 stands a stone's throw from h3's door. Whichever
-        // interaction target is CLOSER wins (house wins ties).
-        int coverIdx = _coverArt?.NearestStack(px, 100f) ?? -1;
-        float coverD = coverIdx >= 0 ? Mathf.Abs(_coverArt.StackX(coverIdx) - px) : 9999f;
-        float houseD = nearHouse != null ? Mathf.Abs(nearHouse.DoorX - px) : 9999f;
+        NearestTargets(px, out var nearHouse, out var nearPickup, out int coverIdx, out _);
 
         if (Input.IsActionJustPressed("interact"))
         {
-            if (coverIdx >= 0 && coverD < houseD) EnterCover(coverIdx);
-            else if (nearHouse != null) OpenHouse(nearHouse);
-            else if (nearPickup != null) LootPickup(nearPickup);
+            if (nearPickup != null) LootPickup(nearPickup);
             else if (coverIdx >= 0) EnterCover(coverIdx);
+            else if (nearHouse != null) OpenHouse(nearHouse);
         }
     }
 
@@ -1288,13 +1307,32 @@ public partial class JiangqiaoLevel : Node2D
         _coverIdx = idx;
         _coverCd = 0.3f;
         _player.CoverHold = true;
-        _player.Position = new Vector2(_coverArt.StackX(idx) - 36f, GroundY - 2f);
         _player.Velocity = Vector2.Zero;
+        // v3.54: the old instant teleport read as a glitch-frame ("怪怪的").
+        // A short eased slide into the tuck spot keeps the world continuous.
+        // Bound to the PLAYER node (always in-tree while physics runs) - the
+        // level-bound CreateTween() returned null inside the capture harness
+        // and the tuck silently broke. Falls back to the instant tuck so the
+        // interaction can never die to a tween hiccup.
+        var tuck = new Vector2(_coverArt.StackX(idx) - 36f, GroundY - 2f);
+        var tw = _player.CreateTween();
+        if (tw != null && tw.IsValid())
+        {
+            _coverTween = tw;
+            _coverTween.TweenProperty(_player, "position", tuck, 0.14f)
+                .SetTrans(Tween.TransitionType.Quad).SetEase(Tween.EaseType.Out);
+        }
+        else
+        {
+            _player.Position = tuck;
+        }
         _hud.Toast("你缩到沙袋后面——挡子弹，挡不住手榴弹（E 或移动键离开）");
     }
 
     private void ExitCover()
     {
+        _coverTween?.Kill();
+        _coverTween = null;
         _coverIdx = -1;
         _coverCd = 0.3f;
         if (_player != null) _player.CoverHold = false;
@@ -1467,6 +1505,11 @@ public partial class JiangqiaoLevel : Node2D
     public bool PlayerInCover()
     {
         if (_player == null || !_player.IsOnFloor()) return false;
+        // v3.54: E-tuck counts even without holding the crouch key - the pose
+        // is already crouched (CoverHold), but this check only read raw input,
+        // so a tucked player who never touched crouch was shot at standing
+        // odds. That was the real "hiding behind sandbags and still got hit".
+        if (_coverIdx >= 0) return true;
         bool low = Input.IsActionPressed("crouch") || Input.IsActionPressed("prone");
         if (!low) return false;
         float px = _player.GlobalPosition.X;
@@ -1538,18 +1581,9 @@ public partial class JiangqiaoLevel : Node2D
     {
         float px = _player.GlobalPosition.X;
 
-        EnterableHouse nearHouse = null;
-        foreach (var h in _houses)
-            if (Mathf.Abs(h.DoorX - px) < 78f) { nearHouse = h; break; }
-
-        WeaponPickup nearPickup = null;
-        float bestP = 64f;
-        foreach (var p in _pickups)
-        {
-            if (p.Looted || !IsInstanceValid(p)) continue;
-            float d = Mathf.Abs(p.Position.X - px);
-            if (d < bestP) { bestP = d; nearPickup = p; }
-        }
+        // v3.54: same referee as the E handler, so the prompt never lies
+        // (a doorstep rifle used to show "进屋搜索").
+        NearestTargets(px, out var nearHouse, out var nearPickup, out _, out _);
 
         Testimony near = null;
         float bestT = 86f;
@@ -1560,12 +1594,12 @@ public partial class JiangqiaoLevel : Node2D
             if (d < bestT) { bestT = d; near = t; }
         }
 
-        if (nearHouse != null)
-            _hud.ShowPrompt("按 E · 进屋搜索");
-        else if (nearPickup != null)
+        if (nearPickup != null)
             _hud.ShowPrompt(nearPickup.Condition == WeaponPickup.Kind.Broken
                 ? "按 E · 捡起步枪（可能打不响）"
                 : "按 E · 捡枪拿子弹");
+        else if (nearHouse != null)
+            _hud.ShowPrompt("按 E · 进屋搜索");
         else if (near != null)
             _hud.ShowPrompt("按住 E · 记录口述");
         else if (GameState.I.S.JiangqiaoTestimony.Count >= 3 && px > 4200f)
@@ -1812,10 +1846,10 @@ public partial class JiangqiaoLevel : Node2D
         Vector2 to = _player.GlobalPosition + new Vector2(0, -38);
         bool crouching = Input.IsActionPressed("crouch") && _player.IsOnFloor();
         bool cover = PlayerInCover();
-        // 沙袋后面趴着基本打不中（真实掩体），站着挨打最惨
-        // v3.53: tuck-in cover is near-immune (0.02); every burst of suppressing
-        // fire chews the wall a little - cover is consumable.
-        float hitChance = cover ? 0.02f : crouching ? 0.10f : 0.28f;
+        // v3.54: sandbags stop the bullet, not the grenade - tucked in means
+        // 0% bullet hits (was 0.02, read as "cover leaked"). Suppressing fire
+        // still chews the wall, grenades still land, so cover stays consumable.
+        float hitChance = cover ? 0f : crouching ? 0.10f : 0.28f;
         bool hit = GD.Randf() < hitChance;
 
         if (cover && _coverArt != null)
@@ -3064,10 +3098,13 @@ public partial class JiangqiaoLevel : Node2D
             _craterR = craterListR.ToArray();
 
             // 弹药木箱：错开沙包垛位摆放，每只高矮/歪斜略不同（不再像贴图一样复制叠上去）
+            // v3.54: 730 sat on top of testimony t1 (720), 3960 stood inside
+            // the f3 ruin wall (3910..4241). 790 clears t1, 3855 threads
+            // between the 3780 crater rim and f3's west edge.
             var crateListX = new List<float>();
             var crateListH = new List<float>();
             var crateListRot = new List<float>();
-            foreach (float x in new[] { 730f, 1450f, 2680f, 3960f })
+            foreach (float x in new[] { 790f, 1450f, 2680f, 3855f })
             {
                 crateListX.Add(x + rng.RandfRange(-18f, 18f));
                 crateListH.Add(30f + rng.RandfRange(-3f, 4f));
