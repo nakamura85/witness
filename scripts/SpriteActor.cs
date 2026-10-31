@@ -32,6 +32,8 @@ public partial class SpriteActor : Node2D
     public float Aim;
     public float MuzzleFlash;
     public float HurtFlash;
+    /// <summary>v3.55: 拉弦挥臂掷弹蓄力度 0→1（>0.25 换掷弹专姿图），出手后归 0。</summary>
+    public float ThrowPose;
     /// <summary>开枪后坐量 1→0，躯干短暂后仰 + 后移。</summary>
     public float Recoil;
     /// <summary>自动化截图用：true 时暂停火光/受击/后坐衰减（低帧率下截不到火光）。</summary>
@@ -47,9 +49,13 @@ public partial class SpriteActor : Node2D
     private (Texture2D tex, float s, float pox, float muzY) PoseInfo()
     {
         if (_pose == null) return (null, 0f, 0f, 0f);
-        if (Prone) return (_proneTex, _proneS, -_proneTex.GetSize().X * _proneS * 0.30f, 0.58f);
-        if (Crouched) return (_crouchTex, _crouchS, 0f, 0.31f);
-        if (Aim > 0.5f && !(Airborne || !Grounded) && !Vaulting)
+        if (Prone && _proneTex != null)
+            return (_proneTex, _proneS, -_proneTex.GetSize().X * _proneS * 0.30f, 0.58f);
+        // v3.55: 掷弹蓄力优先于蹲/瞄——标准投弹动作是站直挥臂，不能被瞄准姿吃掉
+        if (ThrowPose > 0.25f && _throwTex != null && !(Airborne || !Grounded) && !Vaulting)
+            return (_throwTex, _throwS, 0f, 0.9f);
+        if (Crouched && _crouchTex != null) return (_crouchTex, _crouchS, 0f, 0.31f);
+        if (Aim > 0.5f && _aimTex != null && !(Airborne || !Grounded) && !Vaulting)
             return (_aimTex, _aimS, 0f, 0.165f);
         return (null, 0f, 0f, 0f);
     }
@@ -80,8 +86,8 @@ public partial class SpriteActor : Node2D
     /// <summary>hip pivot in texture coords (from top-left): the point that must
     /// stay glued to the leg pieces whenever the torso rotates.</summary>
     private Vector2 _hipPivot;
-    private Texture2D _aimTex, _crouchTex, _proneTex;
-    private float _aimS, _crouchS, _proneS;
+    private Texture2D _aimTex, _crouchTex, _proneTex, _throwTex;
+    private float _aimS, _crouchS, _proneS, _throwS;
     private ShaderMaterial _mat;
     private bool _wasGrounded = true;
     private float _landT;             // 落地缓冲计时 1→0
@@ -231,21 +237,34 @@ public partial class SpriteActor : Node2D
         _flip.AddChild(_legFront);
         if (_hip != null) _flip.AddChild(_hip);      // 髋片最后绘制，盖在最上层
 
-        // —— 军人标准专姿立绘（仅玩家）：瞄准/蹲/趴不再用纸娃娃刚性变形，
+        // —— 军人标准专姿立绘（玩家与日军）：瞄准/蹲/趴/掷弹不再用纸娃娃刚性变形，
         // 而是整体换一张同画风、同军服的专项姿势立绘（军事动作标准）——
-        if (kind == Kind.NortheastArmy)
+        // v3.55: 日军 (Kind.Soldier) 也接入同一机制——此前 Aim 只把躯干前倾，
+        // 枪还是行军持枪姿，开枪完全不像瞄准；掷弹更是凭空出现。
+        // 贴图按文件存在性加载：缺哪张就退回纸娃娃，不报错不阻塞。
+        if (kind == Kind.NortheastArmy || kind == Kind.Soldier)
         {
-            _aimTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_aim.jpg", 0.03f, 0.05f);
-            _crouchTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_crouch.jpg", 0.03f, 0.05f);
-            _proneTex = ChromaKey.Cutout("res://assets/art/sprites/soldier_na_prone.jpg", 0.03f, 0.05f);
+            string stem = kind == Kind.NortheastArmy ? "soldier_na" : "soldier_ija";
+            _aimTex = LoadPoseTex($"{stem}_aim");
+            _crouchTex = LoadPoseTex($"{stem}_crouch");
+            _proneTex = LoadPoseTex($"{stem}_prone");
+            _throwTex = LoadPoseTex($"{stem}_throw");
             // 蹲：跪姿真实高度比 0.74（同一个人只是姿势变矮，头/装备不缩小）
             // 趴：按身体长度=站立身高定缩放（趴下身长不变，横向贴地）
             if (_aimTex != null) _aimS = Height / _aimTex.GetSize().Y;
             if (_crouchTex != null) _crouchS = Height * 0.74f / _crouchTex.GetSize().Y;
             if (_proneTex != null) _proneS = Height / _proneTex.GetSize().X;
+            if (_throwTex != null) _throwS = Height / _throwTex.GetSize().Y;
             _pose = new Sprite2D { Centered = false, Visible = false, Material = _mat };
             _flip.AddChild(_pose);
         }
+    }
+
+    /// <summary>v3.55: 专项姿势贴图按存在性加载（缺失返回 null，不刷错误日志）。</summary>
+    private static Texture2D LoadPoseTex(string name)
+    {
+        string p = $"res://assets/art/sprites/{name}.jpg";
+        return FileAccess.FileExists(p) ? ChromaKey.Cutout(p, 0.03f, 0.05f) : null;
     }
 
     private Sprite2D MakeLeg(Godot.Texture2D tex, float x0, float w, float s)

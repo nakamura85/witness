@@ -1392,7 +1392,7 @@ public partial class JiangqiaoLevel : Node2D
             float d = Mathf.Abs(e.Position.X - _player.GlobalPosition.X);
             if (d < best) { best = d; thrower = e; }
         }
-        if (thrower == null) return;
+        if (thrower == null || thrower._throwing) return;
 
         var start = thrower.Position + new Vector2(-20f, -70f);
         var target = new Vector2(_coverArt.StackX(_coverIdx) + 10f, GroundY - 8f);
@@ -1400,11 +1400,22 @@ public partial class JiangqiaoLevel : Node2D
         float g = 1500f;                      // matches GrenadeProj gravity
         var vel = new Vector2((target.X - start.X) / T,
                               (target.Y - start.Y - 0.5f * g * T * T) / T);
-        var nade = new GrenadeProj(start, vel);
-        _game.AddChild(nade);
-        _grenades.Add(nade);
-        _hud.Toast("敌兵掷来木柄手榴弹——快离开落点！");
-        Shake(0.08f);
+
+        // v3.55: 标准投弹动作——拉弦（摆出挥臂待掷姿）→ 蓄力半秒 → 出手。
+        // 以前是凭空出现一颗雷，既没有动作也没有预警帧。
+        thrower._throwing = true;
+        thrower._fig.ThrowPose = 1f;
+        GetTree().CreateTimer(0.5f).Timeout += () =>
+        {
+            if (!IsInstanceValid(thrower) || thrower.Gone) return;
+            thrower._fig.ThrowPose = 0f;
+            thrower._throwing = false;
+            var nade = new GrenadeProj(start, vel);
+            _game.AddChild(nade);
+            _grenades.Add(nade);
+            _hud.Toast("敌兵拉弦掷来木柄手榴弹——快离开落点！");
+            Shake(0.08f);
+        };
     }
 
     private void LootPickup(WeaponPickup p)
@@ -1452,17 +1463,28 @@ public partial class JiangqiaoLevel : Node2D
         _houseUi = ui;
     }
 
+    private bool _playerThrowing;
+
     private void UpdateGrenades(float f)
     {
         if (_noteOpen || _houseUi != null || _ended) return;
-        if (Input.IsActionJustPressed("grenade") && _player.Grenades > 0)
+        // v3.55: 玩家掷弹也走标准动作——拉弦挥臂 0.45s 蓄力，出手位置按松手瞬间算
+        if (Input.IsActionJustPressed("grenade") && _player.Grenades > 0 && !_playerThrowing)
         {
             _player.Grenades--;
-            var g = new GrenadeProj(_player.GlobalPosition + new Vector2(_player.Facing * 14f, -46f),
-                _player.Facing);
-            _game.AddChild(g);
-            _grenades.Add(g);
-            _hud.Toast("手榴弹出手——卧倒！");
+            _playerThrowing = true;
+            _player.Figure.ThrowPose = 1f;
+            GetTree().CreateTimer(0.45f).Timeout += () =>
+            {
+                _playerThrowing = false;
+                if (_ended || !IsInstanceValid(_player)) return;
+                _player.Figure.ThrowPose = 0f;
+                var g = new GrenadeProj(_player.GlobalPosition + new Vector2(_player.Facing * 14f, -46f),
+                    _player.Facing);
+                _game.AddChild(g);
+                _grenades.Add(g);
+                _hud.Toast("手榴弹出手——卧倒！");
+            };
         }
 
         for (int i = _grenades.Count - 1; i >= 0; i--)
@@ -1496,7 +1518,12 @@ public partial class JiangqiaoLevel : Node2D
         // damage check below deliberately ignores cover: a grenade does not
         // care that you are hiding.
         if (_coverArt != null && _coverArt.Blast(at.X))
+        {
             _hud.Toast("沙袋掩体被炸毁了！");
+            // v3.55: 墙被炸开的瞬间一蓬沙袋真的飞出去（散落场由 DrawWreck 留下）
+            if (!float.IsNaN(_coverArt.WreckX))
+                _game.AddChild(new CoverBurstFx { Position = new Vector2(_coverArt.WreckX, GroundY - 14f) });
+        }
         if (_player.GlobalPosition.DistanceTo(at) < 120f)
             _player.TakeHit(at.X);
     }
@@ -4112,8 +4139,71 @@ public partial class JiangqiaoLevel : Node2D
 
         private StackSpec[] _stacks = System.Array.Empty<StackSpec>();
         private Texture2D _sackTex;
-        private Texture2D _deadTex;
         private float[] _hp = System.Array.Empty<float>();
+
+        /// <summary>v3.55: one scattered bag of the wreck debris field.</summary>
+        private sealed class WreckBag
+        {
+            public Vector2 Pos;      // world
+            public float Rot;
+            public Vector2 Size;
+            public bool Torn;        // darker, torn-open bag
+            public bool Snow;        // snow-capped (half-buried look)
+        }
+
+        private List<WreckBag>[] _wreck;
+
+        /// <summary>
+        /// v3.55: build the scattered debris layout for one stack. A blast does
+        /// not leave a tidy mound: the wall bursts into a low chaotic pile at
+        /// the old footprint PLUS bags flung out into the snow on both sides,
+        /// half-buried, some torn open, sand spilled between them. Seeded per
+        /// stack so the field never reshimmers frame to frame.
+        /// </summary>
+        private void BuildWreckLayout(int i)
+        {
+            var rng = new RandomNumberGenerator();
+            rng.Seed = 7311UL + (ulong)i * 977UL;
+            var s = _stacks[i];
+            var list = new List<WreckBag>();
+
+            // —— 低矮乱堆：旧墙脚印内 9~13 只随机旋转的散袋 ——
+            int mound = rng.RandiRange(9, 13);
+            for (int k = 0; k < mound; k++)
+            {
+                float w = rng.RandfRange(19f, 27f);
+                list.Add(new WreckBag
+                {
+                    Pos = new Vector2(s.X + rng.RandfRange(-s.W * 0.48f, s.W * 0.48f),
+                                      GroundY - 2f - rng.RandfRange(1f, 15f)),
+                    Rot = rng.RandfRange(-0.55f, 0.55f),
+                    Size = new Vector2(w, w * rng.RandfRange(0.42f, 0.55f)),
+                    Torn = rng.Randf() < 0.30f,
+                    Snow = rng.Randf() < 0.35f,
+                });
+            }
+            // —— 抛飞散袋：砸到雪里，两侧 0.6~1.8 倍墙宽处，半埋 + 积雪 ——
+            int flung = rng.RandiRange(5, 8);
+            for (int k = 0; k < flung; k++)
+            {
+                float w = rng.RandfRange(17f, 24f);
+                float side = rng.Randf() < 0.5f ? -1f : 1f;
+                list.Add(new WreckBag
+                {
+                    Pos = new Vector2(s.X + side * rng.RandfRange(s.W * 0.60f, s.W * 1.80f),
+                                      GroundY - 2f - rng.RandfRange(0f, 5f)),
+                    Rot = rng.RandfRange(-1.35f, 1.35f),
+                    Size = new Vector2(w, w * rng.RandfRange(0.36f, 0.46f)),
+                    Torn = rng.Randf() < 0.25f,
+                    Snow = true,
+                });
+            }
+            list.Sort((a, b) => a.Pos.Y.CompareTo(b.Pos.Y));   // 远的先画
+            _wreck[i] = list;
+        }
+
+        /// <summary>v3.55: 本轮爆炸把哪一垛炸飞了（无则 NaN），Explode 用来挂飞散特效。</summary>
+        internal float WreckX { get; private set; } = float.NaN;
 
         /// <summary>沙袋是给主角躲的：蹲/趴在垛子投影范围内算进掩体。
         /// v3.53: destroyed walls cover nobody.</summary>
@@ -4173,6 +4263,7 @@ public partial class JiangqiaoLevel : Node2D
         internal bool Blast(float x)
         {
             bool wrecked = false;
+            WreckX = float.NaN;
             for (int i = 0; i < _stacks.Length; i++)
             {
                 if (_hp[i] <= 0f) continue;
@@ -4181,6 +4272,7 @@ public partial class JiangqiaoLevel : Node2D
                 {
                     wrecked = true;
                     Damage(i, 999f);
+                    WreckX = _stacks[i].X;
                 }
                 else if (d < 175f)
                 {
@@ -4220,7 +4312,11 @@ public partial class JiangqiaoLevel : Node2D
             }
             _stacks = list.ToArray();
             _sackTex = GD.Load<Texture2D>("res://assets/art/props/sandbags.png");
-            _deadTex = GD.Load<Texture2D>("res://assets/art/props/sandbags_destroyed.png");
+            // v3.55: the tidy wreck texture is retired - an explosion SCATTERS
+            // the wall, it does not leave a neat mound. Each stack gets a
+            // deterministic debris layout (seeded, built once) used by _Draw.
+            _wreck = new List<WreckBag>[_stacks.Length];
+            for (int i = 0; i < _stacks.Length; i++) BuildWreckLayout(i);
             _hp = new float[_stacks.Length];
             for (int i = 0; i < _hp.Length; i++) _hp[i] = FullHp;
         }
@@ -4241,33 +4337,11 @@ public partial class JiangqiaoLevel : Node2D
                 bool flip = i % 2 == 1;
                 if (destroyed)
                 {
-                    // v3.53: the wall is gone - collapsed wreck of torn bags,
-                    // wider and lower than the standing wall, scorch pooled
-                    // where it used to stand. Provides no cover any more.
-                    if (_deadTex != null)
-                    {
-                        // v3.53b: 1.55x1.02 squashed the 2.29:1 wreck texture
-                        // into a 3.9:1 sliver - it read as generic debris, not
-                        // torn bags. 1.6x1.35 keeps it a low mound (slightly
-                        // over wall height: spilled sand mounds up) that still
-                        // shows the torn canvas and scorch holes.
-                        float w = s.W * 1.6f;
-                        float h = s.H * 1.35f;
-                        if (flip)
-                        {
-                            DrawSetTransform(new Vector2(cx, GroundY + 1f), 0, new Vector2(-1f, 1f));
-                            DrawTextureRect(_deadTex, new Rect2(-w * 0.5f, -h, w, h), false);
-                            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-                        }
-                        else
-                        {
-                            DrawTextureRect(_deadTex, new Rect2(cx - w * 0.5f, GroundY + 1f - h, w, h), false);
-                        }
-                    }
-                    DrawSetTransform(new Vector2(cx, GroundY - 2f), 0, new Vector2(s.W * 0.042f, 0.6f));
-                    DrawTextureRect(SoftSnow.Blob(new Color(0.16f, 0.14f, 0.11f), 0.40f),
-                        new Rect2(-32f, -32f, 64f, 64f), false);
-                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    // v3.55: the wall SCATTERED - a low chaotic pile of torn
+                    // bags where it stood plus bags flung out into the snow,
+                    // half-buried, sand spilled between them. The old tidy
+                    // wreck texture read as "still a neat wall, just shorter".
+                    DrawWreck(i);
                     continue;
                 }
 
@@ -4300,6 +4374,54 @@ public partial class JiangqiaoLevel : Node2D
                 }
             }
         }
+
+        /// <summary>
+        /// v3.55: draw the scattered wreck. Bags share the hand-drawn language
+        /// of the chipped-wall loose bag above (same tan fill + ink outline),
+        /// torn ones darker with the seam split open, snow-capped ones get a
+        /// white cap so the flung bags read as half-buried in drift.
+        /// </summary>
+        private void DrawWreck(int i)
+        {
+            var bags = _wreck[i];
+            if (bags == null) return;
+            var s = _stacks[i];
+            var sack = new Color(0.62f, 0.55f, 0.42f);
+            var sackDark = new Color(0.46f, 0.39f, 0.29f);
+            var ink = new Color(0.2f, 0.17f, 0.12f, 0.8f);
+            var spill = new Color(0.55f, 0.48f, 0.36f, 0.30f);
+
+            // 溢出的沙：堆间几摊浅色
+            for (int k = 0; k < 3; k++)
+            {
+                float px = s.X + (k - 1) * s.W * 0.35f;
+                DrawSetTransform(new Vector2(px, GroundY - 2f), 0, new Vector2(1f, 0.45f));
+                DrawTextureRect(SoftSnow.Blob(spill, 0.5f), new Rect2(-22f, -22f, 44f, 44f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+
+            // 焦痕：爆点中央
+            DrawSetTransform(new Vector2(s.X, GroundY - 2f), 0, new Vector2(s.W * 0.045f, 0.6f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.16f, 0.14f, 0.11f), 0.40f),
+                new Rect2(-32f, -32f, 64f, 64f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+            foreach (var b in bags)
+            {
+                DrawSetTransform(b.Pos, b.Rot, Vector2.One);
+                var fill = b.Torn ? sackDark : sack;
+                DrawRect(new Rect2(-b.Size.X * 0.5f, -b.Size.Y * 0.5f, b.Size.X, b.Size.Y), fill);
+                // 撕口：袋身中缝一道深色裂线
+                if (b.Torn)
+                    DrawRect(new Rect2(-b.Size.X * 0.5f, -1f, b.Size.X, 2f),
+                        new Color(0.25f, 0.2f, 0.14f, 0.9f));
+                DrawRect(new Rect2(-b.Size.X * 0.5f, -b.Size.Y * 0.5f, b.Size.X, b.Size.Y), ink, false, 1.2f);
+                if (b.Snow)
+                    DrawRect(new Rect2(-b.Size.X * 0.5f, -b.Size.Y * 0.5f, b.Size.X, b.Size.Y * 0.34f),
+                        new Color(0.94f, 0.95f, 0.97f, 0.85f));
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+        }
     }
 
     /// <summary>
@@ -4327,6 +4449,78 @@ public partial class JiangqiaoLevel : Node2D
     /// </summary>
 
     // ================= 特效 =================
+
+    /// <summary>
+    /// v3.55: one-shot bag burst when a sandbag wall dies. A handful of bags
+    /// flies out on real ballistics (gravity, one snow bounce), sand puffs
+    /// along the way, everything fades into the debris field that _Draw now
+    /// leaves behind. Self-freeing.
+    /// </summary>
+    private partial class CoverBurstFx : Node2D
+    {
+        private sealed class Bag
+        {
+            public Vector2 Pos, Vel;
+            public float Rot, RotV, W, H;
+            public bool Landed;
+        }
+
+        private readonly List<Bag> _bags = new();
+        private float _t;
+        private const float Life = 1.1f;
+
+        public CoverBurstFx()
+        {
+            var rng = new RandomNumberGenerator();
+            rng.Randomize();
+            for (int k = 0; k < 7; k++)
+            {
+                float w = rng.RandfRange(18f, 26f);
+                _bags.Add(new Bag
+                {
+                    Pos = new Vector2(rng.RandfRange(-24f, 24f), rng.RandfRange(-26f, -6f)),
+                    Vel = new Vector2(rng.RandfRange(-190f, 190f), rng.RandfRange(-330f, -140f)),
+                    Rot = 0f,
+                    RotV = rng.RandfRange(-7f, 7f),
+                    W = w, H = w * 0.48f,
+                });
+            }
+        }
+
+        public override void _Process(double delta)
+        {
+            float f = (float)delta;
+            _t += f;
+            if (_t > Life) { QueueFree(); return; }
+            foreach (var b in _bags)
+            {
+                if (b.Landed) continue;
+                b.Vel += new Vector2(0f, 980f * f);
+                b.Pos += b.Vel * f;
+                b.Rot += b.RotV * f;
+                if (b.Pos.Y > -3f)              // 砸进雪里就停住、转势归零
+                {
+                    b.Pos = new Vector2(b.Pos.X, -3f);
+                    b.Landed = true;
+                }
+            }
+            QueueRedraw();
+        }
+
+        public override void _Draw()
+        {
+            float fade = Mathf.Clamp((Life - _t) / 0.3f, 0f, 1f);
+            var sack = new Color(0.62f, 0.55f, 0.42f, fade);
+            var ink = new Color(0.2f, 0.17f, 0.12f, 0.8f * fade);
+            foreach (var b in _bags)
+            {
+                DrawSetTransform(b.Pos, b.Rot, Vector2.One);
+                DrawRect(new Rect2(-b.W * 0.5f, -b.H * 0.5f, b.W, b.H), sack);
+                DrawRect(new Rect2(-b.W * 0.5f, -b.H * 0.5f, b.W, b.H), ink, false, 1.1f);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+        }
+    }
 
     private partial class TracerFx : Node2D
     {
@@ -4601,6 +4795,9 @@ public partial class EnemySoldier : Node2D
 
     public bool Gone { get; private set; }
     public bool Alerted => _alertT > 0f;
+
+    /// <summary>v3.55: 正在拉弦蓄力掷弹（同一次只掷一颗）。</summary>
+    internal bool _throwing;
 
     public EnemySoldier(JiangqiaoLevel level, Vector2 pos, float lane)
     {
