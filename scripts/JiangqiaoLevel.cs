@@ -1493,6 +1493,7 @@ public partial class JiangqiaoLevel : Node2D
                     dir = new Vector2(sx * 0.989f, -0.15f);
                 }
                 var g = new GrenadeProj(start, dir * 360f, ijaType: false);
+                g.FromPlayer = true;
                 _game.AddChild(g);
                 _grenades.Add(g);
                 _hud.Toast("手榴弹出手——卧倒！");
@@ -1504,12 +1505,14 @@ public partial class JiangqiaoLevel : Node2D
             var g = _grenades[i];
             if (!g.Exploded) continue;
             _grenades.RemoveAt(i);
-            Explode(g.GlobalPosition);
+            Explode(g.GlobalPosition, g.FromPlayer);
             g.QueueFree();
         }
     }
 
-    private void Explode(Vector2 at)
+    /// <summary>fromPlayer: 玩家自己的雷自伤规则宽松（贴脸才扣 1 心），
+    /// 敌方雷套完整现实杀伤半径——炸弹不讲情面。</summary>
+    private void Explode(Vector2 at, bool fromPlayer = false)
     {
         Artillery(0.65f);
         Shake(0.9f);
@@ -1520,11 +1523,11 @@ public partial class JiangqiaoLevel : Node2D
         foreach (var e in _enemies)
         {
             if (!IsInstanceValid(e) || e.Gone) continue;
-            if (e.Position.DistanceTo(at) < 165f)
-            {
-                e.Hit();
-                e.Hit();   // blast kills outright
-            }
+            // v3.60: 敌兵杀伤也按现实半径——5m(337px)重创带内雷管双击秒杀，
+            // 8m(539px)破片带内单击重创。
+            float ed = e.Position.DistanceTo(at);
+            if (ed < 337f) { e.Hit(); e.Hit(); }        // blast kills outright
+            else if (ed < 539f) e.Hit();
         }
         // v3.53: the blast chews through sandbag cover too - direct hit
         // flattens the wall, a blast one wall over mangles it. The player
@@ -1537,8 +1540,31 @@ public partial class JiangqiaoLevel : Node2D
             if (!float.IsNaN(_coverArt.WreckX))
                 _game.AddChild(new CoverBurstFx { Position = new Vector2(_coverArt.WreckX, GroundY - 14f) });
         }
-        if (_player.GlobalPosition.DistanceTo(at) < 120f)
-            _player.TakeHit(at.X);
+        // v3.60 现实杀伤模型。史实：91式装药 65g TNT、有效杀伤半径约 8m；
+        // M24 装药约 170g、半径更大。游戏换算 1px≈1.484cm（PersonH=114.5px
+        // =170cm）→ 重创带 5m≈337px、破片带 8m≈539px。沙袋挡得住破片，
+        // 挡不住冲击波——掩体后照样被炸到半血残血（用户 v3.60 需求）。
+        float pd = _player.GlobalPosition.DistanceTo(at);
+        if (pd < 337f)
+        {
+            if (fromPlayer)
+            {
+                // 自己的雷：贴脚边才自伤（正常投掷落点都在 150px 外）
+                if (pd < 150f) { _player.TakeBlast(1, at.X); _hud.Toast("贴脸爆炸——被自己的手雷震伤！"); }
+            }
+            else
+            {
+                bool covered = PlayerInCover();
+                _player.TakeBlast(covered ? 2 : 3, at.X);
+                _hud.Toast(covered ? "冲击波穿透沙袋——你被炸成重伤！"
+                                   : "爆炸正面吞噬了你——重伤！");
+            }
+        }
+        else if (pd < 539f && !fromPlayer && !PlayerInCover())
+        {
+            _player.TakeBlast(1, at.X);
+            _hud.Toast("破片掠过——擦伤");
+        }
     }
 
     /// <summary>玩家是否正躲在沙袋掩体后（蹲/趴才算真掩护）。</summary>
@@ -4553,6 +4579,7 @@ public partial class JiangqiaoLevel : Node2D
         private float _ringR;
         private const float FireT = 0.16f;
         private const float SmokeT = 1.1f;
+        private const float ScorchT = 3.2f;   // v3.60 焦痕留存到 3.2s
 
         public BlastFx()
         {
@@ -4606,18 +4633,31 @@ public partial class JiangqiaoLevel : Node2D
                 s.R += s.Grow * f;
                 _smoke[i] = s;
             }
-            if (_t > SmokeT) { QueueFree(); return; }
+            if (_t > SmokeT) { QueueRedraw(); return; }   // v3.60 烟散后焦痕继续留存
+            if (_t > ScorchT) { QueueFree(); return; }
             QueueRedraw();
         }
 
         public override void _Draw()
         {
-            // ④ 雪雾扩散环
+            // v3.60 ⑤ 雪地焦痕：爆炸把雪烧焦喷开，留下一块渐隐的焦土。
+            // 画在地面投影处（拉扁椭圆），烟散后仍在，最后一个消失。
+            if (_t > 0.05f)
+            {
+                float a = Mathf.Clamp((ScorchT - _t) / 2.2f, 0f, 1f) * 0.42f;
+                DrawSetTransform(new Vector2(0, JiangqiaoLevel.GroundY - Position.Y), 0, new Vector2(1.35f, 0.30f));
+                DrawCircle(Vector2.Zero, 46f, new Color(0.20f, 0.17f, 0.15f, a * 0.55f));
+                DrawCircle(Vector2.Zero, 27f, new Color(0.14f, 0.12f, 0.10f, a));
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
+            // ④ 雪雾扩散环（v3.60 双弧：内亮外淡，更读得出“冲击波扩散”）
             if (_t > 0.12f && _t < 0.85f)
             {
-                float a = Mathf.Clamp((0.85f - _t) / 0.5f, 0f, 1f) * 0.30f;
+                float a = Mathf.Clamp((0.85f - _t) / 0.5f, 0f, 1f);
                 DrawArc(Vector2.Zero, _ringR * 0.6f, 0f, Mathf.Tau, 40,
-                    new Color(0.93f, 0.94f, 0.96f, a), 5f, true);
+                    new Color(0.93f, 0.94f, 0.96f, a * 0.34f), 6f, true);
+                DrawArc(Vector2.Zero, _ringR * 0.48f, 0f, Mathf.Tau, 40,
+                    new Color(0.88f, 0.90f, 0.94f, a * 0.20f), 10f, true);
             }
             // ① 暖核：短暂一闪
             if (_t < FireT)
@@ -5186,6 +5226,10 @@ public partial class GrenadeProj : Node2D
     /// 不是木柄）。江桥抗战（1931.11）双方各自的制式手榴弹。</summary>
     public bool IjaType;
 
+    /// <summary>v3.60: 谁丢的雷。玩家自己的雷自伤规则宽松（不拦自己正常
+    /// 抛物线），敌方雷才套完整杀伤半径——否则玩家每次投掷都被波及。</summary>
+    public bool FromPlayer;
+
     public bool Exploded { get; private set; }
 
     public GrenadeProj(Vector2 pos, float facing)
@@ -5240,18 +5284,49 @@ public partial class GrenadeProj : Node2D
         DrawSetTransform(new Vector2(0, 0), _spin, Vector2.One);
         if (IjaType)
         {
-            // 九一式手雷：卵形铸铁弹体（深铁灰、带压纹点）、顶部引信管+拉销环
-            DrawCircle(new Vector2(0, -8f), 7.2f, new Color(0.24f, 0.25f, 0.24f));
-            DrawCircle(new Vector2(0, -8f), 7.2f, new Color(0.12f, 0.12f, 0.12f, 0.75f), false, 1.2f);
-            // 铸铁压纹（几粒小点）
-            foreach (var p in new[] { (-3f, -11f), (3f, -9f), (0f, -5f), (-4f, -6f), (4f, -12f) })
-                DrawCircle(new Vector2(p.Item1, p.Item2), 0.9f, new Color(0.14f, 0.14f, 0.13f));
-            // 引信管 + 拉销环
-            DrawRect(new Rect2(-2f, -17f, 4f, 6f), new Color(0.30f, 0.30f, 0.29f));
-            DrawArc(new Vector2(4f, -18f), 2.6f, 0f, Mathf.Tau, 10, new Color(0.55f, 0.52f, 0.45f), 1.4f, true);
+            // v3.60 九一式“香瓜手雷”重绘：不再是模糊圆球。史实外形——
+            // 近圆柱铸铁弹体带横向分段沟纹（预制破片槽）、底部底座缘、
+            // 顶部黄铜击发管 + 拉销环。墨线勾边与 M24 同一套语言。
+            var ijaIron = new Color(0.30f, 0.31f, 0.30f);
+            var ijaIronDark = new Color(0.21f, 0.22f, 0.22f);
+            var brass = new Color(0.58f, 0.49f, 0.30f);
+            var ink = new Color(0.16f, 0.15f, 0.13f, 0.9f);
+
+            // 弹体：切角圆柱（y -20..-3，宽14）
+            DrawColoredPolygon(new[] {
+                new Vector2(-7.0f, -16.5f), new Vector2(-5.4f, -20.0f),
+                new Vector2(5.4f, -20.0f), new Vector2(7.0f, -16.5f),
+                new Vector2(7.0f, -6.5f), new Vector2(5.6f, -3.0f),
+                new Vector2(-5.6f, -3.0f), new Vector2(-7.0f, -6.5f),
+            }, ijaIron);
+            // 左侧暗面（受光面在右）
+            DrawColoredPolygon(new[] {
+                new Vector2(-7.0f, -16.5f), new Vector2(-5.4f, -20.0f),
+                new Vector2(-3.0f, -20.0f), new Vector2(-3.0f, -3.0f),
+                new Vector2(-7.0f, -6.5f),
+            }, ijaIronDark);
+            // 横向分段沟纹（预制破片槽——91式的识别特征）
+            DrawLine(new Vector2(-6.7f, -15.0f), new Vector2(6.7f, -15.0f), ink, 1.0f, true);
+            DrawLine(new Vector2(-6.9f, -11.0f), new Vector2(6.9f, -11.0f), ink, 1.0f, true);
+            DrawLine(new Vector2(-6.8f, -7.0f), new Vector2(6.8f, -7.0f), ink, 1.0f, true);
+            // 底座缘
+            DrawRect(new Rect2(-6.4f, -3.0f, 12.8f, 3.0f), ijaIronDark);
+            // 顶部黄铜击发管 + 管箍
+            DrawRect(new Rect2(-2.6f, -27.0f, 5.2f, 7.5f), brass);
+            DrawLine(new Vector2(-2.6f, -22.5f), new Vector2(2.6f, -22.5f), ink, 0.9f, true);
+            // 拉销环（管侧黄铜小环）
+            DrawArc(new Vector2(4.8f, -24.5f), 2.6f, 0f, Mathf.Tau, 10, brass, 1.4f, true);
             // 引信冒烟近爆
             if (_fuse < 0.6f && (int)(_fuse * 14f) % 2 == 0)
-                DrawCircle(new Vector2(4f, -18f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
+                DrawCircle(new Vector2(0f, -29f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
+            // 全身墨线勾边
+            DrawPolyline(new[] {
+                new Vector2(-7.0f, -6.5f), new Vector2(-7.0f, -16.5f),
+                new Vector2(-5.4f, -20.0f), new Vector2(5.4f, -20.0f),
+                new Vector2(7.0f, -16.5f), new Vector2(7.0f, -6.5f),
+                new Vector2(5.6f, -3.0f), new Vector2(-5.6f, -3.0f),
+                new Vector2(-7.0f, -6.5f),
+            }, ink, 1.1f, true);
         }
         else
         {

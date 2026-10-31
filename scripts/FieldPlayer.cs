@@ -227,6 +227,21 @@ public partial class FieldPlayer : CharacterBody2D
         if (Hp <= 0) Down?.Invoke();
     }
 
+    /// <summary>v3.60: 爆炸超压伤害——一次扣多颗心。手雷的冲击波不是
+    /// 逐步消耗：一颗雷炸到就是重伤（重创带 2~3 心 → 半血残血），击退
+    /// 力度也比中弹大（整个人被掀起来）。</summary>
+    public void TakeBlast(int hearts, float fromX)
+    {
+        if (_invuln > 0f || Hp <= 0) return;
+        _invuln = 1.5f;
+        Hp = Mathf.Max(0, Hp - Mathf.Max(1, hearts));
+        Figure.HurtFlash = 1f;
+        float away = GlobalPosition.X < fromX ? -1f : 1f;
+        Velocity = new Vector2(away * 260f, -300f);   // 冲击波掀翻比子弹更狠
+        Hit?.Invoke();
+        if (Hp <= 0) Down?.Invoke();
+    }
+
     public void ResetAt(Vector2 pos)
     {
         GlobalPosition = pos;

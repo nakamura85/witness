@@ -370,6 +370,22 @@ public partial class Capture : Node
         }
         else if (_stage == 55 && _t > _alertAt + 2.9f)
         {
+            // v3.60: 九一式“香瓜手雷”静置特写（敌方弹型）——与 M24 同机位对照。
+            _nade = new GrenadeProj(
+                new Vector2(_lvl._player.Position.X + 56f, JiangqiaoLevel.GroundY - 70f),
+                new Vector2(10f, -18f), ijaType: true);
+            _lvl._player.GetParent().AddChild(_nade);
+            GD.Print("CAPTURE stage55 -> ija grenade dropped");
+            _stage = 56;
+        }
+        else if (_stage == 56 && _t > _alertAt + 3.4f)
+        {
+            GD.Print("CAPTURE stage56 -> shot ija grenade at rest");
+            SaveShot("capture_47_ija_nade.png");
+            _stage = 57;   // v3.60: SaveShot is async - quit immediately used to kill it
+        }
+        else if (_stage == 57 && _t > _alertAt + 4.0f)
+        {
             GD.Print("CAPTURE done");
             GetTree().Quit();
         }
