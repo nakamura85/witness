@@ -192,7 +192,10 @@ public partial class FieldPlayer : CharacterBody2D
         }
         Ammo--;
         _shootCd = 0.62f;
-        _aimTimer = 0.55f;
+        // v3.57: aim window must OUTLAST the fire cooldown (0.62s) - at 0.55s
+        // the pose flipped aim<->cradle between every shot of a burst, which
+        // read as "never aiming". 0.9s holds the shouldered pose through.
+        _aimTimer = 0.9f;
         Figure.MuzzleFlash = 1f;
         Figure.Aim = 1f;
         Figure.Recoil = 1f;   // 躯干后仰 + 后移（SpriteActor 消费）

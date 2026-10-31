@@ -4850,6 +4850,9 @@ public partial class EnemySoldier : Node2D
     public SpriteActor _fig;
     public float _prevPhase;
     private float _fireCd;
+    /// <summary>v3.57: 举枪蓄势倒计时——>0 时立定据枪，归零瞬间才击发。
+    /// 以前是枪还斜抱在怀里就冒火光，玩家根本读不到「瞄准」这个动作。</summary>
+    private float _windup;
     private float _phase;
     private float _aimHold;
     private int _hits;
@@ -4928,22 +4931,42 @@ public partial class EnemySoldier : Node2D
         // 永远面向玩家（玩家在其左侧）：绝不背对主角发呆
         _fig.FacingRight = false;
         _fig.Grounded = true;
+
+        // v3.57 据枪纪律：
+        // - 警觉且进入射程带 = 全程枪托抵肩（战斗推进不再斜抱行军）；
+        // - Aim 以 12/秒 快速上肩（旧 5/秒要 0.2s 才过阈值，闪一下就没了）。
+        bool inBand = dist > 160f && dist < (engaged ? 760f : 700f);
         _aimHold = Mathf.Max(0f, _aimHold - f);
-        _fig.Aim = Mathf.MoveToward(_fig.Aim, _aimHold > 0f ? 1f : 0f, f * 5f);
+        if (engaged && inBand && _level.PlayerAlive)
+            _aimHold = Mathf.Max(_aimHold, 0.2f);
+        _fig.Aim = Mathf.MoveToward(_fig.Aim, _aimHold > 0f ? 1f : 0f, f * 12f);
 
         _fireCd -= f;
         // 只有真的出现在玩家画面里、且在有效射程内才开火：
         // 画面外的敌人不能凭空打中你，这一条比弹道本身更影响公平感。
         bool onScreen = Mathf.Abs(Position.X - _level.CamX) < 540f;
         float fireRange = engaged ? 760f : 700f;
-        if (_fireCd <= 0f && onScreen && dist > 160f && dist < fireRange && _level.PlayerAlive)
+        if (_windup > 0f)
         {
-            _fireCd = engaged ? 1.5f + (float)GD.RandRange(-0.2f, 0.5f)
-                              : 2.5f + (float)GD.RandRange(-0.3f, 0.5f);
-            _aimHold = 0.55f;
-            _fig.MuzzleFlash = 1f;
-            _fig.Recoil = 1f;
-            _level.EnemyFire(this);
+            // 蓄势段：立定、据枪、不许走——标准射击程序是站定后才击发
+            _windup -= f;
+            _fig.Speed = 0f;
+            _fig.Phase = Mathf.Lerp(_fig.Phase, 0f, f * 10f);
+            if (_windup <= 0f)
+            {
+                _fig.MuzzleFlash = 1f;
+                _fig.Recoil = 1f;
+                _level.EnemyFire(this);
+                _fireCd = engaged ? 1.5f + (float)GD.RandRange(-0.2f, 0.5f)
+                                  : 2.5f + (float)GD.RandRange(-0.3f, 0.5f);
+            }
+        }
+        else if (_fireCd <= 0f && onScreen && dist > 160f && dist < fireRange && _level.PlayerAlive)
+        {
+            // v3.57: 先举枪 0.32s 再打——玩家能看到「日军停步、上肩、贴腮、开火」
+            // 的完整动作，而不是行军途中凭空冒一声枪响。
+            _aimHold = 1.1f;
+            _windup = 0.32f;
         }
     }
 

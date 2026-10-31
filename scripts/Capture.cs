@@ -16,6 +16,7 @@ public partial class Capture : Node
     private bool _jumped;      // v3.46 TEMP: landing-puff shot bookkeeping
     private float _landTimer;
     private float _sx, _pressAt, _blastAt;   // v3.53 sandbag cover test
+    private float _alertAt;                  // v3.57 enemy aim-verification
     private int _stage;
     private bool _started;
     // v2.9: this used to be a hardcoded absolute path that included the
@@ -305,6 +306,41 @@ public partial class Capture : Node
             _stage = 20;
         }
         else if (_stage == 20 && _t > 48f)
+        {
+            // v3.57: enemy aim verification - pull the nearest live IJA to a
+            // fixed spot 400px right of the frozen player, alert him, then
+            // shoot two frames: approach with the rifle shouldered, and the
+            // stand-still windup. Proves the aim art actually shows on foes.
+            EnemySoldier foe = null;
+            foreach (var e in _lvl._enemies)
+                if (IsInstanceValid(e) && !e.Gone) { foe = e; break; }
+            if (foe != null)
+            {
+                foe.Position = new Vector2(_lvl._player.Position.X + 400f, JiangqiaoLevel.GroundY - 2f);
+                foe.Alert();
+                _alertAt = _t;
+                GD.Print("CAPTURE stage47 -> enemy alerted at +400");
+                _stage = 47;
+            }
+            else
+            {
+                GD.Print("CAPTURE stage47 skipped (no live foe)");
+                _stage = 50;
+            }
+        }
+        else if (_stage == 47 && _t > _alertAt + 0.55f)
+        {
+            GD.Print("CAPTURE stage47 -> shot IJA shouldered");
+            SaveShot("capture_44_ija_aim.png");
+            _stage = 48;
+        }
+        else if (_stage == 48 && _t > _alertAt + 1.05f)
+        {
+            GD.Print("CAPTURE stage48 -> shot IJA windup/fire");
+            SaveShot("capture_45_ija_windup.png");
+            _stage = 50;
+        }
+        else if (_stage == 50 && _t > _alertAt + 1.7f)
         {
             GD.Print("CAPTURE done");
             GetTree().Quit();
