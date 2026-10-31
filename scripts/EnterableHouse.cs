@@ -187,8 +187,17 @@ public partial class EnterableHouse : Node2D
         // panel rather than a door. Squash to ~0.46: slimmer than the bbox,
         // still wider than the intact leaf, keeps the ragged silhouette.
         lw *= 0.68f;
-        Rect2 leafRect = new Rect2(-lw * 0.5f, -dh, lw, dh);
-        float leafCx = dx, leafCy = gl - dh * 0.5f;
+        // v3.49: the leaf HANGS from the burnt lintel and sags - pivot moved
+        // from the foot to the top centre, rotated ~11° so the foot swings out
+        // of the opening and sinks into a drift. Before this the leaf stood
+        // bolt upright (only -0.045 rad) with a surviving doorknob, and the
+        // outdoor fire flickering in front of the doorway hid/revealed it as
+        // the flames rose and fell, so to the player a full door kept
+        // "suddenly reappearing" in a burnt-out shell (user report 2026-10-31,
+        // direction chosen: heavy lean + half buried).
+        const float Lean = 0.19f;   // rad (~11°), foot swings toward the right jamb
+        Rect2 leafRect = new Rect2(-lw * 0.5f, 0f, lw, dh);
+        float leafCy = gl - dh;     // top-centre pivot: the hinge side stays up
 
         if (spec.HangLeaf && _leafTex != null)
         {
@@ -199,29 +208,33 @@ public partial class EnterableHouse : Node2D
             // contact strip at the sill, and a thin ink jamb frame. The real
             // fix is alpha-padding the texture so the edge disappears (flagged
             // for art).
-            // soft cast shadow, lower-right inside the reveal
-            DrawSetTransform(new Vector2(leafCx + 6f, leafCy + 8f), 0,
-                new Vector2(lw / 40f * 1.12f, dh / 40f * 1.18f));
-            DrawTextureRect(SoftSnow.Blob(new Color(0.05f, 0.04f, 0.03f), 0.40f),
+            // soft cast shadow pooled at the foot, offset to the lean side
+            DrawSetTransform(new Vector2(dx + dh * Lean * 0.6f + 4f, gl + 2f), 0,
+                new Vector2(lw / 40f * 1.5f, 0.32f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.05f, 0.04f, 0.03f), 0.38f),
                 new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-            // the leaf itself - the texture is already soot-dark, so only a
-            // whisper of tint to settle it into the wall's palette
-            DrawSetTransform(new Vector2(dx, gl), -0.045f, Vector2.One);
+            // the leaf: hinged at the lintel, sagging out of the opening.
+            // The texture is already soot-dark, so only a whisper of tint.
+            DrawSetTransform(new Vector2(dx, leafCy), Lean, Vector2.One);
             DrawTextureRect(_leafTex, leafRect, false, new Color(0.92f, 0.90f, 0.87f));
-            // thin ink jamb frame: two posts and a lintel.
-            // v3.47: the jamb used to be a full InkRect - its bottom bar drew
-            // a hard ink line across the railway band right where the leaf
-            // met the ground line, visually nailing the door to the track
-            // (rail top sits 9px above the house base). No bottom bar; the
-            // sill contact below keeps the foot grounded instead.
+            // burn-through where the doorknob survived the fire: a soft char
+            // blob over the handle side (texture-relative ~13% from the left,
+            // ~54% down), drawn in leaf-local space so it rides the lean. It
+            // eats the left edge raggedly - one more thing that no longer
+            // reads as "a complete door".
+            DrawTextureRect(SoftSnow.Blob(new Color(0.05f, 0.04f, 0.03f), 0.9f),
+                new Rect2(-lw * 0.52f, dh * 0.42f, lw * 0.38f, dh * 0.24f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            // thin ink jamb frame: two posts and a lintel, kept UPRIGHT - the
+            // burnt frame of the opening stands while the leaf sags in it.
+            // v3.47: no bottom bar (it drew a hard ink line across the
+            // railway band; the sill contact grounds the foot instead).
             var jamb = InkStyle.InkColor;
-            DrawLine(new Vector2(leafRect.Position.X, leafRect.Position.Y),
-                new Vector2(leafRect.Position.X, leafRect.End.Y), jamb, 1.6f, true);
-            DrawLine(new Vector2(leafRect.End.X, leafRect.Position.Y),
-                new Vector2(leafRect.End.X, leafRect.End.Y), jamb, 1.6f, true);
-            DrawLine(new Vector2(leafRect.Position.X, leafRect.Position.Y),
-                new Vector2(leafRect.End.X, leafRect.Position.Y), jamb, 1.6f, true);
+            float jl = dx - lw * 0.5f, jr = dx + lw * 0.5f, jt = gl - dh;
+            DrawLine(new Vector2(jl, jt), new Vector2(jl, gl), jamb, 1.6f, true);
+            DrawLine(new Vector2(jr, jt), new Vector2(jr, gl), jamb, 1.6f, true);
+            DrawLine(new Vector2(jl, jt), new Vector2(jr, jt), jamb, 1.6f, true);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 
@@ -233,12 +246,23 @@ public partial class EnterableHouse : Node2D
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
         // v3.44: dark contact at the sill, over the snow, so the burnt-house
-        // leaf reads as grounded instead of floating
+        // leaf reads as grounded instead of floating.
+        // v3.49: the contact follows the sagged foot, and a snow bank drifted
+        // OVER the sunken bottom of the leaf finishes the job - the door no
+        // longer stands on the ground line, it is buried in it.
         if (spec.HangLeaf && _leafTex != null)
         {
-            DrawSetTransform(new Vector2(dx, gl - 3f), 0, new Vector2(lw / 40f * 1.05f, 0.34f));
+            DrawSetTransform(new Vector2(dx + dh * Lean * 0.5f, gl - 3f), 0,
+                new Vector2(lw / 40f * 1.3f, 0.34f));
             DrawTextureRect(SoftSnow.Blob(new Color(0.04f, 0.03f, 0.02f), 0.5f),
                 new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            // snow bank over the foot - drawn last so it sits on the sill
+            // contact and the doorstep patch alike
+            DrawSetTransform(new Vector2(dx + dh * Lean * 0.75f, gl - 2f), 0,
+                new Vector2(lw * 1.7f / 64f, dh * 0.36f / 64f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.90f, 0.92f, 0.94f), 0.85f),
+                new Rect2(-32f, -32f, 64f, 64f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
     }
