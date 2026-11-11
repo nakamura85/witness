@@ -43,6 +43,8 @@ public partial class EnterableHouse : Node2D
         // intact house: a plank door with a round knob, painted between the
         // two timber posts of the front wall
         ["house_intact_near"] = new(0.492f, 0.36f, false),
+        // 军事通信据点：由 house_intact_near 图生图改造，门口位置保持一致
+        ["radio_station"] = new(0.492f, 0.36f, false),
         // ruined house: the wall is torn open beside the door frame, snow
         // drifted across the sill
         ["house_ruined_near"] = new(0.200f, 0.50f, false),

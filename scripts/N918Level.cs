@@ -335,8 +335,8 @@ public partial class N918Level : Node2D
         // 民居群：完整民居 + 屋顶坍塌院落
         AddHouse("h3", 3120f, "house_ruined_near", HouseWidthForWall("house_ruined_near", WallH), true, 0f);
         AddHouse("h4", 3700f + Jit(40), "house_posts", HouseWidthForWall("house_posts", WallH), false, 0f);
-        // 通信据点（无线电发信机）：可见占位建筑，内含电闸与发信机交互
-        AddHouse("comm", 4620f, "house_intact_near", HouseWidthForWall("house_intact_near", WallH), true, 0f);
+        // 通信据点（无线电发信机）：专属军事据点建筑 radio_station，内含电闸与发信机交互
+        AddHouse("comm", 4620f, "radio_station", HouseWidthForWall("radio_station", WallH), true, 0f);
     }
 
     /// <summary>
