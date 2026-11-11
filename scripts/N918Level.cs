@@ -322,20 +322,20 @@ public partial class N918Level : Node2D
     /// </summary>
     private void BuildHouses()
     {
-        // 远景废墟列（不可进入背景）
-        AddHouse("f1", 460f + Jit(28), "house_posts", 250f, false, 14f);
-        AddHouse("f2", 1294f + Jit(42), "house_skeleton_near", 350f, false, 16f);
-        AddHouse("f4", 1680f + Jit(45), "house_posts", 210f, false, 19f);
-        AddHouse("f3", 3910f + Jit(35), "house_burned_near", 331f, false, 12f);
+        // 远景废墟列（不可进入背景）——初秋变体
+        AddHouse("f1", 460f + Jit(28), "house_posts_autumn", 250f, false, 14f);
+        AddHouse("f2", 1294f + Jit(42), "house_skeleton_near_autumn", 350f, false, 16f);
+        AddHouse("f4", 1680f + Jit(45), "house_posts_autumn", 210f, false, 19f);
+        AddHouse("f3", 3910f + Jit(35), "house_burned_near_autumn", 331f, false, 12f);
 
         // 近景可进入：柳条湖巡道工小屋
-        AddHouse("h1", 845f + Jit(24), "house_ruined_near", HouseWidthForWall("house_ruined_near", WallH), true, 0f);
+        AddHouse("h1", 845f + Jit(24), "house_ruined_near_autumn", HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f);
         // 北大营外民居（固定位，给不抵抗令抉择留出空间）
-        AddHouse("h2", 2080f, "house_intact_near", HouseWidthForWall("house_intact_near", WallH), true, 0f);
+        AddHouse("h2", 2080f, "house_intact_near_autumn", HouseWidthForWall("house_intact_near_autumn", WallH), true, 0f);
         // 民居群：完整民居 + 屋顶坍塌院落
-        AddHouse("h3", 3120f, "house_ruined_near", HouseWidthForWall("house_ruined_near", WallH), true, 0f);
-        AddHouse("h4", 3700f + Jit(40), "house_posts", HouseWidthForWall("house_posts", WallH), false, 0f);
-        // 通信据点（无线电发信机）：专属军事据点建筑 radio_station，内含电闸与发信机交互
+        AddHouse("h3", 3120f, "house_ruined_near_autumn", HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f);
+        AddHouse("h4", 3700f + Jit(40), "house_posts_autumn", HouseWidthForWall("house_posts_autumn", WallH), false, 0f);
+        // 通信据点（无线电发信机）：专属军事据点建筑 radio_station（本就无雪，沿用）
         AddHouse("comm", 4620f, "radio_station", HouseWidthForWall("radio_station", WallH), true, 0f);
     }
 
@@ -355,6 +355,10 @@ public partial class N918Level : Node2D
         // standing structure (top of the art down to the snow) is the
         // "wall" the eave row locks to 1.5 man-heights.
         ["house_posts"] = 12f,
+        // 初秋变体：与冬雪原图同尺寸、同轮廓，eave 行保持一致
+        ["house_intact_near_autumn"] = 495f,
+        ["house_ruined_near_autumn"] = 460f,
+        ["house_posts_autumn"] = 12f,
     };
 
     /// <summary>
@@ -426,7 +430,7 @@ public partial class N918Level : Node2D
         var tint = new Color(0.72f, 0.73f, 0.75f);
         switch (tex)
         {
-            case "house_intact_near":
+            case "house_intact_near": case "house_intact_near_autumn":
                 // the painted smoke that used to sit over this chimney is gone
                 // now, so the anchor goes right onto the chimney mouth itself
                 u = 0.700f; v = 0.147f;
@@ -436,7 +440,7 @@ public partial class N918Level : Node2D
                 riseLo = 52f; riseHi = 96f;
                 tint = new Color(0.82f, 0.85f, 0.89f);
                 break;
-            case "house_burned_near":
+            case "house_burned_near": case "house_burned_near_autumn":
                 // still going strong: big flame, fat black column
                 u = 0.545f; v = 0.615f;
                 sizeLo = 1.05f; sizeHi = 1.85f;
@@ -447,7 +451,7 @@ public partial class N918Level : Node2D
                 // the two big burnt-out window holes on the left bay
                 inner = new[] { new Vector2(0.251f, 0.585f), new Vector2(0.315f, 0.580f) };
                 break;
-            case "house_skeleton_near":
+            case "house_skeleton_near": case "house_skeleton_near_autumn":
                 // frame still standing, burning hard
                 u = 0.45f; v = 0.42f;
                 sizeLo = 1.08f; sizeHi = 1.95f;
@@ -458,7 +462,7 @@ public partial class N918Level : Node2D
                 // the two big gaps between the standing posts
                 inner = new[] { new Vector2(0.157f, 0.585f), new Vector2(0.251f, 0.575f) };
                 break;
-            case "house_ruined_near":
+            case "house_ruined_near": case "house_ruined_near_autumn":
                 // mostly done, only embers left in the shell
                 u = 0.45f; v = 0.26f;
                 sizeLo = 0.58f; sizeHi = 1.08f;
@@ -470,6 +474,7 @@ public partial class N918Level : Node2D
                 // there is nothing for an inside fire to show through - it
                 // burns on the snow in front of the ruin instead
                 break;
+            case "house_posts_autumn":
             default:  // house_posts: nothing left but charred stumps
                 // nearly burnt out -> tiny flame, only a thin wisp of smoke
                 u = 0.50f; v = 0.50f;
@@ -665,29 +670,29 @@ public partial class N918Level : Node2D
     public static readonly VillageHouse[] VillageHouses =
     {
         // —— west of the start: the cluster the user pointed at ——
-        new("village", -640f, 104f, false, 1, new Vector2(0.482f, 0.152f), true),
-        new("house_skeleton_near", -395f, 66f, true, 2, new Vector2(0.45f, 0.42f)),
-        new("house_posts", -255f, 44f, false, 0, new Vector2(0.50f, 0.50f)),
-        new("house_ruined_near", -110f, 74f, true, 0, new Vector2(0.45f, 0.26f)),
+        new("village_autumn", -640f, 104f, false, 1, new Vector2(0.482f, 0.152f), true),
+        new("house_skeleton_near_autumn", -395f, 66f, true, 2, new Vector2(0.45f, 0.42f)),
+        new("house_posts_autumn", -255f, 44f, false, 0, new Vector2(0.50f, 0.50f)),
+        new("house_ruined_near_autumn", -110f, 74f, true, 0, new Vector2(0.45f, 0.26f)),
 
         // —— village gate: the one house still standing, chimney still smoking ——
         // v3.19: the intact house at 285 and the village panorama at 470 were
         // one pixel apart - the roofs touched and the two read as a single
         // wide building with a chimney in the middle. The panorama is 224
         // wide, so the house has to sit clear of it.
-        new("house_intact_near", 250f, 96f, false, 1, new Vector2(0.700f, 0.147f)),
-        new("village", 500f, 118f, true, 1, new Vector2(0.482f, 0.152f), true),
-        new("house_skeleton_near", 700f, 62f, false, 2, new Vector2(0.45f, 0.42f)),
-        new("house_posts", 810f, 40f, true, 0, new Vector2(0.50f, 0.50f)),
+        new("house_intact_near_autumn", 250f, 96f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("village_autumn", 500f, 118f, true, 1, new Vector2(0.482f, 0.152f), true),
+        new("house_skeleton_near_autumn", 700f, 62f, false, 2, new Vector2(0.45f, 0.42f)),
+        new("house_posts_autumn", 810f, 40f, true, 0, new Vector2(0.50f, 0.50f)),
 
         // —— middle and back: keep them sparse, never a continuous row ——
         // v3.19: the intact house at 2990 overlapped the stumps at 3040 by 30
         // pixels. The stumps moved clear.
-        new("house_ruined_near", 2480f, 70f, true, 0, new Vector2(0.45f, 0.26f)),
-        new("house_intact_near", 2960f, 58f, false, 1, new Vector2(0.700f, 0.147f)),
-        new("house_posts", 3080f, 38f, true, 0, new Vector2(0.50f, 0.50f)),
-        new("house_burned_near", 4180f, 78f, false, 2, new Vector2(0.545f, 0.615f)),
-        new("village", 4580f, 88f, true, 1, new Vector2(0.482f, 0.152f), true),
+        new("house_ruined_near_autumn", 2480f, 70f, true, 0, new Vector2(0.45f, 0.26f)),
+        new("house_intact_near_autumn", 2960f, 58f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("house_posts_autumn", 3080f, 38f, true, 0, new Vector2(0.50f, 0.50f)),
+        new("house_burned_near_autumn", 4180f, 78f, false, 2, new Vector2(0.545f, 0.615f)),
+        new("village_autumn", 4580f, 88f, true, 1, new Vector2(0.482f, 0.152f), true),
     };
 
     /// <summary>Cached house textures for the distant village (loaded once, then kept).</summary>
@@ -2235,12 +2240,12 @@ public partial class N918Level : Node2D
         {
             // preload so first _Draw never hitches
             // v2.7: "willow" no longer preloads, the procedural willow clump replaced it
-            foreach (var n in new[] { "mountains", "tree_elm", "tree_birch", "grass" })
+            foreach (var n in new[] { "mountains_autumn", "tree_elm_autumn", "tree_birch", "grass" })
                 Tex(n);
             // v2.8: the distant village reuses the side-on house art
-            foreach (var n in new[] { "village", "house_intact_near", "house_ruined_near",
-                                      "house_skeleton_near", "house_burned_near", "house_posts" })
-                VillageHouseTex(n, n == "village");
+            foreach (var n in new[] { "village_autumn", "house_intact_near_autumn", "house_ruined_near_autumn",
+                                      "house_skeleton_near_autumn", "house_burned_near_autumn", "house_posts_autumn" })
+                VillageHouseTex(n, n == "village_autumn");
         }
 
         private Texture2D Tex(string name)
@@ -2293,7 +2298,7 @@ public partial class N918Level : Node2D
         private void DrawFar()
         {
             // far range: generated watercolor panorama, mirror-tiled so seams match
-            var mtn = Tex("mountains");
+            var mtn = Tex("mountains_autumn");
             if (mtn != null)
             {
                 float h = 296f;
@@ -2590,7 +2595,7 @@ public partial class N918Level : Node2D
                     Sprite("tree_birch", new Vector2(tx, 578f), hBase * 1.5f, 0.72f,
                         flip: midTreeRng.Randf() < 0.5f);
                 else
-                    Sprite("tree_elm", new Vector2(tx, 578f), hBase, 0.75f,
+                    Sprite("tree_elm_autumn", new Vector2(tx, 578f), hBase, 0.75f,
                         flip: midTreeRng.Randf() < 0.5f);
                 tx += gap;
             }
@@ -2629,7 +2634,7 @@ public partial class N918Level : Node2D
             for (int i = 0; i < 22; i++)
             {
                 var c = new Vector2(-1300 + i * 410, 626);
-                Drift(c, 130f + (i % 3) * 34f, 30f + (i % 2) * 8f, new Color(0.92f, 0.94f, 0.94f));
+                Drift(c, 130f + (i % 3) * 34f, 30f + (i % 2) * 8f, new Color(0.60f, 0.54f, 0.37f));
             }
         }
 
@@ -2667,7 +2672,7 @@ public partial class N918Level : Node2D
                 if (!blocked)
                 {
                     if (kind < 0.5f)
-                        Sprite("tree_elm", new Vector2(nx, TreeLine), 60f + nearRng.Randf() * 60f, 1f,
+                        Sprite("tree_elm_autumn", new Vector2(nx, TreeLine), 60f + nearRng.Randf() * 60f, 1f,
                             flip: nearRng.Randf() < 0.5f);
                     else if (kind < 0.85f)
                     {
@@ -2688,7 +2693,7 @@ public partial class N918Level : Node2D
             foreach (var (tx2, th) in new[] { (-820f, 138f), (2460f, 112f), (560f, 158f) })
             {
                 if (InsideHouseFootprint(tx2, 30f)) continue;
-                Sprite("tree_elm", new Vector2(tx2, TreeLine), th, 1f, flip: tx2 < 0f);
+                Sprite("tree_elm_autumn", new Vector2(tx2, TreeLine), th, 1f, flip: tx2 < 0f);
             }
 
             // 铁丝网：木桩 + 两道下垂铁丝（几处断口，不铺满整条路）
@@ -2959,7 +2964,7 @@ public partial class N918Level : Node2D
                 DrawLine(trunk[i], trunk[i + 1], c, w * (1f - (i + 0.5f) / segs * 0.5f), true);
             var top = trunk[segs];
 
-            var snow = new Color(0.93f, 0.95f, 0.95f, 0.8f);
+            var snow = new Color(0.62f, 0.55f, 0.37f, 0.8f);
             int branchCount = 3 + (int)(Mathf.Abs(Mathf.Sin(x * 0.53f)) * 2.4f);  // 3-5 根
             for (int b = 0; b < branchCount; b++)
             {
@@ -3227,9 +3232,9 @@ public partial class N918Level : Node2D
             // every character. Soften it into the snow fill: same line, but a
             // tone close to the surface and low alpha, just enough to suggest
             // a wind-packed crest instead of drawing a horizon stripe.
-            DrawPolyline(surface.ToArray(), new Color(0.92f, 0.945f, 0.945f, 0.4f), 2f, true);
+            DrawPolyline(surface.ToArray(), new Color(0.80f, 0.72f, 0.50f, 0.30f), 2f, true);
             DrawPolyline(surface.Select(p => p + new Vector2(0, 8)).ToArray(),
-                new Color(0.70f, 0.75f, 0.78f, 0.32f), 5f, true);
+                new Color(0.58f, 0.54f, 0.38f, 0.26f), 5f, true);
 
             // 冰面裂缝与车辙
             for (int i = 0; i < 26; i++)
@@ -3286,13 +3291,13 @@ public partial class N918Level : Node2D
                 ice.Add(new Vector2(x, bot - 44f + Mathf.Sin(x * 0.019f) * 15f));
             // west bank slants out
             ice.Add(new Vector2(iceL - 30f, GroundY + 16f));
-            DrawColoredPolygon(ice.ToArray(), new Color(0.685f, 0.755f, 0.79f));
-            // 冰面上层：更亮的冰壳（半透明白）
+            DrawColoredPolygon(ice.ToArray(), new Color(0.46f, 0.55f, 0.56f));
+            // 水面高光：淡一档的同色调，半透明
             DrawColoredPolygon(new[]
             {
                 new Vector2(iceL, GroundY), new Vector2(iceR, GroundY),
                 new Vector2(iceR, GroundY + 34), new Vector2(iceL, GroundY + 34),
-            }, new Color(0.90f, 0.935f, 0.945f, 0.62f));
+            }, new Color(0.62f, 0.70f, 0.70f, 0.40f));
 
             // v3.25: the span's own shadow on the ice. Everything else in
             // this level casts a shadow - the houses, the trees, the sandbag
@@ -3317,9 +3322,9 @@ public partial class N918Level : Node2D
                     float py = GroundY + 8 + t * 160f + Mathf.Sin(i * 0.7f + s * 2.1f) * 4f;
                     crack.Add(new Vector2(px, py));
                 }
-                DrawPolyline(crack.ToArray(), new Color(0.50f, 0.58f, 0.64f, 0.42f), 1.8f, true);
+                DrawPolyline(crack.ToArray(), new Color(0.40f, 0.48f, 0.50f, 0.40f), 1.8f, true);
                 // 裂缝上的高光细线
-                DrawPolyline(crack.ToArray(), new Color(0.88f, 0.93f, 0.96f, 0.25f), 0.8f, true);
+                DrawPolyline(crack.ToArray(), new Color(0.70f, 0.78f, 0.78f, 0.22f), 0.8f, true);
             }
             // 斜向的交叉裂缝（更自然）
             for (int i = 0; i < 6; i++)
@@ -3333,28 +3338,10 @@ public partial class N918Level : Node2D
                     new Vector2(x0 + 48, y0 + 58),
                     new Vector2(x0 + 72, y0 + 84),
                 };
-                DrawPolyline(crack.ToArray(), new Color(0.48f, 0.56f, 0.62f, 0.38f), 1.6f, true);
+                DrawPolyline(crack.ToArray(), new Color(0.38f, 0.46f, 0.48f, 0.36f), 1.6f, true);
             }
 
-            // 冰上的雪块（冻在冰面上）
-            for (int i = 0; i < 14; i++)
-            {
-                var c = new Vector2(4485 + i * 52 + Mathf.Sin(i * 1.9f) * 14f,
-                    GroundY + 24 + (i % 4) * 22);
-                DrawSetTransform(c, 0, new Vector2(1.6f, 0.28f));
-                DrawTextureRect(N918SoftSnow.Blob(new Color(0.93f, 0.95f, 0.95f), 0.75f),
-                    new Rect2(-20f, -20f, 40f, 40f), false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-            }
-            // 远处冰面上的冻土堆（小冰丘）
-            for (int i = 0; i < 5; i++)
-            {
-                var c = new Vector2(4520 + i * 140, GroundY + 540);
-                DrawSetTransform(c, 0, new Vector2(1.8f, 0.5f));
-                DrawTextureRect(N918SoftSnow.Blob(new Color(0.78f, 0.83f, 0.86f), 0.6f),
-                    new Rect2(-20f, -20f, 40f, 40f), false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-            }
+            // 初秋：江面改为流动秋水，不再绘制冰面雪块与冻土堆
         }
 
         /// <summary>
@@ -3826,7 +3813,7 @@ public partial class N918Level : Node2D
 
             // generated bridge art (truss + piers, burned mid-section) replaces the old
             // code-drawn one; keep the code path as fallback if the texture is missing
-            _bridgeTex ??= GD.Load<Texture2D>("res://assets/art/props/bridge.png");
+            _bridgeTex ??= GD.Load<Texture2D>("res://assets/art/props/bridge_autumn.png");
             if (_bridgeTex != null)
             {
                 var bsz = _bridgeTex.GetSize();
@@ -3922,7 +3909,7 @@ public partial class N918Level : Node2D
                 // hanging in the air. A drift piled against the end is what
                 // a real bridge head looks like in a northern winter.
                 DrawSetTransform(new Vector2(bx + 24f, GroundY + 18f), 0, new Vector2(2.2f, 0.95f));
-                DrawTextureRect(N918SoftSnow.Blob(new Color(0.95f, 0.965f, 0.975f), 0.95f),
+                DrawTextureRect(N918SoftSnow.Blob(new Color(0.62f, 0.55f, 0.37f), 0.95f),
                     new Rect2(-20f, -20f, 40f, 40f), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
@@ -3956,7 +3943,7 @@ public partial class N918Level : Node2D
                 for (float dx2 = start + 90f; dx2 < end - 40f; dx2 += 150f)
                 {
                     DrawSetTransform(new Vector2(dx2, GroundY + 138f), 0, new Vector2(2.1f, 0.42f));
-                    DrawTextureRect(N918SoftSnow.Blob(new Color(0.90f, 0.93f, 0.94f), 0.75f),
+                    DrawTextureRect(N918SoftSnow.Blob(new Color(0.62f, 0.55f, 0.37f), 0.75f),
                         new Rect2(-20f, -20f, 40f, 40f), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
@@ -4116,12 +4103,12 @@ public partial class N918Level : Node2D
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                     // snow piled on the crate top -> half-buried look
                     DrawSetTransform(new Vector2(x + 8f, GroundY - 1f - ch + 4f), rot, Vector2.One);
-                    DrawTextureRect(N918SoftSnow.Blob(new Color(0.95f, 0.97f, 0.97f), 0.7f),
+                    DrawTextureRect(N918SoftSnow.Blob(new Color(0.62f, 0.55f, 0.37f), 0.7f),
                         new Rect2(-cw * 0.55f, -6f, cw * 1.1f, 12f), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                     // snow mound at the base front
                     DrawSetTransform(new Vector2(x + 6f, GroundY + 1f), 0, new Vector2(1.4f, 0.4f));
-                    DrawTextureRect(N918SoftSnow.Blob(new Color(0.94f, 0.96f, 0.96f), 0.55f),
+                    DrawTextureRect(N918SoftSnow.Blob(new Color(0.62f, 0.55f, 0.37f), 0.55f),
                         new Rect2(-cw * 0.5f, -8f, cw, 16f), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
