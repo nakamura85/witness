@@ -1417,10 +1417,16 @@ public partial class N918Level : Node2D
         };
 
         HouseInteriorUi ui;
+        // 三种固定常识格局：住家(两间民居左右变体) / 半塌农舍(焚毁) / 通信据点机房
+        RoomType rt = h.Id == "comm" ? RoomType.CommOutpost
+                    : h.Id == "h3" ? RoomType.BurntWarehouse
+                    : RoomType.Residence;
+        int rv = h.Id == "h2" ? 1 : 0;
         if (h.Id == "comm")
         {
             // 通信据点：注入发信机前置（信齐且通电）与发报/合闸回调
             ui = new HouseInteriorUi(h.Id, title, GameState.I.S.N918Loot,
+                roomType: rt,
                 canTransmit: () => GameState.I.S.N918EnvelopeCount >= EnvelopeNeed
                                  && GameState.I.S.N918Powered,
                 onTransmit: () =>
@@ -1440,7 +1446,8 @@ public partial class N918Level : Node2D
         }
         else
         {
-            ui = new HouseInteriorUi(h.Id, title, GameState.I.S.N918Loot, roomLayout: true);
+            ui = new HouseInteriorUi(h.Id, title, GameState.I.S.N918Loot,
+                roomType: rt, roomVariant: rv, roomLayout: true);
         }
 
         ui.CanHeal = () => _player.Wounded;

@@ -270,6 +270,17 @@ public partial class EnterableHouse : Node2D
     }
 }
 
+/// <summary>屋内格局类型：三种固定常识布局，对应不同功能的房子。</summary>
+public enum RoomType
+{
+    /// <summary>住家：炕 / 灶台 / 桌子 / 柜子，平民的屋子。</summary>
+    Residence,
+    /// <summary>通信据点机房：发电机 / 电闸 / 发信机 / 地图桌。</summary>
+    CommOutpost,
+    /// <summary>仓库或焚毁的院落：货架 / 木箱 / 灰烬，半塌的农舍。</summary>
+    BurntWarehouse,
+}
+
 /// <summary>
 /// Interior overlay when searching a house. Paper-chip hotspots, FieldNoteUi
 /// reuse for letters and clue papers, chest needs hold-to-pry and can jam.
@@ -292,6 +303,8 @@ public partial class HouseInteriorUi : CanvasLayer
     private readonly Action _onPower;           // 合闸通电完成回调：关卡据此置 N918Powered
     private readonly List<Spot> _spots = new();
     private readonly bool _roomLayout;
+    private readonly RoomType _roomType;      // 屋内格局类型（住家 / 机房 / 焚毁仓库）
+    private readonly int _roomVariant;        // 同类型的轻微变体（如住家左右镜像），让每间屋不完全一样
     // 信/遗书落款：默认江桥（东北军官兵家书改为江桥抗战官兵），九一八屋（roomLayout）用东北军落款
     private string _noteSource = "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵家书意象改写。";
     private Control _root;
@@ -319,6 +332,7 @@ public partial class HouseInteriorUi : CanvasLayer
     /// 并可传入发信机前置判定与发报完成回调（仅通信据点屋传入，普通屋传 null）。
     /// </summary>
     public HouseInteriorUi(string houseId, string houseTitle, HashSet<string> loot,
+        RoomType roomType = RoomType.Residence, int roomVariant = 0,
         Func<bool> canTransmit = null, Action onTransmit = null, Action onPower = null,
         bool roomLayout = false)
     {
@@ -327,6 +341,8 @@ public partial class HouseInteriorUi : CanvasLayer
         Layer = 20;
         _rng.Seed = (ulong)(houseId.GetHashCode() & 0xffffff);
         _looted = loot;
+        _roomType = roomType;
+        _roomVariant = roomVariant;
         _canTransmit = canTransmit;
         _onTransmit = onTransmit;
         _onPower = onPower;
@@ -411,7 +427,11 @@ public partial class HouseInteriorUi : CanvasLayer
         // ammo: usually just a few rounds, a full box is a rare lucky find
         int ammoN = _rng.Randf() < 0.12f ? _rng.RandiRange(6, 8) : _rng.RandiRange(1, 5);
         AddSpot("ammo1", "弹药盒", "ammo", $"翻出一小袋步枪弹（+{ammoN} 发）");
-        AddSpot("letter1", "压在灶台下的信", "letter", "");
+        // 信/灰烬的落点随屋内格局变化，文案也要跟着常识走
+        string letterLabel = _roomType == RoomType.CommOutpost ? "桌上的信封"
+            : _roomType == RoomType.BurntWarehouse ? "残墙下压着的信"
+            : "压在灶台下的信";
+        AddSpot("letter1", letterLabel, "letter", "");
         if (_rng.Randf() > 0.5f)
             AddSpot("will1", "叠得整整齐齐的遗书", "will", "");
         if (_rng.Randf() > 0.35f)
@@ -423,7 +443,13 @@ public partial class HouseInteriorUi : CanvasLayer
         AddSpot("chest1", "上锁的弹药箱", "chest", "");
         if (_rng.Randf() > 0.5f)
             AddSpot("clue1", "烧剩一半的文件", "clue", "");
-        AddSpot("ash1", "烧塌的柜子", "ash", "柜子里只剩灰和烧变形的搪瓷缸。");
+        string ashLabel = _roomType == RoomType.BurntWarehouse ? "一摊烧焦的灰烬"
+            : _roomType == RoomType.CommOutpost ? "墙角的废墟"
+            : "烧塌的柜子";
+        string ashText = _roomType == RoomType.BurntWarehouse
+            ? "灰堆里只剩烧变形的搪瓷缸和半截枪管。"
+            : "柜子里只剩灰和烧变形的搪瓷缸。";
+        AddSpot("ash1", ashLabel, "ash", ashText);
 
         // 通信据点屋专用（_canTransmit 仅在该屋注入）：先合闸通电，再操作发信机发报
         if (_canTransmit != null)
@@ -745,7 +771,7 @@ public partial class HouseInteriorUi : CanvasLayer
         content.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         panel.AddChild(content);
 
-        var room = new RoomBg();
+        var room = new RoomBg(_roomType, _roomVariant);
         room.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         content.AddChild(room);
         room.QueueRedraw();
@@ -787,20 +813,7 @@ public partial class HouseInteriorUi : CanvasLayer
         content.AddChild(leave);
 
         BuildSpots();
-        var posByKind = new System.Collections.Generic.Dictionary<string, Vector2>
-        {
-            ["power"]   = new Vector2(34, 64),
-            ["radio"]   = new Vector2(700, 50),
-            ["grenade"] = new Vector2(300, 250),
-            ["gauze"]   = new Vector2(486, 250),
-            ["medkit"]  = new Vector2(648, 250),
-            ["ammo"]    = new Vector2(360, 398),
-            ["will"]    = new Vector2(540, 398),
-            ["letter"]  = new Vector2(52, 452),
-            ["clue"]    = new Vector2(300, 452),
-            ["ash"]     = new Vector2(548, 452),
-            ["chest"]   = new Vector2(760, 318),
-        };
+        var posByKind = GetRoomSpotPositions();
         int fb = 0;
         foreach (var s in _spots)
         {
@@ -819,62 +832,249 @@ public partial class HouseInteriorUi : CanvasLayer
     }
 
     /// <summary>
-    /// 屋内背景：暖色墙 / 地板 / 夜窗 / 灶台 / 货架 / 桌子 / 柜子 / 发电机 / 发信机。
+    /// 按屋内格局类型（及住家变体）给出每个 loot 标签的摆放位置，
+    /// 让物件正好落在对应的家具上（信压灶台、灰烬在柜子、发信机在角落等）。
+    /// 坐标基于约 950×590 的屋内画布，与 RoomBg 的绘制保持一致。
+    /// </summary>
+    private System.Collections.Generic.Dictionary<string, Vector2> GetRoomSpotPositions()
+    {
+        if (_roomType == RoomType.CommOutpost)
+        {
+            return new System.Collections.Generic.Dictionary<string, Vector2>
+            {
+                ["power"]   = new Vector2(34, 64),    // 发电机 / 电闸（左）
+                ["radio"]   = new Vector2(700, 50),   // 发信机（右墙）
+                ["letter"]  = new Vector2(430, 360),  // 地图桌
+                ["ash"]     = new Vector2(770, 470),  // 墙角废墟
+                ["chest"]   = new Vector2(250, 360),  // 木箱
+                ["ammo"]    = new Vector2(340, 300),
+                ["grenade"] = new Vector2(520, 300),
+                ["gauze"]   = new Vector2(620, 300),
+                ["medkit"]  = new Vector2(700, 360),
+                ["will"]    = new Vector2(430, 200),  // 地图桌上方
+                ["clue"]    = new Vector2(250, 200),
+            };
+        }
+        if (_roomType == RoomType.BurntWarehouse)
+        {
+            return new System.Collections.Generic.Dictionary<string, Vector2>
+            {
+                ["letter"]  = new Vector2(200, 360),  // 残墙下
+                ["ash"]     = new Vector2(470, 470),  // 灰烬堆
+                ["chest"]   = new Vector2(620, 400),  // 木箱
+                ["ammo"]    = new Vector2(300, 300),
+                ["grenade"] = new Vector2(420, 280),
+                ["gauze"]   = new Vector2(560, 300),
+                ["medkit"]  = new Vector2(700, 320),
+                ["will"]    = new Vector2(260, 200),  // 残桌
+                ["clue"]    = new Vector2(430, 200),
+            };
+        }
+        // 住家：variant 0 / 1 左右互换，让两间民居不完全一样
+        if (_roomVariant != 0)
+        {
+            return new System.Collections.Generic.Dictionary<string, Vector2>
+            {
+                ["letter"]  = new Vector2(120, 430),  // 灶台（左）
+                ["ash"]     = new Vector2(360, 470),  // 柜子
+                ["chest"]   = new Vector2(430, 360),  // 屋中地
+                ["ammo"]    = new Vector2(300, 300),
+                ["grenade"] = new Vector2(520, 300),
+                ["gauze"]   = new Vector2(640, 300),
+                ["medkit"]  = new Vector2(700, 360),
+                ["will"]    = new Vector2(760, 320),  // 炕（右）
+                ["clue"]    = new Vector2(620, 300),
+            };
+        }
+        return new System.Collections.Generic.Dictionary<string, Vector2>
+        {
+                ["letter"]  = new Vector2(796, 426),  // 灶台（右）
+                ["ash"]     = new Vector2(856, 470),  // 柜子
+            ["chest"]   = new Vector2(430, 360),  // 屋中地
+            ["ammo"]    = new Vector2(300, 300),
+            ["grenade"] = new Vector2(520, 300),
+            ["gauze"]   = new Vector2(640, 300),
+            ["medkit"]  = new Vector2(700, 360),
+            ["will"]    = new Vector2(120, 320),  // 炕（左）
+            ["clue"]    = new Vector2(240, 300),
+        };
+    }
+
+    /// <summary>
+    /// 屋内背景：三种固定常识格局（住家 / 通信据点机房 / 仓库焚毁）。
     /// 纯程序绘制（与项目其余 InkStyle 一致），不引入新贴图资产。
     /// </summary>
     private partial class RoomBg : Control
     {
+        private readonly RoomType _type;
+        private readonly int _variant;
+        public RoomBg(RoomType type = RoomType.Residence, int variant = 0)
+        {
+            _type = type;
+            _variant = variant;
+        }
         public override void _Draw()
         {
             float W = Size.X, H = Size.Y;
+            switch (_type)
+            {
+                case RoomType.CommOutpost: DrawCommOutpost(W, H); break;
+                case RoomType.BurntWarehouse: DrawBurnt(W, H); break;
+                default: DrawResidence(W, H, _variant); break;
+            }
+        }
+        // ---------- 住家：炕 / 灶台 / 桌子 / 柜子 ----------
+        private void DrawResidence(float W, float H, int variant)
+        {
+            bool flip = variant != 0;
             float fy = H * 0.64f;
 
-            // 后墙
-            DrawRect(new Rect2(0, 0, W, fy), new Color(0.17f, 0.13f, 0.10f));
-            for (float y = 34; y < fy; y += 44)
+            // 后墙（暖色木墙）
+            DrawRect(new Rect2(0, 0, W, fy), new Color(0.18f, 0.14f, 0.11f));
+            for (float y = 30; y < fy; y += 42)
                 DrawLine(new Vector2(0, y), new Vector2(W, y), new Color(0.13f, 0.10f, 0.08f), 1);
 
             // 地板（透视斜线）
-            DrawRect(new Rect2(0, fy, W, H - fy), new Color(0.10f, 0.08f, 0.06f));
-            for (float x = 12; x < W; x += 58)
-                DrawLine(new Vector2(x, fy), new Vector2(x - 74, H), new Color(0.07f, 0.055f, 0.04f), 1);
+            DrawRect(new Rect2(0, fy, W, H - fy), new Color(0.11f, 0.085f, 0.06f));
+            for (float x = 12; x < W; x += 56)
+                DrawLine(new Vector2(x, fy), new Vector2(x - 70, H), new Color(0.075f, 0.058f, 0.04f), 1);
 
-            // 夜窗（外头是初秋夜色 + 月）
-            float wx = W * 0.30f, wy = 38f, ww = 150f, wh = 108f;
+            // 夜窗（外头初秋夜色 + 月）— variant 决定左右
+            float wx = flip ? W - 184f : 34f, wy = 34f, ww = 150f, wh = 104f;
             DrawRect(new Rect2(wx, wy, ww, wh), new Color(0.05f, 0.07f, 0.12f));
             DrawLine(new Vector2(wx + ww / 2, wy), new Vector2(wx + ww / 2, wy + wh), new Color(0.22f, 0.17f, 0.13f), 3);
             DrawLine(new Vector2(wx, wy + wh / 2), new Vector2(wx + ww, wy + wh / 2), new Color(0.22f, 0.17f, 0.13f), 3);
-            DrawCircle(new Vector2(wx + 112, wy + 32), 13, new Color(0.86f, 0.83f, 0.60f, 0.9f));
+            DrawCircle(new Vector2(wx + 112, wy + 30), 12, new Color(0.86f, 0.83f, 0.60f, 0.9f));
 
-            // 灶台（左，信藏在砖下）
-            DrawRect(new Rect2(40, H - 152, 120, 126), new Color(0.07f, 0.06f, 0.05f));
-            DrawRect(new Rect2(54, H - 140, 92, 12), new Color(0.12f, 0.10f, 0.08f));
-            DrawCircle(new Vector2(100, H - 92), 26, new Color(0.95f, 0.55f, 0.22f, 0.5f));
+            // 炕（床，靠一侧的台子）
+            float kx = flip ? W - 250f : 36f, ky = fy - 86f, kw = 214f, kh = 86f;
+            DrawRect(new Rect2(kx, ky, kw, kh), new Color(0.20f, 0.15f, 0.11f));
+            DrawRect(new Rect2(kx + 10, ky + 10, kw - 20, 18), new Color(0.30f, 0.24f, 0.18f)); // 被褥
+            DrawRect(new Rect2(kx + 10, ky + 34, kw - 20, 16), new Color(0.26f, 0.21f, 0.16f));
+            for (float x = kx + 14; x < kx + kw - 10; x += 30)
+                DrawLine(new Vector2(x, ky), new Vector2(x, ky + kh), new Color(0.14f, 0.11f, 0.08f), 1);
 
-            // 货架（右上）
-            DrawRect(new Rect2(W - 232, 198, 200, 14), new Color(0.19f, 0.14f, 0.10f));
-            DrawRect(new Rect2(W - 216, 158, 46, 40), new Color(0.22f, 0.16f, 0.11f));
-            DrawRect(new Rect2(W - 152, 150, 50, 48), new Color(0.24f, 0.17f, 0.12f));
-            DrawRect(new Rect2(W - 90, 164, 44, 34), new Color(0.20f, 0.15f, 0.10f));
+            // 灶台（另一侧，砖砌 + 灶火）
+            float sx = flip ? 60f : W - 168f, sy = H - 150f, sw = 124f, sh = 124f;
+            DrawRect(new Rect2(sx, sy, sw, sh), new Color(0.08f, 0.07f, 0.06f));
+            DrawRect(new Rect2(sx + 14, sy + 12, sw - 28, 12), new Color(0.13f, 0.10f, 0.08f));
+            DrawCircle(new Vector2(sx + sw / 2, sy + 64), 24, new Color(0.95f, 0.55f, 0.22f, 0.5f));
+            DrawCircle(new Vector2(sx + sw / 2, sy + 64), 12, new Color(1.0f, 0.75f, 0.35f, 0.6f));
 
             // 桌子（中下）
-            DrawRect(new Rect2(352, H - 124, 236, 16), new Color(0.20f, 0.14f, 0.09f));
-            DrawLine(new Vector2(372, H - 108), new Vector2(372, H - 38), new Color(0.15f, 0.10f, 0.07f), 6);
-            DrawLine(new Vector2(568, H - 108), new Vector2(568, H - 38), new Color(0.15f, 0.10f, 0.07f), 6);
+            float tx = W * 0.40f, ty = H - 120f, tw = 236f, th = 16f;
+            DrawRect(new Rect2(tx, ty, tw, th), new Color(0.21f, 0.15f, 0.10f));
+            DrawLine(new Vector2(tx + 20, ty + th), new Vector2(tx + 20, H - 28), new Color(0.15f, 0.10f, 0.07f), 6);
+            DrawLine(new Vector2(tx + tw - 20, ty + th), new Vector2(tx + tw - 20, H - 28), new Color(0.15f, 0.10f, 0.07f), 6);
 
-            // 柜子（右下）
-            DrawRect(new Rect2(W - 196, H - 168, 150, 144), new Color(0.13f, 0.10f, 0.07f));
-            DrawLine(new Vector2(W - 121, H - 168), new Vector2(W - 121, H - 24), new Color(0.09f, 0.07f, 0.05f), 3);
+            // 柜子（一侧墙角）
+            float cx = flip ? 300f : W - 150f, cy = H - 150f, cw = 120f, ch = 128f;
+            DrawRect(new Rect2(cx, cy, cw, ch), new Color(0.13f, 0.10f, 0.07f));
+            DrawLine(new Vector2(cx + cw / 2, cy), new Vector2(cx + cw / 2, cy + ch), new Color(0.09f, 0.07f, 0.05f), 3);
+            DrawCircle(new Vector2(cx + cw / 2 - 12, cy + ch / 2), 3, new Color(0.4f, 0.34f, 0.26f));
+            DrawCircle(new Vector2(cx + cw / 2 + 12, cy + ch / 2), 3, new Color(0.4f, 0.34f, 0.26f));
 
-            // 发电机（左墙，电闸旁）
-            DrawRect(new Rect2(30, 40, 124, 96), new Color(0.14f, 0.10f, 0.07f));
-            DrawCircle(new Vector2(92, 88), 22, new Color(0.30f, 0.25f, 0.20f));
-            DrawCircle(new Vector2(92, 88), 8, new Color(0.10f, 0.08f, 0.06f));
+            // 水缸（点缀）
+            float vx = flip ? W - 210f : 210f;
+            DrawCircle(new Vector2(vx, H - 36f), 22, new Color(0.10f, 0.12f, 0.13f));
+            DrawCircle(new Vector2(vx, H - 36f), 16, new Color(0.16f, 0.20f, 0.22f, 0.7f));
+        }
 
-            // 发信机（角落，无线电旁）
-            DrawRect(new Rect2(W - 232, 30, 196, 86), new Color(0.14f, 0.10f, 0.07f));
-            DrawLine(new Vector2(W - 134, 30), new Vector2(W - 134, -26), new Color(0.20f, 0.16f, 0.12f), 4);
-            DrawCircle(new Vector2(W - 134, -26), 8, new Color(0.20f, 0.16f, 0.12f));
+        // ---------- 通信据点机房：发电机 / 电闸 / 发信机 / 地图桌 ----------
+        private void DrawCommOutpost(float W, float H)
+        {
+            float fy = H * 0.66f;
+
+            // 后墙（机房混凝土灰）
+            DrawRect(new Rect2(0, 0, W, fy), new Color(0.15f, 0.15f, 0.16f));
+            for (float y = 28; y < fy; y += 40)
+                DrawLine(new Vector2(0, y), new Vector2(W, y), new Color(0.11f, 0.11f, 0.12f), 1);
+
+            // 地板（木箱拼地）
+            DrawRect(new Rect2(0, fy, W, H - fy), new Color(0.09f, 0.075f, 0.06f));
+            for (float x = 12; x < W; x += 54)
+                DrawLine(new Vector2(x, fy), new Vector2(x - 66, H), new Color(0.06f, 0.05f, 0.04f), 1);
+
+            // 作战地图（墙上，居中靠上）
+            float mapX = W * 0.30f;
+            DrawRect(new Rect2(mapX, 30, 220, 130), new Color(0.22f, 0.19f, 0.14f));
+            DrawLine(new Vector2(mapX + 14, 60), new Vector2(mapX + 206, 60), new Color(0.55f, 0.35f, 0.18f), 2);
+            DrawLine(new Vector2(mapX + 14, 90), new Vector2(mapX + 160, 130), new Color(0.55f, 0.35f, 0.18f), 2);
+            DrawCircle(new Vector2(mapX + 120, 95), 5, new Color(0.7f, 0.2f, 0.18f));
+
+            // 电闸箱（左墙）
+            DrawRect(new Rect2(20, 40, 150, 96), new Color(0.10f, 0.10f, 0.11f));
+            DrawLine(new Vector2(40, 70), new Vector2(150, 70), new Color(0.5f, 0.42f, 0.18f), 3); // 闸刀
+            DrawLine(new Vector2(95, 58), new Vector2(95, 120), new Color(0.30f, 0.30f, 0.32f), 2);
+
+            // 发电机（左，电闸旁）
+            DrawRect(new Rect2(34, 150, 130, 104), new Color(0.14f, 0.12f, 0.10f));
+            DrawCircle(new Vector2(99, 202), 26, new Color(0.30f, 0.27f, 0.22f));
+            DrawCircle(new Vector2(99, 202), 9, new Color(0.10f, 0.09f, 0.07f));
+            DrawLine(new Vector2(99, 150), new Vector2(99, 110), new Color(0.25f, 0.22f, 0.18f), 3);
+
+            // 地图桌（中下，桌上铺地图）
+            float tx = W * 0.34f, ty = H - 134f, tw = 280f, th = 16f;
+            DrawRect(new Rect2(tx, ty, tw, th), new Color(0.20f, 0.16f, 0.11f));
+            DrawLine(new Vector2(tx + 24, ty + th), new Vector2(tx + 24, H - 26), new Color(0.14f, 0.11f, 0.08f), 6);
+            DrawLine(new Vector2(tx + tw - 24, ty + th), new Vector2(tx + tw - 24, H - 26), new Color(0.14f, 0.11f, 0.08f), 6);
+            DrawRect(new Rect2(tx + 30, ty - 30, tw - 60, 28), new Color(0.23f, 0.20f, 0.15f));
+
+            // 发信机（右墙，天线伸出画外）
+            DrawRect(new Rect2(W - 236, 36, 200, 96), new Color(0.14f, 0.12f, 0.10f));
+            DrawLine(new Vector2(W - 136, 36), new Vector2(W - 136, -30), new Color(0.20f, 0.17f, 0.13f), 4);
+            DrawCircle(new Vector2(W - 136, -30), 8, new Color(0.20f, 0.17f, 0.13f));
+            DrawRect(new Rect2(W - 210, 70, 70, 40), new Color(0.10f, 0.09f, 0.08f)); // 电键
+
+            // 木箱（左中）
+            DrawRect(new Rect2(250, H - 120, 96, 96), new Color(0.18f, 0.13f, 0.09f));
+            DrawLine(new Vector2(250, H - 72), new Vector2(346, H - 72), new Color(0.12f, 0.09f, 0.06f), 2);
+            DrawRect(new Rect2(360, H - 104, 80, 80), new Color(0.16f, 0.12f, 0.08f));
+        }
+
+        // ---------- 仓库 / 焚毁的院落：货架 / 木箱 / 灰烬 ----------
+        private void DrawBurnt(float W, float H)
+        {
+            float fy = H * 0.62f;
+
+            // 破墙（烧黑的砖，墙洞透光）
+            DrawRect(new Rect2(0, 0, W, fy), new Color(0.12f, 0.10f, 0.09f));
+            for (float y = 26; y < fy; y += 36)
+                DrawLine(new Vector2(0, y), new Vector2(W, y), new Color(0.08f, 0.07f, 0.06f), 1);
+            // 透光洞（右上方，外头天光）
+            DrawRect(new Rect2(W - 220, 30, 150, 120), new Color(0.20f, 0.22f, 0.24f, 0.55f));
+            DrawLine(new Vector2(W - 220, 30), new Vector2(W - 70, 30), new Color(0.05f, 0.05f, 0.05f), 4);
+            DrawLine(new Vector2(W - 220, 150), new Vector2(W - 70, 150), new Color(0.05f, 0.05f, 0.05f), 4);
+            DrawLine(new Vector2(W - 220, 30), new Vector2(W - 220, 150), new Color(0.05f, 0.05f, 0.05f), 4);
+            DrawLine(new Vector2(W - 70, 30), new Vector2(W - 70, 150), new Color(0.05f, 0.05f, 0.05f), 4);
+
+            // 地面（焦土 + 斜梁）
+            DrawRect(new Rect2(0, fy, W, H - fy), new Color(0.08f, 0.07f, 0.06f));
+            DrawLine(new Vector2(120, fy), new Vector2(W - 40, H), new Color(0.06f, 0.05f, 0.04f), 1);
+            // 斜塌的房梁
+            DrawLine(new Vector2(40, 20), new Vector2(W * 0.5f, fy + 30), new Color(0.14f, 0.10f, 0.07f), 8);
+            DrawLine(new Vector2(W - 60, 10), new Vector2(W * 0.42f, fy + 50), new Color(0.14f, 0.10f, 0.07f), 8);
+
+            // 残货架（右中，断裂）
+            DrawRect(new Rect2(W - 250, 200, 150, 12), new Color(0.16f, 0.12f, 0.09f));
+            DrawRect(new Rect2(W - 235, 150, 40, 44), new Color(0.18f, 0.13f, 0.10f));
+            DrawRect(new Rect2(W - 175, 162, 46, 38), new Color(0.15f, 0.11f, 0.08f));
+
+            // 木箱（中）
+            DrawRect(new Rect2(600, H - 128, 110, 104), new Color(0.17f, 0.12f, 0.08f));
+            DrawLine(new Vector2(600, H - 76), new Vector2(710, H - 76), new Color(0.11f, 0.08f, 0.05f), 2);
+            DrawRect(new Rect2(470, H - 110, 90, 90), new Color(0.15f, 0.11f, 0.07f));
+
+            // 灰烬堆（中下，余烬）
+            DrawCircle(new Vector2(470, H - 34), 40, new Color(0.06f, 0.05f, 0.04f));
+            DrawCircle(new Vector2(452, H - 40), 6, new Color(0.9f, 0.4f, 0.12f, 0.7f));
+            DrawCircle(new Vector2(486, H - 30), 5, new Color(0.9f, 0.45f, 0.15f, 0.6f));
+            DrawCircle(new Vector2(470, H - 48), 4, new Color(0.95f, 0.5f, 0.18f, 0.5f));
+
+            // 残桌（左）
+            DrawRect(new Rect2(230, H - 118, 150, 14), new Color(0.13f, 0.10f, 0.07f));
+            DrawLine(new Vector2(250, H - 104), new Vector2(250, H - 30), new Color(0.10f, 0.08f, 0.05f), 5);
+            DrawLine(new Vector2(360, H - 104), new Vector2(360, H - 30), new Color(0.10f, 0.08f, 0.05f), 5);
         }
     }
 }
