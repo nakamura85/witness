@@ -482,27 +482,28 @@ public partial class HouseInteriorUi : CanvasLayer
             Done = _looted.Contains(fullId),
             Text = label,
         };
+        // v3.65 漫画风物件标签：米黄土实色 + 3px 深墨棕粗框 + 硬投影，不再是白纸签
         var normal = new StyleBoxFlat
         {
-            BgColor = s.Done ? new Color(0.78f, 0.74f, 0.66f, 0.88f) : new Color(0.965f, 0.94f, 0.875f, 0.96f),
-            BorderColor = new Color(0.30f, 0.25f, 0.20f),
-            BorderWidthLeft = 1, BorderWidthRight = 1, BorderWidthTop = 1, BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 1, CornerRadiusTopRight = 1, CornerRadiusBottomLeft = 1, CornerRadiusBottomRight = 1,
-            ShadowColor = new Color(0.12f, 0.10f, 0.08f, 0.30f), ShadowSize = 4, ShadowOffset = new Vector2(2, 3),
-            ContentMarginLeft = 11, ContentMarginRight = 11, ContentMarginTop = 6, ContentMarginBottom = 6,
+            BgColor = s.Done ? new Color(0.66f, 0.61f, 0.50f) : new Color(0.92f, 0.85f, 0.68f),
+            BorderColor = new Color(0.14f, 0.10f, 0.08f),
+            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+            CornerRadiusTopLeft = 0, CornerRadiusTopRight = 0, CornerRadiusBottomLeft = 0, CornerRadiusBottomRight = 0,
+            ShadowColor = new Color(0.10f, 0.08f, 0.06f, 0.55f), ShadowSize = 3, ShadowOffset = new Vector2(4, 4),
+            ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 6, ContentMarginBottom = 6,
         };
         s.AddThemeStyleboxOverride("normal", normal);
         var hover = new StyleBoxFlat
         {
-            BgColor = s.Done ? new Color(0.82f, 0.78f, 0.70f, 0.92f) : new Color(0.99f, 0.97f, 0.92f),
-            BorderColor = new Color(0.42f, 0.20f, 0.15f),
-            BorderWidthLeft = 1, BorderWidthRight = 1, BorderWidthTop = 1, BorderWidthBottom = 1,
-            ShadowColor = new Color(0.12f, 0.10f, 0.08f, 0.34f), ShadowSize = 5, ShadowOffset = new Vector2(2, 3),
-            ContentMarginLeft = 11, ContentMarginRight = 11, ContentMarginTop = 6, ContentMarginBottom = 6,
+            BgColor = s.Done ? new Color(0.72f, 0.67f, 0.55f) : new Color(0.99f, 0.92f, 0.74f),
+            BorderColor = new Color(0.62f, 0.21f, 0.16f),
+            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+            ShadowColor = new Color(0.10f, 0.08f, 0.06f, 0.55f), ShadowSize = 3, ShadowOffset = new Vector2(4, 4),
+            ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 6, ContentMarginBottom = 6,
         };
         s.AddThemeStyleboxOverride("hover", hover);
-        s.AddThemeColorOverride("font_color", s.Done ? new Color(0.42f, 0.38f, 0.32f) : new Color(0.22f, 0.18f, 0.15f));
-        s.AddThemeFontSizeOverride("font_size", 14);
+        s.AddThemeColorOverride("font_color", s.Done ? new Color(0.34f, 0.30f, 0.25f) : new Color(0.14f, 0.10f, 0.08f));
+        s.AddThemeFontSizeOverride("font_size", 15);
         s.Pressed += () => OnSpot(s);
         _spots.Add(s);
         if (kind == "chest") _chestSpot = s;
@@ -767,11 +768,12 @@ public partial class HouseInteriorUi : CanvasLayer
         var panel = new PanelContainer { CustomMinimumSize = new Vector2(1000, 640) };
         var style = new StyleBoxFlat
         {
-            BgColor = new Color(0.10f, 0.08f, 0.06f),
-            BorderColor = new Color(0.30f, 0.24f, 0.17f),
-            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+            // v3.65 漫画分格：深墨棕实边粗框（不是纸本淡彩框）
+            BgColor = new Color(0.14f, 0.10f, 0.08f),
+            BorderColor = new Color(0.92f, 0.85f, 0.68f),
+            BorderWidthLeft = 4, BorderWidthRight = 4, BorderWidthTop = 4, BorderWidthBottom = 4,
             ContentMarginLeft = 24, ContentMarginRight = 24, ContentMarginTop = 24, ContentMarginBottom = 24,
-            ShadowColor = new Color(0, 0, 0, 0.5f), ShadowSize = 18, ShadowOffset = new Vector2(6, 8),
+            ShadowColor = new Color(0.04f, 0.03f, 0.02f, 0.6f), ShadowSize = 10, ShadowOffset = new Vector2(8, 8),
         };
         panel.AddThemeStyleboxOverride("panel", style);
 
@@ -786,7 +788,7 @@ public partial class HouseInteriorUi : CanvasLayer
         content.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         panel.AddChild(content);
 
-        // v3.64: 钢笔淡彩水彩室内；houseId 播种让每间屋的纸纹/水痕/排线都不同
+        // v3.65: 手绘上色漫画风室内；houseId 播种让每间屋的排线/摆设细节不同
         var room = new RoomBg(_roomType, _roomVariant, _houseId.GetHashCode() & 0xffff);
         room.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         content.AddChild(room);
@@ -799,9 +801,12 @@ public partial class HouseInteriorUi : CanvasLayer
         // title / hint / leave are anchored children of the single Content node
         // (PanelContainer only manages its first child; extra direct children render blank)
         var title = new Label { Text = $"{_houseTitle} · 屋内" };
-        title.AddThemeFontSizeOverride("font_size", 22);
-        // v3.64: 屋内改成纸本色底，标题/提示必须改成墨色才看得清
-        title.AddThemeColorOverride("font_color", new Color(0.24f, 0.20f, 0.17f));
+        // v3.65: 室内改成暖土平涂底，标题/提示用深墨棕才够漫画感；
+        // 焚毁仓库是深焦墙，必须反过来用亮字，否则标题看不见。
+        bool darkRoom = _roomType == RoomType.BurntWarehouse;
+        title.AddThemeFontSizeOverride("font_size", 24);
+        title.AddThemeColorOverride("font_color", darkRoom
+            ? new Color(0.94f, 0.88f, 0.76f) : new Color(0.14f, 0.10f, 0.08f));
         title.SetAnchorsPreset(Control.LayoutPreset.TopWide);
         title.OffsetTop = 6;
         title.HorizontalAlignment = HorizontalAlignment.Center;
@@ -809,7 +814,8 @@ public partial class HouseInteriorUi : CanvasLayer
 
         _hint = new Label { Text = "在屋子里翻找能用的东西，点一下就能查看。按 E 离开。" };
         _hint.AddThemeFontSizeOverride("font_size", 14);
-        _hint.AddThemeColorOverride("font_color", new Color(0.38f, 0.33f, 0.27f));
+        _hint.AddThemeColorOverride("font_color", darkRoom
+            ? new Color(0.86f, 0.80f, 0.68f) : new Color(0.30f, 0.24f, 0.18f));
         _hint.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
         _hint.OffsetBottom = -48;
         _hint.HorizontalAlignment = HorizontalAlignment.Center;
@@ -819,11 +825,14 @@ public partial class HouseInteriorUi : CanvasLayer
         leave.Pressed += Close;
         var lb = new StyleBoxFlat
         {
-            BgColor = new Color(0.26f, 0.21f, 0.16f),
+            BgColor = new Color(0.20f, 0.15f, 0.11f),
+            BorderColor = new Color(0.92f, 0.85f, 0.68f),
+            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+            ShadowColor = new Color(0.08f, 0.06f, 0.05f, 0.55f), ShadowSize = 3, ShadowOffset = new Vector2(4, 4),
             ContentMarginLeft = 18, ContentMarginRight = 18, ContentMarginTop = 8, ContentMarginBottom = 8,
         };
         leave.AddThemeStyleboxOverride("normal", lb);
-        leave.AddThemeColorOverride("font_color", new Color(0.92f, 0.88f, 0.78f));
+        leave.AddThemeColorOverride("font_color", new Color(0.98f, 0.91f, 0.75f));
         leave.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
         leave.OffsetBottom = -10;
         leave.Alignment = HorizontalAlignment.Center;
@@ -847,9 +856,9 @@ public partial class HouseInteriorUi : CanvasLayer
             s.Position = p;
             s.Size = new Vector2(w, 42);
             s.CustomMinimumSize = new Vector2(w, 42);
-            // v3.64: 标签不再是一排整齐的按钮，而是随手贴在物件旁的小纸签
+            // v3.65: 漫画风描边标签，只留极轻微的手绘倾斜（不再歪成小纸签）
             s.PivotOffset = s.Size * 0.5f;
-            s.Rotation = Mathf.DegToRad(_rng.RandfRange(-2.2f, 2.2f));
+            s.Rotation = Mathf.DegToRad(_rng.RandfRange(-1.2f, 1.2f));
             spotsLayer.AddChild(s);
         }
     }
@@ -930,144 +939,91 @@ public partial class HouseInteriorUi : CanvasLayer
     /// 低饱和水彩罩染柔边（多层半透明错位叠色，不做硬边赛璐璐平涂）、
     /// 可见纸纹与水痕。全部确定性伪随机，同一间屋每次打开完全一致。
     /// </summary>
+    /// <summary>
+    /// v3.65 手绘上色漫画风（Hand-drawn cel-shading manga）室内绘制工具。
+    ///
+    /// 用户 2026-11-12 纠正：室内是程序化 _Draw() 层，必须跟全局风格入口
+    /// scripts/InkStyle.cs 一致，而不是 AI 生成贴图资产用的「钢笔淡彩水彩」。
+    /// 规则：
+    ///   • 3px 深墨棕粗描边；每块物体只有 base → shadow → highlight 三档平涂；
+    ///   • 不做插值渐变、不做柔边羽化、不做纸纹水痕；
+    ///   • 卡通高光是小圆点 / 短直线 / 放射线，不是模糊光晕；
+    ///   • 接触阴影是压扁的硬边椭圆，不是柔和羽化。
+    /// 方法名与 v3.64 保持完全一致，RoomBg 的数百处调用无需改动。
+    /// </summary>
     internal static class WashPaint
     {
-        public static readonly Color Paper = new(0.905f, 0.865f, 0.765f);       // 纸本色
-        public static readonly Color PaperLit = new(0.945f, 0.915f, 0.835f);    // 受光纸面
-        public static readonly Color PaperShade = new(0.80f, 0.75f, 0.65f);     // 背光纸面
-        public static readonly Color Ink = new(0.235f, 0.195f, 0.165f);         // 深褐灰墨线
-        public static readonly Color InkSoft = new(0.38f, 0.33f, 0.28f);        // 次级墨线
-        public static readonly Color WallWarm = new(0.55f, 0.46f, 0.35f);       // 土坯墙罩染
-        public static readonly Color WallCool = new(0.44f, 0.47f, 0.48f);       // 机房灰蓝罩染
-        public static readonly Color Wood = new(0.52f, 0.38f, 0.25f);           // 木器罩染
-        public static readonly Color WoodDark = new(0.34f, 0.25f, 0.18f);
-        public static readonly Color ClothBlue = new(0.46f, 0.51f, 0.55f);      // 被褥 / 军毯
-        public static readonly Color NightBlue = new(0.22f, 0.27f, 0.34f);      // 窗外夜色
-        public static readonly Color Ember = new(0.82f, 0.42f, 0.18f);          // 灶火 / 余烬
-        public static readonly Color Red = new(0.62f, 0.21f, 0.16f);            // 作战图朱红
-        public static readonly Color Char = new(0.20f, 0.17f, 0.15f);           // 焦木
+        // —— 墨线（对齐 InkStyle.InkColor / InkSoft / BoldStroke）——
+        public static readonly Color Ink = new(0.14f, 0.10f, 0.08f);
+        public static readonly Color InkSoft = new(0.28f, 0.22f, 0.18f);
+        public const float Bold = 3.0f;
+        public const float Thin = 1.6f;
+
+        // —— 三档平涂色板（base / shadow / highlight）——
+        public static readonly Color Paper = new(0.86f, 0.79f, 0.66f);       // 室内暖土底（不再是纸白）
+        public static readonly Color PaperLit = new(0.94f, 0.88f, 0.76f);    // 亮一档
+        public static readonly Color PaperShade = new(0.66f, 0.59f, 0.47f);  // 暗一档
+        public static readonly Color WallWarm = new(0.72f, 0.66f, 0.56f);    // AdobeWall 土坯墙
+        public static readonly Color WallCool = new(0.60f, 0.63f, 0.64f);    // 机房冷灰蓝
+        public static readonly Color Wood = new(0.62f, 0.44f, 0.24f);
+        public static readonly Color WoodDark = new(0.40f, 0.26f, 0.14f);
+        public static readonly Color ClothBlue = new(0.52f, 0.58f, 0.64f);
+        public static readonly Color NightBlue = new(0.20f, 0.26f, 0.38f);
+        public static readonly Color Ember = new(0.95f, 0.62f, 0.22f);
+        public static readonly Color Red = new(0.78f, 0.22f, 0.16f);
+        public static readonly Color Char = new(0.26f, 0.22f, 0.19f);
 
         /// <summary>确定性伪随机（0..1），同 seed 同结果，画面不闪。</summary>
         public static float H(float n, float seed)
             => Mathf.Abs(Mathf.Sin(n * 12.9898f + seed * 78.233f) * 43758.5453f) % 1f;
 
+        public static Color Dark(Color c, float k = 0.70f)
+            => new(c.R * k, c.G * k, c.B * k, 1f);
+        public static Color Lit(Color c, float k = 1.16f)
+            => new(Mathf.Min(1f, c.R * k), Mathf.Min(1f, c.G * k), Mathf.Min(1f, c.B * k), 1f);
+
         /// <summary>
-        /// 水彩罩染矩形：逐顶点 alpha 羽化的柔边 + 颜料浓淡斑 + 沉积水痕。
-        /// v3.64b：旧版是 4 层硬边 DrawRect 叠加，边缘只有几像素阶梯，
-        /// 实机看仍是平涂色块；这里改成外环全透明 / 内环实色的三角带，
-        /// 才是真正的水彩柔边（不是赛璐璐硬边）。
+        /// 漫画平涂块：实色 base + 下缘硬边暗部 + 上缘硬边高光带。
+        /// v3.64 的逐顶点羽化柔边 / 颜料浓淡斑 / 水痕沉积全部移除。
         /// </summary>
         public static void Wash(CanvasItem c, Rect2 r, Color col, float alpha, float seed, int layers = 4)
         {
-            SoftWash(c, r, col, alpha, seed);
-
-            // 颜料浓淡：色块内部深浅不一，模拟水彩未干时的聚色与留白
-            int n = layers < 2 ? 2 : layers;
-            for (int i = 0; i < n; i++)
-            {
-                float bx = r.Position.X + H(seed + i * 7.3f, 61f) * r.Size.X;
-                float by = r.Position.Y + H(seed + i * 11.7f, 67f) * r.Size.Y;
-                float br = Mathf.Min(r.Size.X, r.Size.Y) *
-                           (0.16f + H(seed + i * 3.1f, 71f) * 0.34f);
-                var bc = H(seed + i, 73f) > 0.45f
-                    ? new Color(col.R * 0.80f, col.G * 0.80f, col.B * 0.80f)
-                    : new Color(0.96f, 0.93f, 0.85f);
-                Blot(c, new Vector2(bx, by), br, bc,
-                    alpha * (0.10f + 0.10f * H(seed + i, 79f)), seed + i * 5f);
-            }
-
-            // 下缘颜料沉积（水彩干掉后颜色堆在边界）
-            WaterEdge(c,
-                new Vector2(r.Position.X + 3f, r.Position.Y + r.Size.Y - 2f),
-                new Vector2(r.Position.X + r.Size.X - 3f, r.Position.Y + r.Size.Y - 2f),
-                new Color(col.R * 0.68f, col.G * 0.68f, col.B * 0.68f), seed + 17f);
+            if (r.Size.X < 1f || r.Size.Y < 1f) return;
+            c.DrawRect(r, new Color(col.R, col.G, col.B, 1f));
+            float sh = Mathf.Clamp(r.Size.Y * 0.26f, 2f, 44f);
+            c.DrawRect(new Rect2(r.Position.X, r.Position.Y + r.Size.Y - sh, r.Size.X, sh), Dark(col));
+            float hl = Mathf.Clamp(r.Size.Y * 0.12f, 2f, 12f);
+            c.DrawRect(new Rect2(r.Position.X, r.Position.Y, r.Size.X, hl), Lit(col));
         }
 
-        /// <summary>逐顶点羽化罩染：外环 alpha=0 → 内环实色，三角带插值出柔边。</summary>
+        /// <summary>v3.64 柔边罩染 → v3.65 退化为单色平涂（保留调用兼容）。</summary>
         public static void SoftWash(CanvasItem c, Rect2 r, Color col, float alpha, float seed)
-        {
-            const int Per = 5;
-            const int N = Per * 4;
-            if (r.Size.X < 2f || r.Size.Y < 2f) return;
+            => c.DrawRect(r, new Color(col.R, col.G, col.B, 1f));
 
-            var outer = new Vector2[N];
-            int k = 0;
-            for (int i = 0; i < Per; i++)
-                outer[k++] = new Vector2(r.Position.X + r.Size.X * i / Per, r.Position.Y);
-            for (int i = 0; i < Per; i++)
-                outer[k++] = new Vector2(r.Position.X + r.Size.X, r.Position.Y + r.Size.Y * i / Per);
-            for (int i = 0; i < Per; i++)
-                outer[k++] = new Vector2(r.Position.X + r.Size.X * (1f - (float)i / Per),
-                                         r.Position.Y + r.Size.Y);
-            for (int i = 0; i < Per; i++)
-                outer[k++] = new Vector2(r.Position.X,
-                                         r.Position.Y + r.Size.Y * (1f - (float)i / Per));
-
-            // 边缘手绘抖动，避免尺子画出来的死直线。
-            // v3.64b: 抖动必须随尺寸缩放 —— 小物件（如 16×14 铁锁）相邻采样点
-            // 只有 3px，固定 ±1.6px 会让轮廓自交，触发 triangulation failed。
-            float jit = Mathf.Min(3.2f, Mathf.Min(r.Size.X, r.Size.Y) / 10f);
-            for (int i = 0; i < N; i++)
-                outer[i] += new Vector2(
-                    (H(seed + i * 1.9f, 5f) - 0.5f) * jit,
-                    (H(seed + i * 2.7f, 9f) - 0.5f) * jit);
-
-            float feather = Mathf.Clamp(Mathf.Min(r.Size.X, r.Size.Y) * 0.16f, 1.5f, 15f);
-            float kx = Mathf.Clamp(1f - feather / Mathf.Max(1f, r.Size.X * 0.5f), 0.45f, 1f);
-            float ky = Mathf.Clamp(1f - feather / Mathf.Max(1f, r.Size.Y * 0.5f), 0.45f, 1f);
-            var center = r.Position + r.Size * 0.5f;
-            var inner = new Vector2[N];
-            for (int i = 0; i < N; i++)
-                inner[i] = center + new Vector2(
-                    (outer[i].X - center.X) * kx,
-                    (outer[i].Y - center.Y) * ky);
-
-            var clear = new Color(col.R, col.G, col.B, 0f);
-            var full = new Color(col.R, col.G, col.B, alpha);
-            for (int i = 0; i < N; i++)
-            {
-                int j = (i + 1) % N;
-                c.DrawPolygon(new[] { outer[i], outer[j], inner[j] },
-                    new[] { clear, clear, full });
-                c.DrawPolygon(new[] { outer[i], inner[j], inner[i] },
-                    new[] { clear, full, full });
-            }
-            var innerCols = new Color[N];
-            for (int i = 0; i < N; i++) innerCols[i] = full;
-            c.DrawPolygon(inner, innerCols);
-        }
-
-        /// <summary>柔边色斑：多层错位递减 alpha 的圆，模拟水彩晕开的一摊颜料。</summary>
+        /// <summary>水彩浓淡斑 → 卡通高光点（硬边小圆 + 一条短高光线）。</summary>
         public static void Blot(CanvasItem c, Vector2 p, float radius, Color col, float alpha, float seed)
         {
-            if (radius < 1f) return;
-            for (int i = 5; i >= 1; i--)
-            {
-                float rr = radius * (0.30f + i * 0.17f);
-                var q = p + new Vector2(
-                    (H(seed + i, 83f) - 0.5f) * radius * 0.5f,
-                    (H(seed + i, 89f) - 0.5f) * radius * 0.5f);
-                c.DrawCircle(q, rr, new Color(col.R, col.G, col.B, alpha / (i + 1f)));
-            }
+            float rr = Mathf.Clamp(radius * 0.10f, 2f, 9f);
+            c.DrawCircle(p, rr, Lit(col, 1.25f));
+            c.DrawLine(p + new Vector2(-rr * 1.8f, -rr * 1.8f),
+                       p + new Vector2(-rr * 0.5f, -rr * 0.5f),
+                       Lit(col, 1.35f), 1.8f, true);
         }
 
-        /// <summary>水彩罩染不规则多边形（顶点带手绘抖动）。</summary>
+        /// <summary>柔边水彩多边形 → 先填实色再逐边 3px 粗描边的漫画多边形。</summary>
         public static void WashPoly(CanvasItem c, Vector2[] poly, Color col, float alpha, float seed)
         {
-            for (int pass = 0; pass < 3; pass++)
-            {
-                float j = pass * 2.4f;
-                var p = new Vector2[poly.Length];
-                for (int i = 0; i < poly.Length; i++)
-                    p[i] = poly[i] + new Vector2(
-                        (H(seed + i * 2.1f + pass, 3f) - 0.5f) * (2f + j),
-                        (H(seed + i * 3.7f + pass, 9f) - 0.5f) * (2f + j));
-                c.DrawColoredPolygon(p, new Color(col.R, col.G, col.B, alpha * (0.30f + 0.18f * pass)));
-            }
-            c.DrawColoredPolygon(poly, new Color(col.R, col.G, col.B, alpha * 0.34f));
+            if (poly == null || poly.Length < 3) return;
+            c.DrawColoredPolygon(poly, new Color(col.R, col.G, col.B, 1f));
+            for (int i = 0; i < poly.Length; i++)
+                c.DrawLine(poly[i], poly[(i + 1) % poly.Length], Ink, Bold, true);
+            // 卡通高光：首边内侧一条短亮线
+            if (poly.Length >= 2)
+                c.DrawLine(poly[0] + new Vector2(5, 5), poly[1] + new Vector2(-12, 5),
+                    Lit(col, 1.22f), 2f, true);
         }
 
-        /// <summary>手绘墨线：分段折线 + 确定性抖动，避免尺子画出来的死直线。</summary>
+        /// <summary>手绘墨线：分段折线 + 确定性抖动，保留手绘勾线感（硬边实线）。</summary>
         public static void Pen(CanvasItem c, Vector2 a, Vector2 b, float width, Color col, float seed, float jitter = 1.1f)
         {
             int seg = Mathf.Max(2, (int)(a.DistanceTo(b) / 42f));
@@ -1082,78 +1038,54 @@ public partial class HouseInteriorUi : CanvasLayer
             c.DrawPolyline(pts, col, width, true);
         }
 
-        /// <summary>矩形墨线勾边（四条手绘线，角上略微出头，像钢笔速写）。</summary>
+        /// <summary>矩形粗墨勾边（硬边 3px，角上略微出头，像手绘勾线笔）。</summary>
         public static void InkRect(CanvasItem c, Rect2 r, float width, Color col, float seed)
         {
-            var a = r.Position; var b = r.Position + r.Size;
-            Pen(c, a + new Vector2(-1.5f, 0), new Vector2(b.X + 1.5f, a.Y), width, col, seed);
-            Pen(c, new Vector2(b.X, a.Y - 1f), new Vector2(b.X, b.Y + 1.5f), width, col, seed + 3f);
-            Pen(c, new Vector2(b.X + 1.5f, b.Y), new Vector2(a.X - 1f, b.Y), width, col, seed + 6f);
-            Pen(c, new Vector2(a.X, b.Y + 1f), new Vector2(a.X, a.Y - 1.5f), width, col, seed + 9f);
+            var a = r.Position;
+            var b = r.Position + r.Size;
+            float w = Mathf.Max(width, Bold);
+            c.DrawRect(r, col, false, w);
+            c.DrawLine(a + new Vector2(-2, 0), a + new Vector2(7, 0), col, w, true);
+            c.DrawLine(b + new Vector2(-7, 0), b + new Vector2(2, 0), col, w, true);
         }
 
-        /// <summary>断续排线阴影（水彩画的交叉排线，不是平涂黑块）。</summary>
+        /// <summary>漫画排线阴影：硬边实线，规整间距（不再半透明柔边）。</summary>
         public static void Hatch(CanvasItem c, Rect2 r, int n, Color col, float seed, float angle = -0.55f)
         {
             var dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
             for (int i = 0; i < n; i++)
             {
                 float t = (i + 0.5f) / n;
-                var o = new Vector2(r.Position.X + r.Size.X * t, r.Position.Y + H(seed + i, 13f) * 4f);
-                float len = r.Size.Y * (0.55f + H(seed + i, 17f) * 0.45f);
-                Pen(c, o, o + dir * len, 0.8f, new Color(col.R, col.G, col.B, 0.42f), seed + i * 2.3f, 0.7f);
+                var o = new Vector2(r.Position.X + r.Size.X * t, r.Position.Y);
+                float len = r.Size.Y * (0.62f + H(seed + i, 17f) * 0.30f);
+                c.DrawLine(o, o + dir * len, new Color(col.R, col.G, col.B, 0.78f), 1.4f, true);
             }
         }
 
-        /// <summary>柔边水痕（多层同心半透明圆），用于灶火、灯光、余烬、月光。</summary>
+        /// <summary>柔边光晕 → 卡通光芒：实心亮圆 + 四条放射短线，全部硬边。</summary>
         public static void Bloom(CanvasItem c, Vector2 p, float radius, Color col, float alpha, float seed)
         {
-            for (int i = 4; i >= 1; i--)
+            float rr = Mathf.Clamp(radius * 0.30f, 4f, 20f);
+            c.DrawCircle(p, rr, new Color(col.R, col.G, col.B, 1f));
+            c.DrawCircle(p, rr * 0.52f, Lit(col, 1.30f));
+            for (int i = 0; i < 4; i++)
             {
-                float rr = radius * (0.55f + i * 0.35f);
-                var q = p + new Vector2((H(seed + i, 23f) - 0.5f) * radius * 0.3f,
-                                        (H(seed + i, 29f) - 0.5f) * radius * 0.3f);
-                c.DrawCircle(q, rr, new Color(col.R, col.G, col.B, alpha / (i + 1f)));
+                float ang = i * Mathf.Pi * 0.5f + Mathf.Pi * 0.25f;
+                var d = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
+                c.DrawLine(p + d * (rr + 3f), p + d * (rr + 12f), col, 2.2f, true);
             }
         }
 
-        /// <summary>
-        /// 纸纹：低对比细点 + 纸纤维短斜线，铺满整张纸。
-        /// v3.64b：260 点铺 1000×640 等于看不见，提到 1400 并加入纤维斜线，
-        /// 让纸本颗粒在实机分辨率下真的可见。
-        /// </summary>
-        public static void Grain(CanvasItem c, float W, float Hh, float seed, int count = 1400)
-        {
-            for (int i = 0; i < count; i++)
-            {
-                float x = H(seed + i * 1.13f, 31f) * W;
-                float y = H(seed + i * 2.71f, 37f) * Hh;
-                float a = 0.030f + H(seed + i, 41f) * 0.055f;
-                var col = new Color(0.30f, 0.25f, 0.20f, a);
-                if (H(seed + i, 43f) < 0.66f)
-                    c.DrawCircle(new Vector2(x, y), 0.5f + H(seed + i, 47f) * 0.65f, col);
-                else
-                    c.DrawLine(new Vector2(x, y),
-                        new Vector2(x + 2.0f + H(seed + i, 53f) * 3.5f,
-                                    y - 1.2f - H(seed + i, 59f) * 1.4f), col, 0.7f, true);
-            }
-        }
+        /// <summary>漫画风不做纸纹颗粒（v3.64 的 1400 点纸纹会串味）。</summary>
+        public static void Grain(CanvasItem c, float W, float Hh, float seed, int count = 1400) { }
 
-        /// <summary>水渍：一条淡色不规则曲线，模拟水彩干掉后的边界。</summary>
+        /// <summary>水渍 → 硬边墨线（墙脚 / 地面线）。</summary>
         public static void WaterEdge(CanvasItem c, Vector2 a, Vector2 b, Color col, float seed)
-        {
-            int seg = 8;
-            var pts = new Vector2[seg + 1];
-            var n = (b - a).Normalized().Orthogonal();
-            for (int i = 0; i <= seg; i++)
-                pts[i] = a.Lerp(b, (float)i / seg)
-                    + n * (H(seed + i, 53f) - 0.5f) * 5f;
-            c.DrawPolyline(pts, new Color(col.R, col.G, col.B, 0.22f), 2.2f, true);
-        }
+            => c.DrawLine(a, b, new Color(col.R, col.G, col.B, 1f), 2.0f, true);
     }
 
     /// <summary>
-    /// 屋内背景：钢笔淡彩水彩风（v3.64 重绘）。
+    /// 屋内背景：手绘上色漫画风（v3.65 依用户反馈重做，与 InkStyle.cs 同源）。
     /// 三种格局：住家 / 通信据点机房（按 1931 年野战电台史实布置）/ 焚毁仓库。
     /// 主体家具位置固定（与可点击落点对齐），装饰细节按 houseId 播种变化。
     /// </summary>
@@ -1173,34 +1105,23 @@ public partial class HouseInteriorUi : CanvasLayer
         public override void _Draw()
         {
             float W = Size.X, H = Size.Y;
-            // 纸本色打底（整张画都是画在纸上的，不再是深棕纯色块）
+            // v3.65 漫画上色：一整块暖土底平涂，不做纸纹 / 水痕 / 柔边晕染
             DrawRect(new Rect2(0, 0, W, H), WashPaint.Paper);
-            WashPaint.Wash(this, new Rect2(0, 0, W, H), WashPaint.PaperShade, 0.16f, _seed + 1f, 3);
             switch (_type)
             {
                 case RoomType.CommOutpost: DrawCommOutpost(W, H); break;
                 case RoomType.BurntWarehouse: DrawBurnt(W, H); break;
                 default: DrawResidence(W, H, _variant); break;
             }
-
-            // 整张画再罩一层极淡的纸面不均匀水痕：水彩纸吸色不匀，
-            // 有些地方偏冷灰、有些地方偏暖，而不是一整块均匀底色。
-            for (int i = 0; i < 7; i++)
+            // 漫画分格：整张画一圈 3px 深墨棕粗框 + 四角卡通高光短线
+            DrawRect(new Rect2(2, 2, W - 4, H - 4), WashPaint.Ink, false, 3f);
+            foreach (var p in new[]
             {
-                float x = WashPaint.H(_seed + i * 13.1f, 97f) * W;
-                float y = WashPaint.H(_seed + i * 17.7f, 101f) * H;
-                WashPaint.Blot(this, new Vector2(x, y),
-                    90f + WashPaint.H(_seed + i, 103f) * 150f,
-                    i % 2 == 0 ? WashPaint.PaperShade : new Color(0.72f, 0.75f, 0.74f),
-                    0.055f, _seed + i * 3f);
-            }
-            WashPaint.Grain(this, W, H, _seed + 91f);
-            // 画面四周淡淡的纸边水痕
-            WashPaint.WaterEdge(this, new Vector2(6, 8),
-                new Vector2(W - 6, 8 + (WashPaint.H(_seed + 2f, _seed + 0.77f) - 0.5f) * 3f),
-                WashPaint.InkSoft, _seed + 3f);
-            WashPaint.WaterEdge(this, new Vector2(6, H - 8), new Vector2(W - 6, H - 8),
-                WashPaint.InkSoft, _seed + 5f);
+                new Vector2(16, 16), new Vector2(W - 16, 16),
+                new Vector2(16, H - 16), new Vector2(W - 16, H - 16),
+            })
+                WashPaint.Pen(this, p, p + new Vector2(9, 9), 1.8f,
+                    WashPaint.Lit(WashPaint.Paper), _seed + p.X, 0f);
         }
 
         private float H(float n) => WashPaint.H(n, _seed + 0.77f);
@@ -1210,34 +1131,29 @@ public partial class HouseInteriorUi : CanvasLayer
         // ---------- 共用：墙 / 地 ----------
         private void DrawWallAndFloor(float W, float Hh, float fy, Color wall, float seed)
         {
-            // 后墙：上浅下深的水彩罩染
-            // v3.64b：主罩染浓度下调，让纸白留白透出来 —— 钢笔「淡」彩，
-            // 不是把整面墙涂满不透明色。
-            WashPaint.Wash(this, new Rect2(0, 0, W, fy), WashPaint.PaperLit, 0.22f, seed + 1f, 3);
-            WashPaint.Wash(this, new Rect2(0, 0, W, fy), wall, 0.31f, seed + 2f, 4);
-            WashPaint.Wash(this, new Rect2(0, fy * 0.62f, W, fy * 0.38f), Shade(wall), 0.20f, seed + 4f, 3);
+            // v3.65 漫画上色：后墙一整块 base 平涂 + 下缘硬边暗部 + 上缘硬边高光带，
+            // 三档色块明确分界，不做水彩渐变 / 柔边羽化。
+            DrawRect(new Rect2(0, 0, W, fy), wall);
+            DrawRect(new Rect2(0, fy * 0.68f, W, fy * 0.32f), WashPaint.Dark(wall, 0.78f));
+            DrawRect(new Rect2(0, 0, W, 12f), WashPaint.Lit(wall, 1.14f));
 
-            // 墙板横缝：断续手绘墨线，轻重不一
-            for (float y = 34f; y < fy - 6f; y += 44f)
-            {
-                float seg = 0.6f + H(y) * 0.4f;
-                WashPaint.Pen(this, new Vector2(0, y), new Vector2(W * seg, y + (H(y + 1f) - 0.5f) * 2f),
-                    0.9f, WithA(WashPaint.InkSoft, 0.55f), seed + y, 1.4f);
-                if (seg < 0.98f)
-                    WashPaint.Pen(this, new Vector2(W * (seg + 0.04f), y + 1f),
-                        new Vector2(W, y - 0.5f), 0.8f, WithA(WashPaint.InkSoft, 0.40f), seed + y + 7f, 1.2f);
-            }
-            // 墙角排线阴影
-            WashPaint.Hatch(this, new Rect2(0, 0, 34, fy), 9, WashPaint.InkSoft, seed + 21f);
-            WashPaint.Hatch(this, new Rect2(W - 34, 0, 34, fy), 9, WashPaint.InkSoft, seed + 31f);
+            // 墙板横缝：硬边墨线，规整等距
+            for (float y = 52f; y < fy - 6f; y += 52f)
+                WashPaint.Pen(this, new Vector2(0, y), new Vector2(W, y),
+                    1.6f, WithA(WashPaint.InkSoft, 0.62f), seed + y, 0.8f);
+            // 墙角排线阴影（硬边斜线）
+            WashPaint.Hatch(this, new Rect2(0, 0, 30, fy), 7, WashPaint.InkSoft, seed + 21f);
+            WashPaint.Hatch(this, new Rect2(W - 30, 0, 30, fy), 7, WashPaint.InkSoft, seed + 31f);
 
-            // 地面：土黄 / 水泥灰罩染 + 透视斜板缝
-            WashPaint.Wash(this, new Rect2(0, fy, W, Hh - fy), Shade(wall, 0.78f), 0.40f, seed + 8f, 4);
-            WashPaint.Pen(this, new Vector2(0, fy), new Vector2(W, fy), 1.6f, WashPaint.Ink, seed + 11f, 1.2f);
-            for (float x = 10f; x < W + 90f; x += 62f)
-                WashPaint.Pen(this, new Vector2(x, fy), new Vector2(x - 78f, Hh),
-                    0.85f, WithA(WashPaint.InkSoft, 0.55f), seed + x, 1.6f);
-            WashPaint.WaterEdge(this, new Vector2(0, fy + 12f), new Vector2(W, fy + 8f),
+            // 地面：暗一档平涂 + 3px 墙地交界粗墨线 + 透视板缝
+            DrawRect(new Rect2(0, fy, W, Hh - fy), WashPaint.Dark(wall, 0.62f));
+            DrawRect(new Rect2(0, fy, W, 8f), WashPaint.Dark(wall, 0.48f));
+            WashPaint.Pen(this, new Vector2(0, fy), new Vector2(W, fy),
+                3f, WashPaint.Ink, seed + 11f, 0f);
+            for (float x = 10f; x < W + 110f; x += 78f)
+                WashPaint.Pen(this, new Vector2(x, fy), new Vector2(x - 96f, Hh),
+                    1.6f, WithA(WashPaint.Ink, 0.72f), seed + x, 0f);
+            WashPaint.WaterEdge(this, new Vector2(0, fy + 14f), new Vector2(W, fy + 14f),
                 WashPaint.InkSoft, seed + 13f);
         }
 

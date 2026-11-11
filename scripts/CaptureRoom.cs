@@ -51,11 +51,12 @@ public partial class CaptureRoom : Node
         _holder.AddChild(dim);
 
         var panel = new PanelContainer { CustomMinimumSize = new Vector2(1000, 640) };
+        // v3.65: 与真实 HouseInteriorUi 同一套漫画分格框
         panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
-            BgColor = new Color(0.10f, 0.08f, 0.06f),
-            BorderColor = new Color(0.30f, 0.24f, 0.17f),
-            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+            BgColor = new Color(0.14f, 0.10f, 0.08f),
+            BorderColor = new Color(0.92f, 0.85f, 0.68f),
+            BorderWidthLeft = 4, BorderWidthRight = 4, BorderWidthTop = 4, BorderWidthBottom = 4,
             ContentMarginLeft = 24, ContentMarginRight = 24, ContentMarginTop = 24, ContentMarginBottom = 24,
         });
         var center = new CenterContainer();
@@ -73,13 +74,14 @@ public partial class CaptureRoom : Node
         bg.QueueRedraw();
 
         var title = new Label { Text = titleText, HorizontalAlignment = HorizontalAlignment.Center };
-        title.AddThemeFontSizeOverride("font_size", 22);
-        title.AddThemeColorOverride("font_color", new Color(0.24f, 0.20f, 0.17f));
+        title.AddThemeFontSizeOverride("font_size", 24);
+        title.AddThemeColorOverride("font_color", type == RoomType.BurntWarehouse
+            ? new Color(0.94f, 0.88f, 0.76f) : new Color(0.14f, 0.10f, 0.08f));
         title.SetAnchorsPreset(Control.LayoutPreset.TopWide);
         title.OffsetTop = 6;
         content.AddChild(title);
 
-        // 模拟几张随手贴的小纸签，核对标签与背景的对比
+        // 模拟漫画风描边标签，核对标签与室内平涂背景的对比
         string[] labels = type == RoomType.CommOutpost
             ? new[] { "墙边的电闸与手摇发电机", "墙角的无线电发信机", "桌上的信封", "上锁的弹药箱", "烧剩一半的文件" }
             : type == RoomType.BurntWarehouse
@@ -100,27 +102,31 @@ public partial class CaptureRoom : Node
                 PivotOffset = new Vector2(94f, 21f),
                 Rotation = Mathf.DegToRad((i % 2 == 0 ? 1f : -1f) * (0.8f + i * 0.4f)),
             };
+            // v3.65: 与 AddSpot() 同款漫画风标签（米黄土实色 + 3px 深墨棕粗框 + 硬投影）
             b.AddThemeStyleboxOverride("normal", new StyleBoxFlat
             {
-                BgColor = new Color(0.965f, 0.94f, 0.875f, 0.96f),
-                BorderColor = new Color(0.30f, 0.25f, 0.20f),
-                BorderWidthLeft = 1, BorderWidthRight = 1, BorderWidthTop = 1, BorderWidthBottom = 1,
-                ShadowColor = new Color(0.12f, 0.10f, 0.08f, 0.30f), ShadowSize = 4,
-                ShadowOffset = new Vector2(2, 3),
-                ContentMarginLeft = 11, ContentMarginRight = 11, ContentMarginTop = 6, ContentMarginBottom = 6,
+                BgColor = new Color(0.92f, 0.85f, 0.68f),
+                BorderColor = new Color(0.14f, 0.10f, 0.08f),
+                BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+                ShadowColor = new Color(0.10f, 0.08f, 0.06f, 0.55f), ShadowSize = 3,
+                ShadowOffset = new Vector2(4, 4),
+                ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 6, ContentMarginBottom = 6,
             });
-            b.AddThemeColorOverride("font_color", new Color(0.22f, 0.18f, 0.15f));
-            b.AddThemeFontSizeOverride("font_size", 14);
+            b.AddThemeColorOverride("font_color", new Color(0.14f, 0.10f, 0.08f));
+            b.AddThemeFontSizeOverride("font_size", 15);
             content.AddChild(b);
         }
 
         var leave = new Button { Text = "离开屋子 (E)", Alignment = HorizontalAlignment.Center };
         leave.AddThemeStyleboxOverride("normal", new StyleBoxFlat
         {
-            BgColor = new Color(0.26f, 0.21f, 0.16f),
+            BgColor = new Color(0.20f, 0.15f, 0.11f),
+            BorderColor = new Color(0.92f, 0.85f, 0.68f),
+            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+            ShadowColor = new Color(0.08f, 0.06f, 0.05f, 0.55f), ShadowSize = 3, ShadowOffset = new Vector2(4, 4),
             ContentMarginLeft = 18, ContentMarginRight = 18, ContentMarginTop = 8, ContentMarginBottom = 8,
         });
-        leave.AddThemeColorOverride("font_color", new Color(0.92f, 0.88f, 0.78f));
+        leave.AddThemeColorOverride("font_color", new Color(0.98f, 0.91f, 0.75f));
         leave.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
         leave.OffsetBottom = -10;
         content.AddChild(leave);
