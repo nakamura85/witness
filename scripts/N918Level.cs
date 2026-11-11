@@ -317,8 +317,8 @@ public partial class N918Level : Node2D
     ///   通信据点      ~4000-4400  →  comm 无线电发信机据点（可搜 + 供电 + 发报通关；置于桥台之前、落在地面，不压桥面/铁轨结构）
     /// 远景废墟列（f1~f4）为纯背景，不可进入。
     ///
-    /// comm 暂用 house_intact_near 作可见占位（独立据点建筑）；待美术交付专属
-    /// radio_station / comm_post 贴图后，把 tex 名切回即可（EnterableHouse.LoadTex 已有 null 兜底）。
+    /// comm 直接用专属军事据点贴图 radio_station（本就无雪、带天线与墙脚沙袋，落地面）。
+    /// HouseEaveRow / HouseWidthForWall / 烟雾开关均已登记 radio_station，比例与落地由定位逻辑统一处理。
     /// </summary>
     private void BuildHouses()
     {
@@ -360,6 +360,9 @@ public partial class N918Level : Node2D
         ["house_intact_near_autumn"] = 495f,
         ["house_ruined_near_autumn"] = 460f,
         ["house_posts_autumn"] = 12f,
+        // 通信据点 radio_station.png (1024x1285)：天线尖在 ~22%，屋顶在 ~45-62%，
+        // 墙体恒定宽段从 ~60%(y≈771) 起、沙袋基底到 98%；eave 取屋顶转墙体的位置
+        ["radio_station"] = 770f,
     };
 
     /// <summary>
@@ -431,6 +434,10 @@ public partial class N918Level : Node2D
         var tint = new Color(0.72f, 0.73f, 0.75f);
         switch (tex)
         {
+            // 通信据点是功能性建筑（通电+发报），不是民居，不在正中冒炊烟
+            case "radio_station":
+                return;
+
             case "house_intact_near": case "house_intact_near_autumn":
                 // the painted smoke that used to sit over this chimney is gone
                 // now, so the anchor goes right onto the chimney mouth itself
