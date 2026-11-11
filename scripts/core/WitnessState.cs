@@ -45,6 +45,17 @@ public class WitnessState
     public HashSet<string> JiangqiaoTestimony = new();        // 已记录的江桥证言 id
     public HashSet<string> JiangqiaoLoot = new();             // 已搜刮过的屋子/箱子（按 id 持久）
 
+    // ── 九一八事变初秋化支线状态（1931.9.18 沈阳，与江桥试玩关并列的叙事支线）──
+    public bool N918Done;                                      // 九一八支线是否通关
+    public HashSet<string> N918Testimony = new();              // 已记录的九一八证言 id
+    public HashSet<string> N918Loot = new();                   // 已搜刮过的屋子/物件（按 id 持久）
+    public int N918EnvelopeCount;                              // 收集到的信封/家书数
+    public bool N918RadioSent;                                 // 是否向电台发出警报
+    public int N918Resist;                                     // 抵抗/躲避行为计数
+    public HashSet<string> N918Visited = new();                // 已进过的房间/地点 id
+    public bool N918Powered;                                   // 电台是否通电
+    public int N918Refugees;                                   // 安顿的难民数
+
     /// <summary>关卡内可收集的 6 件证据（对应史料卡 1-6）。</summary>
     public static readonly string[] EvidenceIds = { "film", "rabe", "vautrin", "roster", "medical", "letter" };
 

@@ -43,6 +43,8 @@ public partial class EnterableHouse : Node2D
         // intact house: a plank door with a round knob, painted between the
         // two timber posts of the front wall
         ["house_intact_near"] = new(0.492f, 0.36f, false),
+        // 军事通信据点：由 house_intact_near 图生图改造，门口位置保持一致
+        ["radio_station"] = new(0.492f, 0.36f, false),
         // ruined house: the wall is torn open beside the door frame, snow
         // drifted across the sill
         ["house_ruined_near"] = new(0.200f, 0.50f, false),
@@ -278,27 +280,58 @@ public partial class HouseInteriorUi : CanvasLayer
     public event Action<int> GotAmmo;
     public event Action<int> GotGrenade;
     public event Action<int> GotHeal;       // 1 = gauze, 99 = medkit (full)
+    public event Action<int> GotLetter;     // 拾得信（letter spot）→ 关卡累计信数 / 口信
     public Func<bool> CanHeal = () => true; // level asks the player; full hp wastes nothing
 
     private readonly string _houseId;
     private readonly string _houseTitle;
     private readonly RandomNumberGenerator _rng = new();
     private readonly HashSet<string> _looted;
+    private readonly Func<bool> _canTransmit;   // 发信机前置判定：信齐且通电才允许发报（通信据点屋专用）
+    private readonly Action _onTransmit;        // 发报完成回调：关卡据此标记 N918RadioSent 并通关
+    private readonly Action _onPower;           // 合闸通电完成回调：关卡据此置 N918Powered
     private readonly List<Spot> _spots = new();
+    private readonly bool _roomLayout;
+    // 信/遗书落款：默认江桥（东北军官兵家书改为江桥抗战官兵），九一八屋（roomLayout）用东北军落款
+    private string _noteSource = "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵家书意象改写。";
     private Control _root;
     private Label _hint;
     private Spot _chestSpot;
     private float _pryT;
     private bool _prying;
+    private Spot _radioSpot;                 // 无线电发信机（通信据点屋）
+    private float _radioT;
+    private bool _transmitting;
+    private Spot _powerSpot;                 // 电闸 / 手摇发电机（通信据点屋供电小解谜）
+    private float _powerT;
+    private bool _powering;
     private bool _closed;
 
+    /// <summary>
+    /// 默认构造（江桥沿用）：loot 直接绑定江桥存档集合，无发信机。
+    /// 保持与江桥现有调用 `new HouseInteriorUi(id, title)` 完全兼容、零改动。
+    /// </summary>
     public HouseInteriorUi(string houseId, string houseTitle)
+        : this(houseId, houseTitle, GameState.I.S.JiangqiaoLoot) { }
+
+    /// <summary>
+    /// 注入式构造（九一八用）：loot 集合由关卡指定（N918Loot），
+    /// 并可传入发信机前置判定与发报完成回调（仅通信据点屋传入，普通屋传 null）。
+    /// </summary>
+    public HouseInteriorUi(string houseId, string houseTitle, HashSet<string> loot,
+        Func<bool> canTransmit = null, Action onTransmit = null, Action onPower = null,
+        bool roomLayout = false)
     {
         _houseId = houseId;
         _houseTitle = houseTitle;
         Layer = 20;
         _rng.Seed = (ulong)(houseId.GetHashCode() & 0xffffff);
-        _looted = GameState.I.S.JiangqiaoLoot;
+        _looted = loot;
+        _canTransmit = canTransmit;
+        _onTransmit = onTransmit;
+        _onPower = onPower;
+        _roomLayout = roomLayout;
+        if (roomLayout) _noteSource = "注：人物为复合虚构，不对应单一在世者。东北军官兵家书意象改写。";
     }
 
     private partial class Spot : Button
@@ -312,6 +345,7 @@ public partial class HouseInteriorUi : CanvasLayer
 
     public override void _Ready()
     {
+        if (_roomLayout) { BuildRoom(); return; }
         var dim = new ColorRect { Color = new Color(0.04f, 0.035f, 0.03f, 0.80f) };
         dim.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(dim);
@@ -390,6 +424,13 @@ public partial class HouseInteriorUi : CanvasLayer
         if (_rng.Randf() > 0.5f)
             AddSpot("clue1", "烧剩一半的文件", "clue", "");
         AddSpot("ash1", "烧塌的柜子", "ash", "柜子里只剩灰和烧变形的搪瓷缸。");
+
+        // 通信据点屋专用（_canTransmit 仅在该屋注入）：先合闸通电，再操作发信机发报
+        if (_canTransmit != null)
+        {
+            AddSpot("power1", "墙边的电闸与手摇发电机", "power", "");
+            AddSpot("radio1", "墙角的无线电发信机", "radio", "");
+        }
     }
 
     private void AddSpot(string spotId, string label, string kind, string result)
@@ -424,7 +465,9 @@ public partial class HouseInteriorUi : CanvasLayer
         s.Pressed += () => OnSpot(s);
         _spots.Add(s);
         if (kind == "chest") _chestSpot = s;
-        if (s.Done) s.Disabled = kind == "chest";
+        if (kind == "radio") _radioSpot = s;
+        if (kind == "power") _powerSpot = s;
+        if (s.Done) s.Disabled = kind == "chest" || kind == "radio" || kind == "power";
     }
 
     private void OnSpot(Spot s)
@@ -493,8 +536,9 @@ public partial class HouseInteriorUi : CanvasLayer
                         "“娘，这边冷得很，手里的枪比我的手还凉。等把桥守住了，我就回家帮您劈柴。”",
                         "“要是我回不去，别叫人把我的名字写错了。是永胜的胜，得胜的胜。”",
                     },
-                    "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵家书意象改写。");
+                    _noteSource);
                 MarkDone(s);
+                GotLetter?.Invoke(1);   // 关卡据此累计「信」数 / 口信（N918Testimony / N918EnvelopeCount）
                 break;
             case "will":
                 OpenNote("叠得整整齐齐的遗书",
@@ -503,7 +547,7 @@ public partial class HouseInteriorUi : CanvasLayer
                         "“若我阵亡，勿念。此身许国，不得许家。”",
                         "“口袋里余钱四十枚，托同乡带回，给妹妹缴学费。她若问起我，就说我在北边教书的。”",
                     },
-                    "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵遗书意象改写。");
+                    _noteSource);
                 MarkDone(s);
                 break;
             case "clue":
@@ -519,6 +563,20 @@ public partial class HouseInteriorUi : CanvasLayer
             case "chest":
                 if (!s.Done) StartPry(s);
                 break;
+            case "power":
+                // 通信据点供电小解谜：长按合闸 / 摇发电机；通电后才允许发报
+                if (!s.Done) StartPower(s);
+                break;
+            case "radio":
+                // 发信机提交点：前置不满足（信不足 / 没电）只提示不推进；满足则长按发报
+                if (_canTransmit != null && !_canTransmit())
+                {
+                    s.ResultText = "信件还没凑齐（或发信机没电），机器空转，什么也传不出去。";
+                    _hint.Text = s.ResultText;
+                    break;
+                }
+                if (!s.Done) StartTransmit(s);
+                break;
             case "ash":
                 MarkDone(s);
                 break;
@@ -531,6 +589,33 @@ public partial class HouseInteriorUi : CanvasLayer
         _prying = true;
         _pryT = 0f;
         s.Text = "用刺刀撬锁……";
+        s.Disabled = true;
+    }
+
+    /// <summary>
+    /// 通信据点供电小解谜：长按合闸 / 摇手摇发电机，约 1.2s 完成。
+    /// 完成后置 _powerSpot 为已搜并回调 _onPower（关卡据此标记 N918Powered）。
+    /// </summary>
+    private void StartPower(Spot s)
+    {
+        if (_powering) return;
+        _powering = true;
+        _powerT = 0f;
+        s.Text = "合闸供电……";
+        s.Disabled = true;
+    }
+
+    /// <summary>
+    /// 无线电发信机：前置（信齐且已通电）满足后长按发报，约 1.8s 完成。
+    /// 完成后置 _radioSpot 为已搜并回调 _onTransmit（关卡据此标记 N918RadioSent 并通关）。
+    /// 前置不满足时 OnSpot 已拦截，不会走到这里。
+    /// </summary>
+    private void StartTransmit(Spot s)
+    {
+        if (_transmitting) return;
+        _transmitting = true;
+        _radioT = 0f;
+        s.Text = "发报中……";
         s.Disabled = true;
     }
 
@@ -569,6 +654,38 @@ public partial class HouseInteriorUi : CanvasLayer
                 }
             }
         }
+        if (_powering && _powerSpot != null)
+        {
+            _powerT += (float)delta;
+            float t = Mathf.Min(1f, _powerT / 1.2f);
+            _powerSpot.Text = $"合闸供电…… {(int)(t * 100)}%";
+            _powerSpot.PryProgress = t;
+            if (t >= 1f)
+            {
+                _powering = false;
+                _powerSpot.ResultText = "发电机摇起来了，电闸合上，据点的灯亮了。";
+                MarkDone(_powerSpot);
+                _powerSpot.Disabled = false;
+                _powerSpot.Done = true;
+                _onPower?.Invoke();
+            }
+        }
+        if (_transmitting && _radioSpot != null)
+        {
+            _radioT += (float)delta;
+            float t = Mathf.Min(1f, _radioT / 1.8f);
+            _radioSpot.Text = $"发报中…… {(int)(t * 100)}%";
+            _radioSpot.PryProgress = t;
+            if (t >= 1f)
+            {
+                _transmitting = false;
+                _radioSpot.ResultText = "电键叩下去，电波穿过秋夜，把北大营的实情传了出去。";
+                MarkDone(_radioSpot);
+                _radioSpot.Disabled = false;
+                _radioSpot.Done = true;
+                _onTransmit?.Invoke();
+            }
+        }
     }
 
     private void MarkDone(Spot s)
@@ -593,5 +710,171 @@ public partial class HouseInteriorUi : CanvasLayer
         _closed = true;
         Closed?.Invoke();
         QueueFree();
+    }
+
+    /// <summary>
+    /// 房间格局模式（九一八用）：画一个暖色屋内背景，把每个 loot 物件作为可点击标签
+    /// 摆进房间（灶台/货架/桌子/柜子/发电机/发信机旁），玩家像在屋里翻找一样逐个搜寻。
+    /// 搜索逻辑（OnSpot / MarkDone / 撬箱 / 发报 / 供电）完全复用，只换呈现层。
+    /// </summary>
+    private void BuildRoom()
+    {
+        var dim = new ColorRect { Color = new Color(0.04f, 0.035f, 0.03f, 0.82f) };
+        dim.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        AddChild(dim);
+
+        var panel = new PanelContainer { CustomMinimumSize = new Vector2(1000, 640) };
+        var style = new StyleBoxFlat
+        {
+            BgColor = new Color(0.10f, 0.08f, 0.06f),
+            BorderColor = new Color(0.30f, 0.24f, 0.17f),
+            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+            ContentMarginLeft = 24, ContentMarginRight = 24, ContentMarginTop = 24, ContentMarginBottom = 24,
+            ShadowColor = new Color(0, 0, 0, 0.5f), ShadowSize = 18, ShadowOffset = new Vector2(6, 8),
+        };
+        panel.AddThemeStyleboxOverride("panel", style);
+
+        var center = new CenterContainer();
+        center.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        AddChild(center);
+        center.AddChild(panel);
+
+        // PanelContainer only lays out a single child cleanly — wrap everything in one Content node
+        // (same pattern as the chip-mode box), otherwise extra children render blank.
+        var content = new Control();
+        content.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        panel.AddChild(content);
+
+        var room = new RoomBg();
+        room.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        content.AddChild(room);
+        room.QueueRedraw();
+
+        var spotsLayer = new Control();
+        spotsLayer.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        content.AddChild(spotsLayer);
+
+        // title / hint / leave are anchored children of the single Content node
+        // (PanelContainer only manages its first child; extra direct children render blank)
+        var title = new Label { Text = $"{_houseTitle} · 屋内" };
+        title.AddThemeFontSizeOverride("font_size", 22);
+        title.AddThemeColorOverride("font_color", new Color(0.92f, 0.88f, 0.76f));
+        title.SetAnchorsPreset(Control.LayoutPreset.TopWide);
+        title.OffsetTop = 6;
+        title.HorizontalAlignment = HorizontalAlignment.Center;
+        content.AddChild(title);
+
+        _hint = new Label { Text = "在屋子里翻找能用的东西，点一下就能查看。按 E 离开。" };
+        _hint.AddThemeFontSizeOverride("font_size", 14);
+        _hint.AddThemeColorOverride("font_color", new Color(0.64f, 0.59f, 0.50f));
+        _hint.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
+        _hint.OffsetBottom = -48;
+        _hint.HorizontalAlignment = HorizontalAlignment.Center;
+        content.AddChild(_hint);
+
+        var leave = new Button { Text = "离开屋子 (E)" };
+        leave.Pressed += Close;
+        var lb = new StyleBoxFlat
+        {
+            BgColor = new Color(0.26f, 0.21f, 0.16f),
+            ContentMarginLeft = 18, ContentMarginRight = 18, ContentMarginTop = 8, ContentMarginBottom = 8,
+        };
+        leave.AddThemeStyleboxOverride("normal", lb);
+        leave.AddThemeColorOverride("font_color", new Color(0.92f, 0.88f, 0.78f));
+        leave.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
+        leave.OffsetBottom = -10;
+        leave.Alignment = HorizontalAlignment.Center;
+        content.AddChild(leave);
+
+        BuildSpots();
+        var posByKind = new System.Collections.Generic.Dictionary<string, Vector2>
+        {
+            ["power"]   = new Vector2(34, 64),
+            ["radio"]   = new Vector2(700, 50),
+            ["grenade"] = new Vector2(300, 250),
+            ["gauze"]   = new Vector2(486, 250),
+            ["medkit"]  = new Vector2(648, 250),
+            ["ammo"]    = new Vector2(360, 398),
+            ["will"]    = new Vector2(540, 398),
+            ["letter"]  = new Vector2(52, 452),
+            ["clue"]    = new Vector2(300, 452),
+            ["ash"]     = new Vector2(548, 452),
+            ["chest"]   = new Vector2(760, 318),
+        };
+        int fb = 0;
+        foreach (var s in _spots)
+        {
+            Vector2 p;
+            if (!posByKind.TryGetValue(s.Kind, out p))
+            {
+                p = new Vector2(40 + (fb % 4) * 220, 506);
+                fb++;
+            }
+            float w = (s.Kind == "radio" || s.Kind == "power") ? 224f : 188f;
+            s.Position = p;
+            s.Size = new Vector2(w, 46);
+            s.CustomMinimumSize = new Vector2(w, 46);
+            spotsLayer.AddChild(s);
+        }
+    }
+
+    /// <summary>
+    /// 屋内背景：暖色墙 / 地板 / 夜窗 / 灶台 / 货架 / 桌子 / 柜子 / 发电机 / 发信机。
+    /// 纯程序绘制（与项目其余 InkStyle 一致），不引入新贴图资产。
+    /// </summary>
+    private partial class RoomBg : Control
+    {
+        public override void _Draw()
+        {
+            float W = Size.X, H = Size.Y;
+            float fy = H * 0.64f;
+
+            // 后墙
+            DrawRect(new Rect2(0, 0, W, fy), new Color(0.17f, 0.13f, 0.10f));
+            for (float y = 34; y < fy; y += 44)
+                DrawLine(new Vector2(0, y), new Vector2(W, y), new Color(0.13f, 0.10f, 0.08f), 1);
+
+            // 地板（透视斜线）
+            DrawRect(new Rect2(0, fy, W, H - fy), new Color(0.10f, 0.08f, 0.06f));
+            for (float x = 12; x < W; x += 58)
+                DrawLine(new Vector2(x, fy), new Vector2(x - 74, H), new Color(0.07f, 0.055f, 0.04f), 1);
+
+            // 夜窗（外头是初秋夜色 + 月）
+            float wx = W * 0.30f, wy = 38f, ww = 150f, wh = 108f;
+            DrawRect(new Rect2(wx, wy, ww, wh), new Color(0.05f, 0.07f, 0.12f));
+            DrawLine(new Vector2(wx + ww / 2, wy), new Vector2(wx + ww / 2, wy + wh), new Color(0.22f, 0.17f, 0.13f), 3);
+            DrawLine(new Vector2(wx, wy + wh / 2), new Vector2(wx + ww, wy + wh / 2), new Color(0.22f, 0.17f, 0.13f), 3);
+            DrawCircle(new Vector2(wx + 112, wy + 32), 13, new Color(0.86f, 0.83f, 0.60f, 0.9f));
+
+            // 灶台（左，信藏在砖下）
+            DrawRect(new Rect2(40, H - 152, 120, 126), new Color(0.07f, 0.06f, 0.05f));
+            DrawRect(new Rect2(54, H - 140, 92, 12), new Color(0.12f, 0.10f, 0.08f));
+            DrawCircle(new Vector2(100, H - 92), 26, new Color(0.95f, 0.55f, 0.22f, 0.5f));
+
+            // 货架（右上）
+            DrawRect(new Rect2(W - 232, 198, 200, 14), new Color(0.19f, 0.14f, 0.10f));
+            DrawRect(new Rect2(W - 216, 158, 46, 40), new Color(0.22f, 0.16f, 0.11f));
+            DrawRect(new Rect2(W - 152, 150, 50, 48), new Color(0.24f, 0.17f, 0.12f));
+            DrawRect(new Rect2(W - 90, 164, 44, 34), new Color(0.20f, 0.15f, 0.10f));
+
+            // 桌子（中下）
+            DrawRect(new Rect2(352, H - 124, 236, 16), new Color(0.20f, 0.14f, 0.09f));
+            DrawLine(new Vector2(372, H - 108), new Vector2(372, H - 38), new Color(0.15f, 0.10f, 0.07f), 6);
+            DrawLine(new Vector2(568, H - 108), new Vector2(568, H - 38), new Color(0.15f, 0.10f, 0.07f), 6);
+
+            // 柜子（右下）
+            DrawRect(new Rect2(W - 196, H - 168, 150, 144), new Color(0.13f, 0.10f, 0.07f));
+            DrawLine(new Vector2(W - 121, H - 168), new Vector2(W - 121, H - 24), new Color(0.09f, 0.07f, 0.05f), 3);
+
+            // 发电机（左墙，电闸旁）
+            DrawRect(new Rect2(30, 40, 124, 96), new Color(0.14f, 0.10f, 0.07f));
+            DrawCircle(new Vector2(92, 88), 22, new Color(0.30f, 0.25f, 0.20f));
+            DrawCircle(new Vector2(92, 88), 8, new Color(0.10f, 0.08f, 0.06f));
+
+            // 发信机（角落，无线电旁）
+            DrawRect(new Rect2(W - 232, 30, 196, 86), new Color(0.14f, 0.10f, 0.07f));
+            DrawLine(new Vector2(W - 134, 30), new Vector2(W - 134, -26), new Color(0.20f, 0.16f, 0.12f), 4);
+            DrawCircle(new Vector2(W - 134, -26), 8, new Color(0.20f, 0.16f, 0.12f));
+        }
     }
 }

@@ -111,6 +111,7 @@ public partial class Main : Node
     public void StartPrologue() => Swap(new PrologueLevel(this));
     public void StartNanjing() => Swap(new Level(this));
     public void StartJiangqiao() => Swap(new JiangqiaoLevel(this));
+    public void StartN918() => Swap(new N918Level(this));
 
     /// <summary>新的见证：先走 1895/1910 源头纸条 → 东亚大地图 → 1931 嫩江江桥。</summary>
     public void StartNewGame()
