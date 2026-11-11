@@ -30,6 +30,9 @@ public partial class SpriteActor : Node2D
     public bool Moving;
 
     public float Aim;
+    /// <summary>v3.62: 瞄准俯仰（-0.6 抢口朝上 .. +0.6 朝下）——枪口/上身
+    /// 跟着鼠标高度动，不再“枪朝前、子弹却往鼠标方向飞”的脱节感。</summary>
+    public float AimPitch;
     public float MuzzleFlash;
     public float HurtFlash;
     /// <summary>v3.55: 拉弦挥臂掷弹蓄力度 0→1（>0.25 换掷弹专姿图），出手后归 0。</summary>
@@ -70,7 +73,11 @@ public partial class SpriteActor : Node2D
         if (tex != null)
         {
             var sz = tex.GetSize();
-            return new Vector2((pox + sz.X * s * 0.97f) * Facing, -sz.Y * s * (1f - muzY));
+            var mp = new Vector2((pox + sz.X * s * 0.97f) * Facing, -sz.Y * s * (1f - muzY));
+            // v3.62: 火光位置随俯仰偏移——瞄上时枪口明显上移，读感“枪真的在跟鼠标”
+            mp.Y += AimPitch * 26f;
+            mp.X -= Facing * AimPitch * 8f;
+            return mp;
         }
         return Prone
             ? new Vector2(Facing * Height * 0.92f, -Height * 0.22f)
@@ -495,6 +502,8 @@ public partial class SpriteActor : Node2D
         {
             torsoRot += 0.16f * Facing;   // 持枪瞄准：上身前倾把枪线压平
             torsoY += 2.5f;               // 微沉：枪托抵肩更稳
+            // v3.62: 俯仰跟鼠标——瞄高处人枪微抬，瞄低处微压（±约 9°）
+            torsoRot += AimPitch * 0.16f * Facing;
         }
         if (Recoil > 0f)
         {

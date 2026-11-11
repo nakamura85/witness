@@ -129,8 +129,16 @@ public partial class FieldPlayer : CharacterBody2D
             && (Input.IsMouseButtonPressed(MouseButton.Right) || _aimTimer > 0f);
         if (aiming)
         {
-            float mx = GetGlobalMousePosition().X - GlobalPosition.X;
+            var mp = GetGlobalMousePosition();
+            float mx = mp.X - GlobalPosition.X;
             if (Mathf.Abs(mx) > 24f) _facing = Mathf.Sign(mx);
+            // v3.62: 俯仰跟鼠标高度——肩高约 60px，鼠标每偏 340px 满行程（±0.6）
+            float dy = mp.Y - (GlobalPosition.Y - 60f);
+            Figure.AimPitch = Mathf.Clamp(dy / 340f, -0.6f, 0.6f);
+        }
+        else
+        {
+            Figure.AimPitch = Mathf.MoveToward(Figure.AimPitch, 0f, f * 3f);
         }
 
         // 姿势过渡：速度先跟着姿势慢慢变，不要一按键就"啪"地换速度

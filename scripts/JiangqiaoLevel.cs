@@ -1435,7 +1435,14 @@ public partial class JiangqiaoLevel : Node2D
             "h3" => "没打完的民居（还算完整）",
             _ => "烧塌的院落",
         };
-        var ui = new HouseInteriorUi(h.Id, title);
+        // v3.62: 江桥屋子也走真实室内布局画面（旧的暗色文字面板废弃）。
+        // 房型按屋况映射：烧塌的院落 = 焚毁仓库格局，其余 = 住家格局；
+        // variant 让每间屋左右镜像不同，再叠加物件落点的稳定随机抖动
+        //（EnterableHouse 内按 houseId 播种）——进每间屋布局都不一样。
+        RoomType rt = h.Id == "h2" ? RoomType.BurntWarehouse : RoomType.Residence;
+        int rv = h.Id == "h1" ? 1 : 0;
+        var ui = new HouseInteriorUi(h.Id, title, GameState.I.S.JiangqiaoLoot,
+            roomType: rt, roomVariant: rv, roomLayout: true);
         ui.CanHeal = () => _player.Wounded;
         ui.GotAmmo += n =>
         {

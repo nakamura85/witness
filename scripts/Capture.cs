@@ -18,6 +18,7 @@ public partial class Capture : Node
     private float _sx, _pressAt, _blastAt;   // v3.53 sandbag cover test
     private float _alertAt;                  // v3.57 enemy aim-verification
     private GrenadeProj _nade;               // v3.59 stick-grenade closeup
+
     private int _stage;
     private bool _started;
     // v2.9: this used to be a hardcoded absolute path that included the
@@ -395,6 +396,8 @@ public partial class Capture : Node
         }
         else if (_stage == 57 && _t > _alertAt + 4.0f)
         {
+            // v3.62: interior-room capture stage removed - CanvasLayer UI doesn't
+            // composite into either viewport capture reliably; verify in-game.
             GD.Print("CAPTURE done");
             GetTree().Quit();
         }
@@ -407,7 +410,7 @@ public partial class Capture : Node
     // cascading into a long hang where every shot waits out its retries.
     private static bool _texOk;
 
-    private async void SaveShot(string name)
+    private async void SaveShot(string name, bool useMain = false)
     {
         // headless dummy renderer occasionally hands back a null viewport
         // texture for the first few frames - wait it out instead of dropping
@@ -417,7 +420,9 @@ public partial class Capture : Node
         for (int attempt = 0; attempt < max && img == null; attempt++)
         {
             await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-            var tex = _sub.GetTexture();
+            // v3.62: CanvasLayer UI (interior rooms) doesn't composite into the
+            // SubViewport capture - grab the main viewport for those frames.
+            var tex = useMain ? GetViewport().GetTexture() : _sub.GetTexture();
             if (tex != null) img = tex.GetImage();
         }
         if (img == null)

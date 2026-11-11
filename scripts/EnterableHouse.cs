@@ -823,6 +823,9 @@ public partial class HouseInteriorUi : CanvasLayer
                 p = new Vector2(40 + (fb % 4) * 220, 506);
                 fb++;
             }
+            // v3.62: 物件落点按 houseId 播种随机抖动——同一间屋每次进都一致
+            //（记忆点不乱跳），但不同的屋落点各不相同，不再千篇一律。
+            p += new Vector2(_rng.RandfRange(-18f, 18f), _rng.RandfRange(-12f, 12f));
             float w = (s.Kind == "radio" || s.Kind == "power") ? 224f : 188f;
             s.Position = p;
             s.Size = new Vector2(w, 46);
