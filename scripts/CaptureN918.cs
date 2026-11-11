@@ -94,7 +94,7 @@ public partial class CaptureN918 : Node
         // 6: 上一站 exterior 的纹理已稳定读出，现在才瞬移门口 + 进据点
         else if (_stage == 6 && _t > _frozeAt + 2.5f)
         {
-            float doorX = 4620f;
+            float doorX = 4000f;
             var comm = _lvl._houses.FirstOrDefault(h => h.Id == "comm");
             if (comm != null) doorX = comm.DoorX;
             FreezeAt(doorX);

@@ -314,7 +314,7 @@ public partial class N918Level : Node2D
     ///   柳条湖爆破点  ~600-1200  →  h1 巡道工小屋（可搜，含信）
     ///   北大营围墙    ~1700-2600  →  h2 营房外民居（可搜，含信）；此地触发不抵抗令抉择
     ///   民居群        ~2900-3900  →  h3 完整民居 / h4 屋顶坍塌院落（可搜，含信）
-    ///   通信据点      ~4300-4900  →  comm 无线电发信机据点（可搜 + 供电 + 发报通关）
+    ///   通信据点      ~4000-4400  →  comm 无线电发信机据点（可搜 + 供电 + 发报通关；置于桥台之前、落在地面，不压桥面/铁轨结构）
     /// 远景废墟列（f1~f4）为纯背景，不可进入。
     ///
     /// comm 暂用 house_intact_near 作可见占位（独立据点建筑）；待美术交付专属
@@ -336,7 +336,8 @@ public partial class N918Level : Node2D
         AddHouse("h3", 3120f, "house_ruined_near_autumn", HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f);
         AddHouse("h4", 3700f + Jit(40), "house_posts_autumn", HouseWidthForWall("house_posts_autumn", WallH), false, 0f);
         // 通信据点（无线电发信机）：专属军事据点建筑 radio_station（本就无雪，沿用）
-        AddHouse("comm", 4620f, "radio_station", HouseWidthForWall("radio_station", WallH), true, 0f);
+        // v_next: 原先落在 x4620（正好压在江桥桥面 4457-4902 上）→ 移到 4000，落在桥台之前的地面、不压桥面/铁轨结构
+        AddHouse("comm", 4000f, "radio_station", HouseWidthForWall("radio_station", WallH), true, 0f);
     }
 
     /// <summary>
@@ -1651,7 +1652,7 @@ public partial class N918Level : Node2D
             _hud.ShowPrompt("按 E · 进屋搜索");
         else if (near != null)
             _hud.ShowPrompt("按住 E · 记录口述");
-        else if (px > 4100f && !GameState.I.S.N918RadioSent)
+        else if (px > 3900f && !GameState.I.S.N918RadioSent)
             _hud.ShowPrompt("进通信据点 · 发报通关");
         else
             _hud.ShowPrompt("");
@@ -1661,7 +1662,7 @@ public partial class N918Level : Node2D
         // 目标在屏幕外时给纸色箭头：默认指向通信据点（通关点）
         Vector2 target = near != null
             ? near.GlobalPosition
-            : new Vector2(4620, GroundY);
+            : new Vector2(4000, GroundY);
         Vector2 screen = target - _cam.GlobalPosition + new Vector2(640, 360);
         bool off = screen.X > 1190f || screen.X < 60f;
         if (off && (_elapsed % 4f) < 3.2f)

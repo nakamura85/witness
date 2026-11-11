@@ -34,7 +34,7 @@
 
 - **初秋化美术（暖色调非雪原）**：沈阳柳条湖场景改为初秋夜——枯黄草坡、暖橙远山、榆树残叶、惨白月亮，与江桥的严冬雪原区分开；新增 `assets/art/backdrop/*_autumn.png`（mountains/village/tree_elm）与 `assets/art/props/*_autumn.png`（bridge / 近景民居 intact·ruined·skeleton·posts·burned）。
 - **破损白边透明根修**：近景破损/焚毁民居贴图原本残留一圈白底白边（开口、窗户、破洞处），被玩家截图指出。用像素级「封闭近白区域清除」（flood-fill 围死的白底口袋 + alpha 外扩吃抗锯齿边）把白边整圈抠成透明——实测残留浅灰从数万 px 降到 1985–3722 px（仅建筑本体），开口/窗户不再有白底。
-- **radio_station 透明融入背景**：电台小屋贴图（`assets/art/props/radio_station.png`）背后原本是一块灰白棋盘格（没完全透明、遮到背景）。同法清掉灰白棋盘格、只留建筑本体——现 **62.4% 透明**、仅 38566 浅灰像素（建筑），彻底融入初秋夜背景（PIL 实测）。
+- **radio_station 浮空/棋盘格修净**：电台小屋贴图（`assets/art/props/radio_station.png`）原本底部留白约 251px 导致贴地悬浮、天线帆布为透明露出棋盘格。已裁掉底部留白（落地）、把帆布/旗布填成不透明实色（消除棋盘格），并把位置由 x4620 移到 **x4000**，落于江桥桥台之前的地面、不再压桥面 / 铁轨结构（玩家诉求：房子必须在地面、不在铁轨/桥上）。
 - **室内改成可搜索房间格局（提升可玩性）**：不再用文字面板式的室内 UI，改为**可见的房间格局**——进屋后看到墙面/家具/光影构成的真实空间，墙上/桌上/角落分布可点击的**搜索物件**（信件、家书、线索、信封），点击即搜刮并落 `WitnessState.N918Loot`；落款按支线参数化（江桥=「江桥抗战官兵家书意象改写」、九一八=「东北军官兵家书意象改写」），虚构人物伦理提示不变。
 - **状态机并入 WitnessState**：新增 9 个九一八字段（`N918Done / N918Testimony / N918Loot / N918EnvelopeCount / N918RadioSent / N918Resist / N918Visited / N918Powered / N918Refugees`），跨场持久化搜刮/证言/电台状态。`dotnet build` 在 nakamura85 代码下 **0 error** 通过验证。
 
