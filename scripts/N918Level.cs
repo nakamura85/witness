@@ -2729,7 +2729,7 @@ public partial class N918Level : Node2D
         private void DrawGroundBand()
         {
             const float TreeLine = 642f;      // behind the rail top (654)
-            const float BandEnd = GroundArt.BridgeDeckX - 240f;  // no trees at the bridge
+            const float BandEnd = N918Level.WorldW - 200f;  // v3.66: no bridge here, trees run to the far edge
             // near band: generated elm / willow sprites, fixed seed, sparse gaps
             var nearRng = new RandomNumberGenerator();
             nearRng.Seed = 19311105;
@@ -3199,22 +3199,13 @@ public partial class N918Level : Node2D
         private float[] _railDmgX = System.Array.Empty<float>();      // shell damage spots along the whole rail line
 
         /// <summary>
-        /// Where the span stands in world coordinates, measured off
-        /// bridge.png (1530x812, drawn with a vertical scale of 420/812 and
-        /// shifted 48px east): the deck starts at source column 9 and the
-        /// collapsed span begins at source column 870.
-        ///
-        /// v3.25: the railway needs both numbers. The track has to run
-        /// onto the deck and stop at the wreck - otherwise the line is cut
-        /// off in front of the bridge and the two read as two pictures
-        /// laid side by side with nothing joining them.
+        /// v3.66 · 柳条湖南满铁路爆破点（1931.9.18）的世界坐标。
+        /// 这里不是桥：旧常量名 BridgeDeckX / BridgeWreckX 会让后来者误以为
+        /// 九一八现场有桥，故整体改名，并删掉桥桁架 / 桥墩的随机参数。
+        /// 嫩江江桥只在 JiangqiaoLevel（1931.11）出现 —— 那才是史实有桥的地方。
         /// </summary>
-        // v3.50: internal (was private) - the Backdrop ground band also needs
-        // the deck position to keep trees off the bridge and the river.
-        internal const float BridgeDeckX = 4457f;
-        private const float BridgeWreckX = 4902f;
-        private int[] _trussSkipDiags = System.Array.Empty<int>();    // 桥桁架被去掉的斜腹杆
-        private int[] _pierDamageIdx = System.Array.Empty<int>();     // 被炮弹蹭过的桥墩（画烧黑斑）
+        internal const float LiutiaohuBreakX = 4457f;
+        internal const float LiutiaohuBreakW = 150f;
 
         public GroundArt(N918Level l) { _l = l; }
 
@@ -3281,7 +3272,7 @@ public partial class N918Level : Node2D
             // painted over the deck.
             var railDmg = new List<float>();
             float dmgX = 2620f;
-            while (dmgX < BridgeDeckX - 90f)
+            while (dmgX < WorldW - 90f)
             {
                 bool nearCrater = false;
                 for (int i = 0; i < _craterX.Length; i++)
@@ -3291,15 +3282,6 @@ public partial class N918Level : Node2D
             }
             _railDmgX = railDmg.ToArray();
 
-            // 桥桁架：随机去掉 2~4 根斜腹杆
-            var diagSkip = new HashSet<int>();
-            for (int k = 0; k < 3 + (int)rng.Randf() * 2; k++) diagSkip.Add((int)rng.RandfRange(0, 6));
-            _trussSkipDiags = diagSkip.ToArray();
-
-            // 桥墩：随机挑 1 个画烧黑斑
-            var pierList = new HashSet<int>();
-            pierList.Add((int)rng.RandfRange(0, 4));
-            _pierDamageIdx = pierList.ToArray();
         }
 
         public override void _Draw()
@@ -3332,20 +3314,14 @@ public partial class N918Level : Node2D
                 DrawLine(new Vector2(x, y), new Vector2(x + 70, y + 8), new Color(0.72f, 0.78f, 0.82f, 0.35f), 1.4f, true);
             }
 
-            DrawRiverIce();
-                // v3.25: the span is laid down BEFORE the track now. It used to
-                // be painted over the rails, which cut the line dead in front
-                // of the bridge - the user called it "the bridge and the rails
-                // do not connect, a texture just stuck on top with nothing
-                // linking them". With the bridge down first the railway can
-                // run onto the deck and stop where the span is blown apart.
-                DrawBridge();
-                // the snow band that swallows the foot of the piers. Every
-                // tree and every house in this level already gets one, and
-                // the bridge without it is the one object standing in the
-                // scene with a hard cut at its base - that is the "pasted
-                // on" the player kept seeing.
-                DrawRailway();
+            // v3.66 · 史实修正：九一八事变现场（沈阳柳条湖—北大营—通信据点）
+            // 历史上没有嫩江江桥、没有桥墩桥台、也没有冰封江面。
+            // 旧版把江桥关卡整份复制过来，连 bridge_autumn.png 桁架桥一起
+            // 搬进柳条湖，玩家指出这是「画蛇添足」且两关长得一模一样。
+            // 这里改成柳条湖爆破点的旱地（焦土 + 翻起道砟），桥相关绘制全部移除。
+            DrawLiutiaohuBlastGround();
+            // 南满铁路：贯穿全场，中段留一个被炸断的缺口（柳条湖事件核心史实）。
+            DrawRailway();
             DrawSupplyCart();
 
             DrawCraters();
@@ -3363,7 +3339,7 @@ public partial class N918Level : Node2D
         {
             var rng = new RandomNumberGenerator();
             rng.Seed = 19310918;
-            const float EndX = BridgeDeckX - 240f;   // 桥前是河面/桥，不画草
+            const float EndX = WorldW;   // v3.66: 无江无桥，野地一直铺到关卡尽头
 
             float x = -400f;
             while (x < EndX)
@@ -3497,83 +3473,57 @@ public partial class N918Level : Node2D
             }
         }
 
-        private void DrawRiverIce()
+        /// <summary>
+        /// v3.66 · 柳条湖爆破点的旱地。
+        /// 旧版这里画的是「桥下冰封江面」（iceL=4436..iceR=5244），是江桥关卡
+        /// 的复制残留；九一八现场没有嫩江，也没有桥。现在改成一块被炸翻的
+        /// 土黄色路基：三档平涂 + 粗墨边 + 硬边碎枕木，全是漫画风，不做羽化水彩。
+        /// </summary>
+        private void DrawLiutiaohuBlastGround()
         {
-            // 桥下的江面（冰封）
-            //
-            // v3.25: this used to be a plain rectangle - four hard corners, a
-            // ruler-straight near edge running the whole width of the screen
-            // and a vertical cut at the west end. It read as a grey slab
-            // lying on the snow, not as a frozen river, and the bridge
-            // piers stood on top of it like blocks set on a table.
-            //
-            // The banks are irregular now and snow has drifted over the
-            // near edge, so there is no straight line anywhere for the eye
-            // to catch.
-            const float iceL = 4436f, iceR = 5244f;
-            const float bot = 792f;
-            var ice = new List<Vector2>();
-            // far edge, hidden under the bridge deck
-            for (float x = iceL; x <= iceR; x += 34f)
-                ice.Add(new Vector2(x, GroundY));
-            // east bank slants in
-            ice.Add(new Vector2(iceR + 30f, bot - 44f));
-            // near edge: wind-blown snow over the ice, so it is a wave
-            for (float x = iceR + 30f; x >= iceL - 30f; x -= 34f)
-                ice.Add(new Vector2(x, bot - 44f + Mathf.Sin(x * 0.019f) * 15f));
-            // west bank slants out
-            ice.Add(new Vector2(iceL - 30f, GroundY + 16f));
-            DrawColoredPolygon(ice.ToArray(), new Color(0.46f, 0.55f, 0.56f));
-            // 水面高光：淡一档的同色调，半透明
+            float l = LiutiaohuBreakX - 150f;
+            float r = LiutiaohuBreakX + LiutiaohuBreakW + 150f;
+            float y = GroundY - 1f;
+
+            // 翻起的路基：硬边平涂 + 3px 粗墨边
+            InkStyle.PenStroke(this, new[]
+            {
+                new Vector2(l, y + 2f), new Vector2(l + 60f, y - 6f),
+                new Vector2(r - 60f, y - 6f), new Vector2(r, y + 2f),
+                new Vector2(r - 30f, y + 26f), new Vector2(l + 30f, y + 26f),
+            }, new Color(0.58f, 0.49f, 0.34f), InkStyle.InkColor, InkStyle.BoldStroke);
+            // 下缘暗面 / 上缘高光：硬边平涂两档
             DrawColoredPolygon(new[]
             {
-                new Vector2(iceL, GroundY), new Vector2(iceR, GroundY),
-                new Vector2(iceR, GroundY + 34), new Vector2(iceL, GroundY + 34),
-            }, new Color(0.62f, 0.70f, 0.70f, 0.40f));
+                new Vector2(l + 30f, y + 16f), new Vector2(r - 30f, y + 16f),
+                new Vector2(r - 30f, y + 25f), new Vector2(l + 30f, y + 25f),
+            }, new Color(0.40f, 0.33f, 0.22f));
+            DrawRect(new Rect2(l + 60f, y - 5f, r - l - 120f, 3f), new Color(0.76f, 0.67f, 0.48f));
 
-            // v3.25: the span's own shadow on the ice. Everything else in
-            // this level casts a shadow - the houses, the trees, the sandbag
-            // walls, the bodies - and the bridge was the one thing standing
-            // on the ground without one, so it hovered over the river
-            // instead of standing on it.
-            DrawSetTransform(new Vector2((iceL + iceR) * 0.5f, GroundY + 46f), 0, new Vector2(13f, 0.85f));
-            DrawTextureRect(N918SoftSnow.Blob(new Color(0.40f, 0.45f, 0.50f), 0.32f),
-                new Rect2(-20f, -20f, 40f, 40f), false);
-            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-
-            // 冰裂缝：不规则折线（用噪声偏移中间点，不是直竖线）
-            for (int i = 0; i < 14; i++)
+            // 弹坑中心：焦黑硬边块（不是半透明烟晕）
+            float cx = (l + r) * 0.5f;
+            InkStyle.PenStroke(this, new[]
             {
-                float x = 4475 + i * 54;
-                var crack = new List<Vector2>();
-                int steps = 5;
-                for (int s = 0; s <= steps; s++)
-                {
-                    float t = (float)s / steps;
-                    float px = x + Mathf.Sin(i * 2.3f + s * 1.7f) * 18f * (1f - Mathf.Abs(t - 0.5f) * 1.4f);
-                    float py = GroundY + 8 + t * 160f + Mathf.Sin(i * 0.7f + s * 2.1f) * 4f;
-                    crack.Add(new Vector2(px, py));
-                }
-                DrawPolyline(crack.ToArray(), new Color(0.40f, 0.48f, 0.50f, 0.40f), 1.8f, true);
-                // 裂缝上的高光细线
-                DrawPolyline(crack.ToArray(), new Color(0.70f, 0.78f, 0.78f, 0.22f), 0.8f, true);
-            }
-            // 斜向的交叉裂缝（更自然）
-            for (int i = 0; i < 6; i++)
-            {
-                float x0 = 4490 + i * 110;
-                float y0 = GroundY + 40 + (i % 3) * 30;
-                var crack = new List<Vector2>
-                {
-                    new Vector2(x0, y0),
-                    new Vector2(x0 + 24, y0 + 32),
-                    new Vector2(x0 + 48, y0 + 58),
-                    new Vector2(x0 + 72, y0 + 84),
-                };
-                DrawPolyline(crack.ToArray(), new Color(0.38f, 0.46f, 0.48f, 0.36f), 1.6f, true);
-            }
+                new Vector2(cx - 52f, y + 6f), new Vector2(cx - 30f, y - 2f),
+                new Vector2(cx + 30f, y - 2f), new Vector2(cx + 52f, y + 6f),
+                new Vector2(cx + 26f, y + 18f), new Vector2(cx - 26f, y + 18f),
+            }, MangaPropArt.CharredWood, InkStyle.InkColor, InkStyle.Stroke);
 
-            // 初秋：江面改为流动秋水，不再绘制冰面雪块与冻土堆
+            // 炸飞的枕木碎块：小块三档平涂 + 粗墨边，固定种子不抖帧
+            var rng = new RandomNumberGenerator();
+            rng.Seed = 19310918u;
+            for (int i = 0; i < 7; i++)
+            {
+                float px = l + 40f + rng.RandfRange(0f, r - l - 80f);
+                float py = y + rng.RandfRange(4f, 22f);
+                float w = rng.RandfRange(9f, 18f);
+                float h = rng.RandfRange(4f, 7f);
+                DrawSetTransform(new Vector2(px, py), rng.RandfRange(-0.35f, 0.35f), Vector2.One);
+                InkStyle.InkRect(this, new Rect2(-w * 0.5f, -h * 0.5f, w, h),
+                    MangaPropArt.SleeperBase, InkStyle.InkColor, 1.6f);
+                DrawRect(new Rect2(-w * 0.5f + 1f, 0f, w - 2f, h * 0.4f), MangaPropArt.SleeperShadow);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            }
         }
 
         /// <summary>
@@ -3597,10 +3547,9 @@ public partial class N918Level : Node2D
                 rng.Seed = (ulong)(i * 7919 + 13);
 
                 // scorched bed under the gap
-                DrawSetTransform(new Vector2(cx, railY + 9f), 0, new Vector2(r / 20f, 0.42f));
-                DrawTextureRect(N918SoftSnow.Blob(new Color(0.19f, 0.175f, 0.16f), 0.5f),
-                    new Rect2(-20f, -20f, 40f, 40f), false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                // v3.66 漫画风：硬边实色焦痕，不用羽化柔光 blob
+                InkStyle.InkRect(this, new Rect2(cx - r, railY + 4f, r * 2f, 9f),
+                    MangaPropArt.CharredWood, InkStyle.InkColor, InkStyle.Stroke);
 
                 // twisted stubs curling up and out from both cut ends, one pair per rail line
                 foreach (float ry in new[] { railY, railY + 12 })
@@ -3626,7 +3575,7 @@ public partial class N918Level : Node2D
                     float px = cx + rng.RandfRange(-r, r) * 1.15f;
                     float py = railY + rng.RandfRange(2f, 16f);
                     DrawCircle(new Vector2(px, py), rng.RandfRange(0.8f, 1.7f),
-                        new Color(0.27f, 0.25f, 0.23f, 0.8f));
+                        new Color(0.27f, 0.25f, 0.23f));
                 }
             }
 
@@ -3638,10 +3587,9 @@ public partial class N918Level : Node2D
                 var rng2 = new RandomNumberGenerator();
                 rng2.Seed = (ulong)(int)(dxp * 0.71f) + 977;
 
-                DrawSetTransform(new Vector2(dxp, railY + 9f), 0, new Vector2(0.55f, 0.34f));
-                DrawTextureRect(N918SoftSnow.Blob(new Color(0.21f, 0.19f, 0.17f), 0.5f),
-                    new Rect2(-20f, -20f, 40f, 40f), false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                // v3.66 漫画风：硬边实色焦痕
+                InkStyle.InkRect(this, new Rect2(dxp - 12f, railY + 5f, 24f, 7f),
+                    MangaPropArt.CharredWood, InkStyle.InkColor, InkStyle.Stroke);
 
                 foreach (float ry in new[] { railY, railY + 12 })
                 foreach (float sgn in new[] { -1f, 1f })
@@ -3661,7 +3609,7 @@ public partial class N918Level : Node2D
                     float px = dxp + rng2.RandfRange(-12f, 12f);
                     float py = railY + rng2.RandfRange(2f, 15f);
                     DrawCircle(new Vector2(px, py), rng2.RandfRange(0.7f, 1.4f),
-                        new Color(0.27f, 0.25f, 0.23f, 0.8f));
+                        new Color(0.27f, 0.25f, 0.23f));
                 }
             }
         }
@@ -3731,36 +3679,35 @@ public partial class N918Level : Node2D
                 new Color(0.90f, 0.92f, 0.92f, 0.55f), 1f, true);
         }
 
+        /// <summary>
+        /// v3.66 · 南满铁路柳条湖段（1931.9.18 爆破点）—— 手绘上色漫画风重做。
+        ///
+        /// 史实：关东军在沈阳北郊柳条湖附近炸毁南满铁路一段路轨，并以此为
+        /// 借口进攻北大营。这里有的是「被炸断的铁轨」，没有嫩江江桥、没有
+        /// 桥墩、没有钢板桥面、没有冰封江面。旧版把江桥关卡整份复制过来，
+        /// 连 bridge_autumn.png 桁架桥一起搬进九一八现场，玩家指出是
+        /// 「画蛇添足」且每个关卡长得一模一样。
+        ///
+        /// 现在铁路从 x=2400 一直铺到关卡尽头，中段留一个明显的炸断缺口，
+        /// 两端轨头上翘、道砟翻起。全程走 MangaPropArt 的漫画风原语：
+        /// 粗墨描边 + 三档平涂 + 卡通高光，不再有半透明水彩道砟与细密写实钢线。
+        /// </summary>
         private void DrawRailway()
         {
             var skip = new HashSet<int>(_railSkipIdx);
             float railY = GroundY - 1f;
+            const float StartX = 2400f;
+            float endX = WorldW + 40f;
+            float breakL = LiutiaohuBreakX;
+            float breakR = LiutiaohuBreakX + LiutiaohuBreakW;
 
-            // v3.25: the track now runs ONTO the bridge.
-            //
-            //   fieldEnd - the open field's ballast bed and its sleepers
-            //              stop at the west end of the deck. A railway
-            //              bridge carries its track on a steel plate, it
-            //              has no ballast and no sleepers.
-            //   trackEnd - the rails carry on across the deck and stop
-            //              where the span is blown apart. Past that there
-            //              is no bridge left to run on.
-            //
-            // Before this the whole line was drawn first and the bridge
-            // was painted over the end of it, so the track stopped in
-            // mid snow and the bridge stood next to it like a separate
-            // picture - no joint, no rails running onto the deck.
-            float fieldEnd = BridgeDeckX;
-            float trackEnd = BridgeWreckX;
+            bool InBreak(float x) => x > breakL - 26f && x < breakR + 26f;
 
-            // a crater sitting on the rail line means the shelling broke the
-            // track - skip sleepers and leave a gap in the rails there, so the
-            // pits read as battlefield damage instead of holes punched through
-            // a pristine line.
             bool OnRailCrater(float x)
             {
                 for (int i = 0; i < _craterX.Length; i++)
-                    if (_craterX[i] > 2380f && _craterX[i] < WorldW && Mathf.Abs(x - _craterX[i]) < _craterR[i] * 0.82f)
+                    if (_craterX[i] > StartX && _craterX[i] < WorldW &&
+                        Mathf.Abs(x - _craterX[i]) < _craterR[i] * 0.82f)
                         return true;
                 return false;
             }
@@ -3772,232 +3719,51 @@ public partial class N918Level : Node2D
                 return false;
             }
 
-            // ballast bed: packed darker snow with a gently wavy top edge so
-            // it doesn't read as a ruler-straight line drawn on white paper
-            var ballast = new List<Vector2>();
-            for (float x = 2380f; x <= fieldEnd; x += 38f)
-                ballast.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
-            ballast.Add(new Vector2(fieldEnd, railY + 22f));
-            ballast.Add(new Vector2(2380f, railY + 22f));
-            DrawColoredPolygon(ballast.ToArray(), new Color(0.76f, 0.745f, 0.72f, 0.5f));
-            // soft top-edge highlight following the same wave
-            var topEdge = new List<Vector2>();
-            for (float x = 2380f; x <= fieldEnd; x += 38f)
-                topEdge.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
-            DrawPolyline(topEdge.ToArray(), new Color(0.92f, 0.91f, 0.885f, 0.7f), 2.6f, false);
+            bool InGap(float x) => InBreak(x) || OnRailCrater(x) || NearRailDmg(x, 9f);
 
+            // 道砟：断口左右两段，硬边平涂三档 + 3px 粗墨边
+            MangaPropArt.Ballast(this, StartX, breakL, railY);
+            MangaPropArt.Ballast(this, breakR, endX, railY);
+
+            // 枕木：粗墨框 + 三档平涂 + 卡通高光短线
             int k = 0;
-            for (float x = 2400; x < fieldEnd; x += 34, k++)
+            for (float x = StartX; x < endX; x += 34f, k++)
             {
-                // v3.25: the last stretch before the deck is never skipped.
-                // One missing tie right at the joint leaves a bare strip of
-                // ballast between the field and the bridge and the line
-                // reads as cut off again.
-                if ((skip.Contains(k) && x < fieldEnd - 150f) || OnRailCrater(x + 11f)) continue;
-                // each sleeper got own height/brightness jitter (deterministic,
-                // picture stays stable between frames)
+                if (InBreak(x + 11f) || OnRailCrater(x + 11f)) continue;
+                if (skip.Contains(k) && Mathf.Abs(x - breakL) > 120f) continue;
                 float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
-                float shade = 0.40f + 0.06f * Mathf.Sin(k * 3.7f);
                 bool charred = NearRailDmg(x + 11f, 30f);
-                var wood = charred
-                    ? new Color(0.17f, 0.14f, 0.12f)
-                    : new Color(shade, shade * 0.80f, shade * 0.60f);
-                var r = new Rect2(x, railY + 3 + jy, 22, 13);
-                // sleeper: ink frame then wood fill, the hand-drawn manga way
-                InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
-                // shadow edge, lower-left away from the light
-                InkStyle.InkRect(this, new Rect2(x - 2, r.Position.Y + 7, 22, 5),
-                    new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                // thin snow on the sleeper top for ~60% of them, phase-shifted
-                // so it don't read as a copied row
-                if (!charred && Mathf.Sin(k * 7.31f) > -0.2f)
-                    DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
-                        new Vector2(x + 20, r.Position.Y + 1.2f),
-                        new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
+                MangaPropArt.Sleeper(this, new Rect2(x, railY + 3f + jy, 22f, 13f),
+                    charred, Mathf.Sin(k * 7.31f) > -0.2f);
             }
 
-            // v3.26: the deck plate.
-            //
-            // The span used to get a flat band of tan sleepers laid straight
-            // onto the texture's riveted girder web. Two full-width bands of
-            // contrasting tone with nothing between them - a tan strip lying
-            // on a dark strip - and the eye read the bridge as having TWO
-            // roads on it. The user called it "one of them is a texture and
-            // the rail is painted on, so it looks like the bridge has two
-            // paths".
-            //
-            // A railway bridge carries its track on a steel deck plate, and
-            // the plate is part of the structure: rail on sleeper, sleeper
-            // on plate, plate on main girder. Drawing that plate here - in
-            // the level's own InkStyle - slots a third, clearly structural
-            // layer between the track and the girder, so the track reads as
-            // ONE continuous line running from the field onto the span.
-            //
-            // The plate's top edge IS the rail line, so the two sit exactly
-            // on each other and the joint with the field track is seamless.
-            const float plateH = 13f;
-            var plate = new[]
+            // 两条钢轨：按弹坑 / 炸断口切成连续段，每段都是漫画风粗墨边 + 平涂
+            foreach (float ry in new[] { railY, railY + 12f })
             {
-                new Vector2(fieldEnd - 8f, railY + 1f),
-                new Vector2(trackEnd, railY + 1f),
-                new Vector2(trackEnd, railY + 1f + plateH),
-                new Vector2(fieldEnd - 8f, railY + 1f + plateH),
-            };
-            // steel base - a step darker than the snow, a step lighter than
-            // the girder web below it, so the three layers separate
-            DrawColoredPolygon(plate, new Color(0.36f, 0.335f, 0.30f));
-            // the top flange catches the flat winter light
-            DrawColoredPolygon(new[]
-            {
-                new Vector2(fieldEnd - 8f, railY + 1f),
-                new Vector2(trackEnd, railY + 1f),
-                new Vector2(trackEnd, railY + 4f),
-                new Vector2(fieldEnd - 8f, railY + 4f),
-            }, new Color(0.52f, 0.50f, 0.46f));
-            // closed ink outline - the plate is a cut steel edge, it reads as
-            // one plate and not as a loose stripe
-            var plateEdge = new List<Vector2>(plate) { plate[0] };
-            DrawPolyline(plateEdge.ToArray(), InkStyle.InkColor, 2.2f, true);
-            // the last stretch of ballast tapers into the plate instead of
-            // stopping dead at it
-            DrawColoredPolygon(new[]
-            {
-                new Vector2(fieldEnd - 104f, railY + 2f),
-                new Vector2(fieldEnd - 8f, railY + 2f),
-                new Vector2(fieldEnd - 8f, railY + 12f),
-                new Vector2(fieldEnd - 104f, railY + 22f),
-            }, new Color(0.73f, 0.755f, 0.765f, 0.5f));
-
-            // v3.26: the sleepers on the span go through the SAME routine as
-            // the sleepers on the field - same wood tone, same height
-            // jitter, same shadow strip, same snow on top. The old bridge
-            // sleepers were a flat un-jittered 9px tan bar, and a perfect
-            // repeating row of flat bars reads as a painted stripe rather
-            // than as track. One rhythm, one material, field to span.
-            for (float x = fieldEnd; x < trackEnd; x += 34f)
-            {
-                int tk = Mathf.RoundToInt((x - 2400f) / 34f);
-                float jy = Mathf.Sin(tk * 12.9898f) * 2.2f;
-                float shade = 0.40f + 0.06f * Mathf.Sin(tk * 3.7f);
-                bool charred = NearRailDmg(x + 11f, 30f);
-                var wood = charred
-                    ? new Color(0.17f, 0.14f, 0.12f)
-                    : new Color(shade, shade * 0.80f, shade * 0.60f);
-                // laid flat on the steel plate: thinner than the field ties,
-                // which are sunk in ballast
-                var r = new Rect2(x, railY + 3f + jy, 22, 10f);
-                InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
-                // shadow edge, lower-left away from the light
-                InkStyle.InkRect(this, new Rect2(x - 2, r.Position.Y + 5f, 22, 4f),
-                    new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                // thin snow on the sleeper top, phase-shifted exactly like the
-                // field ties, so the two halves of the line carry the same
-                // hand-placed rhythm
-                if (!charred && Mathf.Sin(tk * 7.31f) > -0.2f)
-                    DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
-                        new Vector2(x + 20, r.Position.Y + 1.2f),
-                        new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
-            }
-
-            // two parallel rails: broken at the craters, drawn as short intact
-            // segments with steel sheen. snow caps sit on top in short patches.
-            // v3.25: they carry on across the bridge deck and stop at the
-            // wrecked span, so the line and the bridge are one thing.
-            foreach (float ry in new[] { railY, railY + 12 })
-            {
-                // ink base, segmented around the blast gaps
-                float segStart = 2400f;
-                for (float x = 2400f; x <= trackEnd; x += 10f)
+                float segStart = -1f;
+                for (float x = StartX; x <= endX; x += 10f)
                 {
-                    if (OnRailCrater(x) || NearRailDmg(x, 9f))
+                    bool gap = InGap(x);
+                    if (!gap && segStart < 0f) segStart = x;
+                    if ((gap || x + 10f > endX) && segStart >= 0f)
                     {
-                        if (x - segStart > 4f)
-                            DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
-                        segStart = x + 10f;
+                        MangaPropArt.RailSegment(this, segStart, gap ? x : endX, ry,
+                            Mathf.Sin(segStart * 0.07f) > 0.2f);
+                        segStart = -1f;
                     }
                 }
-                if (trackEnd - segStart > 4f)
-                    DrawLine(new Vector2(segStart, ry), new Vector2(trackEnd, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
-
-                // steel sheen only on the intact lengths
-                segStart = 2400f;
-                for (float x = 2400f; x <= trackEnd; x += 10f)
-                {
-                    if (OnRailCrater(x) || NearRailDmg(x, 9f))
-                    {
-                        if (x - segStart > 4f)
-                            DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), new Color(0.87f, 0.86f, 0.83f), 1.6f, true);
-                        segStart = x + 10f;
-                    }
-                }
-                if (trackEnd - segStart > 4f)
-                    DrawLine(new Vector2(segStart, ry), new Vector2(trackEnd, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
             }
 
-            // the track is torn apart where the span is blown out: the rails
-            // do not just stop, they end in twisted steel
-            DrawTornTrackEnd(trackEnd, railY);
+            // 炸断口两端：翻起道砟 + 上翘轨头 + 焦黑爆破痕
+            MangaPropArt.TornRailEnd(this, breakL, railY, -1f, 19310918u);
+            MangaPropArt.TornRailEnd(this, breakR, railY, 1f, 19310919u);
 
-            // 轨顶积雪：短促的亮段（不是通条白线，雪是被风一段段吹积的），避开被炸断处
-            //
-            // v3.26: on the span these segments used to be exactly as bright
-            // and as long as the ones on the field. Against the flat dark
-            // deck plate that reads as DASHED LANE MARKINGS on a road - and
-            // that is half of what made the bridge look like it carried two
-            // roads. Over the span they are shorter, thinner and half as
-            // opaque: snow lying on a rail in the open, not paint on a
-            // carriageway.
-            for (float sx = 2420; sx < trackEnd; sx += 88)
+            // 道砟上的碎石：硬边实色小点（不是半透明水彩点）
+            for (float gx = StartX + 10f; gx < endX; gx += 57f)
             {
-                if (OnRailCrater(sx) || NearRailDmg(sx, 20f)) continue;
-                bool onSpan = sx >= fieldEnd;
-                float seg = onSpan ? 8f + Mathf.Sin(sx * 0.07f) * 4f : 14f + Mathf.Sin(sx * 0.07f) * 8f;
-                float wid = onSpan ? 1.6f : 2.4f;
-                float alp = onSpan ? 0.42f : 0.85f;
-                DrawLine(new Vector2(sx, railY - 1.2f), new Vector2(sx + seg, railY - 1.2f),
-                    new Color(0.96f, 0.97f, 0.97f, alp), wid, true);
-            }
-
-            // scattered gravel / ice specks on the ballast so it isn't a flat wash
-            for (float gx = 2410; gx < fieldEnd; gx += 57f)
-            {
-                if (OnRailCrater(gx) || NearRailDmg(gx, 12f)) continue;
+                if (InGap(gx)) continue;
                 float gy = railY + 8f + Mathf.Sin(gx * 0.13f) * 4f;
-                DrawCircle(new Vector2(gx, gy), 1.4f, new Color(0.64f, 0.63f, 0.60f, 0.7f));
-            }
-        }
-
-        /// <summary>
-        /// The end of the track on the bridge. The rails do not simply stop
-        /// where the span is blown apart - they end in twisted steel, the
-        /// way a rail tears when the structure under it goes. Without this
-        /// the line stopped in a clean cut and read as a rendering seam
-        /// rather than as a destroyed bridge.
-        /// </summary>
-        private void DrawTornTrackEnd(float x, float railY)
-        {
-            var rng = new RandomNumberGenerator();
-            rng.Seed = 19311104u;
-            foreach (float ry in new[] { railY, railY + 12 })
-            {
-                for (int s = 0; s < 3; s++)
-                {
-                    float len = rng.RandfRange(7f, 15f);
-                    float tilt = 0.30f + 0.42f * s + rng.RandfRange(-0.12f, 0.12f);
-                    float dx = len * Mathf.Cos(tilt);
-                    float dy = -len * Mathf.Sin(tilt);
-                    DrawLine(new Vector2(x, ry), new Vector2(x + dx, ry + dy),
-                        InkStyle.InkColor, InkStyle.ThinStroke, true);
-                    DrawCircle(new Vector2(x + dx, ry + dy), 1.2f, new Color(0.85f, 0.86f, 0.84f));
-                }
-            }
-            // splintered ties and kicked up snow around the break
-            for (int s = 0; s < 7; s++)
-            {
-                float px = x + rng.RandfRange(-18f, 14f);
-                float py = railY + rng.RandfRange(3f, 14f);
-                DrawLine(new Vector2(px, py), new Vector2(px + rng.RandfRange(-5f, 5f), py + rng.RandfRange(-2f, 3f)),
-                    new Color(0.30f, 0.26f, 0.22f, 0.85f), 1.6f, true);
+                DrawCircle(new Vector2(gx, gy), 1.5f, MangaPropArt.BallastShadow);
             }
         }
 
@@ -4034,265 +3800,9 @@ public partial class N918Level : Node2D
             }
         }
 
-        private Texture2D _bridgeTex;
-
-        private void DrawBridge()
-        {
-            const float start = 4400f;
-            const float end = 5200f;
-            const float top = 376f;
-            const float bottom = GroundY + 8f;
-
-            // generated bridge art (truss + piers, burned mid-section) replaces the old
-            // code-drawn one; keep the code path as fallback if the texture is missing
-            _bridgeTex ??= GD.Load<Texture2D>("res://assets/art/props/bridge_autumn.png");
-            if (_bridgeTex != null)
-            {
-                var bsz = _bridgeTex.GetSize();
-                // v3.25: the user set the size rule - the bridge is 2.5 man
-                // heights tall. Measured from the snow line it stands on up
-                // to the top of the truss, because that is the height the
-                // eye reads; the piers go down into the river ice and are
-                // not part of the silhouette.
-                //
-                // Before this the truss top stood 179px over the snow - 1.57
-                // man heights - so the span came up to the shoulder of the
-                // man walking towards it.
-                //
-                // The texture cannot simply be scaled up: it is 1530x812 and
-                // the span only has 800px of world to sit in, so a uniform
-                // 1.55x would push the burnt-out middle of the truss off the
-                // right edge of the level. Instead the truss is drawn DEEPER
-                // (stretched vertically) and the piers keep their own
-                // proportions - a deeper truss is what a big railway bridge
-                // looks like anyway, and the concrete stays a squat pier
-                // instead of turning into a stick.
-                const float bh = 420f;               // whole texture, unchanged scale
-                float bw = bh * bsz.X / bsz.Y;
-                // v3.25: the span moved 48px east. The painting already
-                // carries a concrete pier for the west end, but the deck of
-                // the texture runs on past it - the girder under the last
-                // 45px of the deck had nothing under it and the span read
-                // as a piece of bridge dropped in the field and stopping
-                // in mid air over the snow.
-                //
-                // Instead of bolting a grey slab onto the side (the v3.15
-                // abutment, which the player called a stray box), the span
-                // is simply set down on the pier that is already in the
-                // painting. The west end of the deck now lands on the
-                // concrete, and the bank edge of the frozen river sits just
-                // under it - so the bridge is standing on the ground
-                // instead of hovering over it.
-                //
-                // BridgeDeckX is the deck's west end in world coordinates
-                // and the railway is laid along it - both come from the
-                // same two measurements off the painting.
-                float bx = BridgeDeckX - 9f * (bh / bsz.Y);
-                // v3.17 seat fix: the old note claimed the deck sits at 53% of
-                // the texture height and put row 430 on the rail line. A row
-                // scan of bridge.png says otherwise - the truss runs 0-340,
-                // the railing 340-365, the rail-bearing deck 365-400, the pier
-                // caps 400-440 and the piers 440-803. So the old factor parked
-                // the deck 40px ABOVE the rails: the track ran across the
-                // frozen river band under the bridge instead of along its
-                // deck, which is what made the two look like they had
-                // nothing to do with each other. Seat row 355 on the rail
-                // line instead and the rails run onto the bridge.
-                const float deckRow = 355f;
-                const float apexRow = 10f;          // where the truss reaches its top
-                float scale = bh / bsz.Y;
-
-                // how deep the truss has to be so its top stands BridgeH
-                // above the snow line
-                float trussScale = (BridgeH - 1f) / (deckRow - apexRow);
-                float trussH = deckRow * trussScale;
-                float trussTop = (GroundY - 1f) - deckRow * trussScale;
-
-                // v3.21: the bridge art is a photoreal render while the whole
-                // level is watercolour, and next to the painted houses it
-                // read as a different game - the player called it a pyramid
-                // dropped in the snow. Two passes push it back into the
-                // picture: a cool tint so the steel takes the colour of the
-                // air, then a pale blue haze over the whole span so the
-                // distance eats its contrast the way it eats the
-                // mountains behind it.
-                // v3.24: the original art was right all along. The rendered
-                // steel with its rivets and dark beams sits in the snowfield
-                // perfectly well next to the burnt timber houses, and every
-                // pass I made over it - desaturating it, flattening the
-                // shading, washing it in blue - only pushed it further from
-                // the level. It is back to the plain texture, untouched.
-                // The two halves meet exactly on the deck row, so there is no
-                // seam where the deeper truss hands over to the piers.
-                DrawTextureRectRegion(_bridgeTex,
-                    new Rect2(bx, trussTop, bw, trussH),
-                    new Rect2(0f, 0f, bsz.X, deckRow));
-                // the deck and the piers keep the original scale, so the
-                // concrete does not turn into a tall thin post
-                float pierH = (bsz.Y - deckRow) * scale;
-                DrawTextureRectRegion(_bridgeTex,
-                    new Rect2(bx, GroundY - 1f, bw, pierH),
-                    new Rect2(0f, deckRow, bsz.X, bsz.Y - deckRow));
-
-                // v3.25: snow drifted against the west end of the deck.
-                // The painting ends in a straight vertical cut of the steel
-                // and that cut is the clearest "this is a texture" tell in
-                // the whole shot - the deck looked like a strip of picture
-                // hanging in the air. A drift piled against the end is what
-                // a real bridge head looks like in a northern winter.
-                DrawSetTransform(new Vector2(bx + 24f, GroundY + 18f), 0, new Vector2(2.2f, 0.95f));
-                DrawTextureRect(N918SoftSnow.Blob(new Color(0.62f, 0.55f, 0.37f), 0.95f),
-                    new Rect2(-20f, -20f, 40f, 40f), false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-
-                // v3.25: the west end of the span used to die in mid air.
-                // The first concrete pier of the texture stands 46px in
-                // from the end of the deck, and there is nothing under that
-                // 46px - the river ice only starts further east - so the
-                // deck stopped over open snow with its underside showing.
-                // The user said the bridge has to sit ON the snow.
-                //
-                // An abutment carries the end of the deck down into the
-                // bank now: a concrete block in the same tone the piers
-                // use, a snow cap on top of it and a couple of ink lines
-                // for the edges, so it belongs to the level and does not
-                // read as a second art style dropped next to the render.
-                // v3.19: the "fresh snow line on the deck edge" is gone too.
-                // It was a straight 3px white DrawLine running 788px from
-                // 4406 to 5194 at a fixed height - the deck edge is not
-                // straight, the span is not that long above the snow, and
-                // the line floated over the truss and the far bank as a thin
-                // bright streak whose tone did not match the mountains
-                // behind it. That streak was the white line the player kept
-                // seeing. The texture already carries snow along the deck.
-
-                // v2.9 float fix, part 2: bury the texture bottom edge. The pier
-                // feet ended on a hard horizontal cut against the snow - every
-                // support read as "standing on the snow, not in it". Soft drift
-                // blobs melt the base line into the ice and snow.
-                // pier feet now land at ~GroundY+141 with the new seat, so the
-                // drift blobs bury that cut line where the feet meet the ice
-                for (float dx2 = start + 90f; dx2 < end - 40f; dx2 += 150f)
-                {
-                    DrawSetTransform(new Vector2(dx2, GroundY + 138f), 0, new Vector2(2.1f, 0.42f));
-                    DrawTextureRect(N918SoftSnow.Blob(new Color(0.62f, 0.55f, 0.37f), 0.75f),
-                        new Rect2(-20f, -20f, 40f, 40f), false);
-                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-                }
-                // contact shading where the span crosses the near snowfield
-                DrawSetTransform(new Vector2(start + 130f, GroundY + 12f), 0, new Vector2(3.2f, 0.5f));
-                DrawTextureRect(N918SoftSnow.Blob(new Color(0.55f, 0.60f, 0.64f), 0.30f),
-                    new Rect2(-20f, -20f, 40f, 40f), false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-                return;
-                            return;
-            }
-
-            // 远端桁架（偏后，颜色淡 + 墨边更细）——完好
-            Truss(start + 40, end, top + 26, bottom - 4, new Color(0.28f, 0.32f, 0.34f, 0.55f), InkStyle.InkSoft, 3.4f, null);
-
-            // 桥墩：混凝土 + 破冰棱（冬季嫩江结冰需要尖端破冰）
-            var damagedPiers = new HashSet<int>(_pierDamageIdx);
-            int pi = 0;
-            for (float px = 4540; px <= 5140; px += 200, pi++)
-            {
-                // 墩身（混凝土矩形 + 墨边）
-                InkStyle.InkRect(this, new Rect2(px - 15, GroundY + 2, 30, 120),
-                    new Color(0.38f, 0.40f, 0.42f), InkStyle.InkSoft, InkStyle.Stroke);
-                // 墩身阴影面（左侧背光——太阳在画面右上）
-                var pierShadow = new[]
-                {
-                    new Vector2(px - 15, GroundY + 2),
-                    new Vector2(px - 12, GroundY + 2),
-                    new Vector2(px - 12, GroundY + 122),
-                    new Vector2(px - 15, GroundY + 122),
-                };
-                DrawColoredPolygon(pierShadow, new Color(0.24f, 0.26f, 0.28f, 0.7f));
-                // 底部破冰棱（三角形尖端，向下30px）
-                var iceBreaker = new[]
-                {
-                    new Vector2(px - 20, GroundY + 118),
-                    new Vector2(px - 15, GroundY + 118),
-                    new Vector2(px - 15, GroundY + 145),
-                    new Vector2(px, GroundY + 160),       // 尖端！
-                    new Vector2(px + 15, GroundY + 145),
-                    new Vector2(px + 15, GroundY + 118),
-                    new Vector2(px + 20, GroundY + 118),
-                };
-                InkStyle.PenStroke(this, iceBreaker,
-                    new Color(0.34f, 0.36f, 0.38f), InkStyle.InkSoft, InkStyle.Stroke);
-                // 墩顶帽梁（桥面处的混凝土帽，接承重梁）
-                InkStyle.InkRect(this, new Rect2(px - 22, GroundY - 6, 44, 8),
-                    new Color(0.82f, 0.85f, 0.86f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                // 墩顶积雪（帽梁上一点雪）
-                DrawLine(new Vector2(px - 20, GroundY - 6), new Vector2(px + 20, GroundY - 6),
-                    new Color(0.94f, 0.96f, 0.96f), 2.5f, true);
-                // 炮弹烧黑的弹痕
-                if (damagedPiers.Contains(pi))
-                {
-                    DrawCircle(new Vector2(px, GroundY + 55), 18f, new Color(0.10f, 0.09f, 0.08f, 0.7f));
-                    DrawCircle(new Vector2(px + 5, GroundY + 90), 10f, new Color(0.10f, 0.09f, 0.08f, 0.5f));
-                    DrawCircle(new Vector2(px - 4, GroundY + 130), 7f, new Color(0.18f, 0.16f, 0.14f, 0.55f));
-                    DrawLine(new Vector2(px - 16, GroundY + 50), new Vector2(px + 16, GroundY + 62),
-                        new Color(0.10f, 0.08f, 0.07f, 0.5f), 1.5f, true);
-                }
-            }
-
-            // 桥面板：先描墨色粗边再填木色，加桥枕
-            InkStyle.InkRect(this, new Rect2(start, GroundY - 8, end - start, 22),
-                new Color(0.30f, 0.26f, 0.22f), InkStyle.InkColor, InkStyle.BoldStroke);
-            for (float x = start; x < end; x += 22)
-                DrawLine(new Vector2(x, GroundY - 8), new Vector2(x, GroundY + 14),
-                    InkStyle.InkColor, 1.2f, true);
-
-            // 中段烧焦痕迹
-            DrawRect(new Rect2(4680, GroundY - 10, 90, 24), new Color(0.08f, 0.07f, 0.06f, 0.8f));
-            DrawLine(new Vector2(4680, GroundY - 10), new Vector2(4770, GroundY - 10),
-                new Color(0.08f, 0.07f, 0.06f), 2f, true);
-
-            // 近端桁架——有几根管被打断
-            Truss(start, end, top, bottom + 4, new Color(0.20f, 0.22f, 0.24f), InkStyle.InkColor, 6f, _trussSkipDiags);
-
-            // 桁架上的积雪
-            for (float x = start; x < end; x += 42)
-                DrawLine(new Vector2(x, top - 3), new Vector2(x + 30, top - 3),
-                    new Color(0.92f, 0.94f, 0.94f, 0.9f), 3f, true);
-            DrawRect(new Rect2(4680, top - 5, 90, 6), new Color(0.14f, 0.12f, 0.10f));
-        }
-
-        /// <summary>Pratt 风格平行弦桁架（节间更大更稀疏，真实铁路桥比例）。</summary>
-        private void Truss(float start, float end, float top, float bottom, Color fill, Color ink, float w, int[] skipDiag)
-        {
-            const int panelW = 200;  // 节间宽度（真实铁路桥 4-5m 节间，游戏比例 200px）
-            var skip = skipDiag == null ? null : new HashSet<int>(skipDiag);
-            // 上下弦：先填粗色再墨边
-            DrawLine(new Vector2(start, top), new Vector2(end, top), fill, w, true);
-            DrawLine(new Vector2(start, top), new Vector2(end, top), ink, InkStyle.Stroke, true);
-            DrawLine(new Vector2(start, bottom), new Vector2(end, bottom), fill, w, true);
-            DrawLine(new Vector2(start, bottom), new Vector2(end, bottom), ink, InkStyle.Stroke, true);
-            int diagIdx = 0;
-            for (float x = start; x <= end; x += panelW, diagIdx++)
-            {
-                // 竖直腹杆
-                DrawLine(new Vector2(x, top), new Vector2(x, bottom), fill, w * 0.7f, true);
-                DrawLine(new Vector2(x, top), new Vector2(x, bottom), ink, InkStyle.ThinStroke, true);
-                if (x + panelW <= end)
-                {
-                    bool skipA = skip != null && skip.Contains(diagIdx);
-                    bool skipB = skip != null && skip.Contains(diagIdx + 1);
-                    if (!skipA)
-                    {
-                        DrawLine(new Vector2(x, top), new Vector2(x + panelW, bottom), fill, w * 0.45f, true);
-                        DrawLine(new Vector2(x, top), new Vector2(x + panelW, bottom), ink, InkStyle.ThinStroke, true);
-                    }
-                    if (!skipB)
-                    {
-                        DrawLine(new Vector2(x, bottom), new Vector2(x + panelW, top), fill, w * 0.45f, true);
-                        DrawLine(new Vector2(x, bottom), new Vector2(x + panelW, top), ink, InkStyle.ThinStroke, true);
-                    }
-                }
-            }
-        }
+        // v3.66 · 整段桥绘制（DrawBridge / Truss / bridge_autumn.png 贴图 /
+        // 桥墩破冰棱 / 桥面烧焦 / 桥头积雪）已删除：九一八现场史实上没有桥。
+        // 唯一保留桥的地方是 JiangqiaoLevel（1931.11 嫩江江桥抗战）。
 
         private void DrawTrenchLines()
         {
@@ -5280,16 +4790,12 @@ public partial class N918GrenadeProj : Node2D
 
     public override void _Draw()
     {
+        // v3.66 接触阴影：压扁的硬边椭圆（漫画风），不是羽化柔光
         DrawSetTransform(new Vector2(0, N918Level.GroundY - Position.Y + 2f), 0, new Vector2(1.3f, 0.3f));
-        DrawCircle(Vector2.Zero, 7f, new Color(0.10f, 0.09f, 0.08f, 0.25f));
+        DrawCircle(Vector2.Zero, 7f, InkStyle.GroundShadow);
         DrawSetTransform(new Vector2(0, 0), _spin, Vector2.One);
-        // wooden handle + head
-        DrawRect(new Rect2(-4f, -12f, 8f, 16f), new Color(0.42f, 0.32f, 0.20f));
-        DrawRect(new Rect2(-7f, -22f, 14f, 12f), new Color(0.30f, 0.31f, 0.33f));
-        DrawRect(new Rect2(-7f, -22f, 14f, 12f), new Color(0.18f, 0.18f, 0.20f, 0.8f), false, 1.2f);
-        // fuse spark near the end
-        if (_fuse < 0.6f && (int)(_fuse * 14f) % 2 == 0)
-            DrawCircle(new Vector2(0f, -24f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
+        // 统一走 MangaPropArt：粗墨描边 + 三档平涂 + 卡通高光
+        MangaPropArt.StickGrenade(this, _fuse);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }
@@ -5489,21 +4995,8 @@ public partial class N918VitalsBar : Control
 
     private void DrawStickGrenade(Vector2 basePt, bool full)
     {
-        // Type 24 style: wooden stick handle + tin oval head + end cap
-        var stick = full ? new Color(0.58f, 0.42f, 0.24f) : new Color(0.30f, 0.26f, 0.22f, 0.55f);
-        var head = full ? new Color(0.36f, 0.38f, 0.33f) : new Color(0.26f, 0.26f, 0.24f, 0.55f);
-        var cap = full ? new Color(0.66f, 0.62f, 0.54f) : new Color(0.34f, 0.33f, 0.30f, 0.55f);
-
-        // stick: vertical, head sits on top
-        DrawRect(new Rect2(basePt.X - 1.6f, basePt.Y - 6f, 3.2f, 12f), stick);
-        // tin head
-        DrawCircle(basePt + new Vector2(0, -8.2f), 4.2f, head);
-        DrawRect(new Rect2(basePt.X - 2.1f, basePt.Y - 14.6f, 4.2f, 2.6f), cap);
-        // pull cord hint on a live one
-        if (full)
-            DrawLine(new Vector2(basePt.X + 1.8f, basePt.Y + 6f),
-                new Vector2(basePt.X + 3.6f, basePt.Y + 8.6f),
-                new Color(0.80f, 0.74f, 0.62f, 0.8f), 1f, true);
+        // v3.66: 统一走 MangaPropArt 的漫画风手榴弹图标
+        MangaPropArt.StickGrenadeIcon(this, basePt, full);
     }
 }
 

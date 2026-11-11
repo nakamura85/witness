@@ -88,29 +88,38 @@ public partial class CaptureN918 : Node
         {
             GD.Print("CAPTURE_N918 stage5 -> shot radio station exterior");
             SaveShot("n918_04_radio_station.png");
+            FreezeAt(4400f);          // v3.66: 柳条湖南满铁路断轨爆破点（史实，无桥）
             _frozeAt = _t;
             _stage = 6;
         }
-        // 6: 上一站 exterior 的纹理已稳定读出，现在才瞬移门口 + 进据点
+        // 6 (v3.66 新增): 断轨爆破点实机帧——证明九一八现场没有桥，只有被炸断的路轨
         else if (_stage == 6 && _t > _frozeAt + 2.5f)
+        {
+            GD.Print("CAPTURE_N918 stage6 -> shot liutiaohu rail break");
+            SaveShot("n918_06_liutiaohu_rail_break.png");
+            _frozeAt = _t;
+            _stage = 7;
+        }
+        // 7: 上一站纹理已稳定读出，现在才瞬移门口 + 进据点
+        else if (_stage == 7 && _t > _frozeAt + 2.5f)
         {
             float doorX = 4000f;
             var comm = _lvl._houses.FirstOrDefault(h => h.Id == "comm");
             if (comm != null) doorX = comm.DoorX;
             FreezeAt(doorX);
-            GD.Print($"CAPTURE_N918 stage6 comm doorX={doorX:F0}, enter");
+            GD.Print($"CAPTURE_N918 stage7 comm doorX={doorX:F0}, enter");
             Input.ActionPress("interact");
             _frozeAt = _t;
-            _stage = 7;
-        }
-        else if (_stage == 7 && _t > _frozeAt + 1.2f)
-        {
-            Input.ActionRelease("interact");
-            GD.Print("CAPTURE_N918 stage7 -> shot interior");
-            SaveShot("n918_05_interior.png");
             _stage = 8;
         }
-        else if (_stage == 8 && _t > 48f)
+        else if (_stage == 8 && _t > _frozeAt + 1.2f)
+        {
+            Input.ActionRelease("interact");
+            GD.Print("CAPTURE_N918 stage8 -> shot interior");
+            SaveShot("n918_05_interior.png");
+            _stage = 9;
+        }
+        else if (_stage == 9 && _t > 48f)
         {
             GD.Print("CAPTURE_N918 done");
             GetTree().Quit();

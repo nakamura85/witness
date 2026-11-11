@@ -1,0 +1,304 @@
+using Godot;
+
+namespace Witness;
+
+/// <summary>
+/// v3.66 · 手绘上色漫画风（Hand-drawn cel-shading manga）物件绘制的唯一入口。
+///
+/// 用户红线：整个作品只用「手绘上色漫画风」，不许混入钢笔淡彩 / 写实渲染 /
+/// 细密钢笔画。本文件把「铁轨」与「手榴弹」两类此前串味的物件统一到
+/// <see cref="InkStyle"/> 的语言：
+///   • 3px 深墨棕粗描边（小物件按尺寸缩到 2.0~2.6px，仍是明显粗墨边）
+///   • base → shadow → highlight 三档 **平涂**，块与块之间是硬边，不做插值渐变
+///   • 卡通高光只用小圆点 / 短直线 / 放射短线，不用模糊光晕、羽化、半透明柔光
+///   • 接触阴影是压扁的硬边椭圆
+///
+/// 两关（N918Level / JiangqiaoLevel）与 HUD 都改为调用这里，避免同一物件
+/// 在四个地方各画一遍、风格又各自跑偏。
+/// </summary>
+public static class MangaPropArt
+{
+    // —— 铁轨三档平涂色板 ——
+    public static readonly Color BallastBase = new(0.66f, 0.63f, 0.56f);
+    public static readonly Color BallastShadow = new(0.44f, 0.42f, 0.38f);
+    public static readonly Color BallastHighlight = new(0.86f, 0.84f, 0.78f);
+
+    public static readonly Color SleeperBase = InkStyle.Wood;
+    public static readonly Color SleeperShadow = InkStyle.WoodShadow;
+    public static readonly Color SleeperHighlight = InkStyle.WoodHighlight;
+    public static readonly Color CharredWood = new(0.22f, 0.18f, 0.15f);
+    public static readonly Color CharredWoodShadow = new(0.13f, 0.11f, 0.10f);
+
+    public static readonly Color SteelBase = new(0.46f, 0.48f, 0.50f);
+    public static readonly Color SteelShadow = new(0.27f, 0.29f, 0.31f);
+    public static readonly Color SteelHighlight = new(0.80f, 0.82f, 0.82f);
+
+    // —— 手榴弹三档平涂色板 ——
+    public static readonly Color IronBase = new(0.40f, 0.42f, 0.42f);
+    public static readonly Color IronShadow = new(0.24f, 0.26f, 0.26f);
+    public static readonly Color IronHighlight = new(0.66f, 0.68f, 0.68f);
+    public static readonly Color BrassBase = new(0.78f, 0.63f, 0.30f);
+    public static readonly Color BrassShadow = new(0.52f, 0.41f, 0.18f);
+    public static readonly Color BrassHighlight = new(0.94f, 0.84f, 0.52f);
+
+    private const float PropStroke = 2.4f;   // 小物件主轮廓：粗墨边，但别把 14px 宽的弹体吃光
+
+    // ================= 铁轨 =================
+
+    /// <summary>
+    /// 道砟带：一整块平涂 + 3px 粗墨边 + 上下两条硬边 shadow/highlight。
+    /// 取代旧版「半透明水彩罩染 + 柔和高光线」——那正是串味的写实细密观感来源。
+    /// </summary>
+    public static void Ballast(CanvasItem c, float x0, float x1, float y)
+    {
+        if (x1 - x0 < 12f) return;
+        InkStyle.PenStroke(c, new[]
+        {
+            new Vector2(x0, y + 2f), new Vector2(x1, y + 2f),
+            new Vector2(x1, y + 22f), new Vector2(x0, y + 22f),
+        }, BallastBase, InkStyle.InkColor, InkStyle.BoldStroke);
+        // 下缘硬边暗部
+        c.DrawRect(new Rect2(x0 + 2f, y + 15f, x1 - x0 - 4f, 6f), BallastShadow);
+        // 上缘硬边高光带
+        c.DrawRect(new Rect2(x0 + 2f, y + 3f, x1 - x0 - 4f, 3f), BallastHighlight);
+    }
+
+    /// <summary>枕木：粗墨框 + base/shadow/highlight 三档平涂 + 一条卡通高光短线。</summary>
+    public static void Sleeper(CanvasItem c, Rect2 r, bool charred, bool highlightOn)
+    {
+        Color baseC = charred ? CharredWood : SleeperBase;
+        Color shadowC = charred ? CharredWoodShadow : SleeperShadow;
+        InkStyle.InkRect(c, r, baseC, InkStyle.InkColor, PropStroke);
+        // 下半平涂暗面
+        c.DrawRect(new Rect2(r.Position.X + 1.4f, r.Position.Y + r.Size.Y * 0.52f,
+            r.Size.X - 2.8f, r.Size.Y * 0.36f), shadowC);
+        // 卡通高光：一小段短直线，不是贯通白线
+        if (highlightOn && !charred)
+            InkStyle.KawaiiLineHighlight(c,
+                new Vector2(r.Position.X + 2.5f, r.Position.Y + 2.2f),
+                new Vector2(r.Position.X + r.Size.X - 3.5f, r.Position.Y + 2.2f),
+                SleeperHighlight, 2f);
+    }
+
+    /// <summary>钢轨：粗墨底 → 钢色平涂 → 亮面短线 → 短促雪帽（全实色，无半透明）。</summary>
+    public static void RailSegment(CanvasItem c, float x0, float x1, float y, bool snowCap)
+    {
+        if (x1 - x0 < 4f) return;
+        c.DrawLine(new Vector2(x0, y), new Vector2(x1, y), InkStyle.InkColor, 6f, true);
+        c.DrawLine(new Vector2(x0, y), new Vector2(x1, y), SteelBase, 3.4f, true);
+        c.DrawLine(new Vector2(x0 + 2f, y - 1f), new Vector2(x1 - 2f, y - 1f),
+            SteelHighlight, 1.2f, true);
+        if (snowCap && x1 - x0 > 26f)
+            c.DrawLine(new Vector2(x0 + 8f, y - 2.4f),
+                new Vector2(Mathf.Min(x1 - 6f, x0 + 30f), y - 2.4f),
+                InkStyle.Snow, 2.2f, true);
+    }
+
+    /// <summary>
+    /// 钢板桥面（仅嫩江江桥关卡使用，史实有桥）：三档平涂 + 粗墨边 + 铆钉小圆点。
+    /// 九一八关卡不调用本方法——那里没有桥。
+    /// </summary>
+    public static void DeckPlate(CanvasItem c, float x0, float x1, float y, float h)
+    {
+        if (x1 - x0 < 12f) return;
+        InkStyle.PenStroke(c, new[]
+        {
+            new Vector2(x0, y), new Vector2(x1, y),
+            new Vector2(x1, y + h), new Vector2(x0, y + h),
+        }, SteelShadow, InkStyle.InkColor, InkStyle.BoldStroke);
+        c.DrawRect(new Rect2(x0 + 2f, y + 2f, x1 - x0 - 4f, 3.5f), SteelHighlight);
+        c.DrawRect(new Rect2(x0 + 2f, y + 5.5f, x1 - x0 - 4f, h - 8f), SteelBase);
+        // 铆钉 = 卡通高光小圆点
+        for (float x = x0 + 16f; x < x1 - 8f; x += 30f)
+            c.DrawCircle(new Vector2(x, y + h * 0.55f), 1.7f, BrassHighlight);
+    }
+
+    /// <summary>断轨口：焦黑翻起的道砟 + 上翘扭曲的轨头（漫画风硬边）。</summary>
+    public static void TornRailEnd(CanvasItem c, float x, float y, float dir, uint seed)
+    {
+        var rng = new RandomNumberGenerator();
+        rng.Seed = seed;
+        // 翻起的道砟：三块硬边平涂多边形
+        for (int i = 0; i < 3; i++)
+        {
+            float w = 10f + rng.RandfRange(0f, 9f);
+            float px = x + dir * (2f + i * 9f);
+            InkStyle.PenStroke(c, new[]
+            {
+                new Vector2(px, y + 16f),
+                new Vector2(px + dir * w, y + 16f),
+                new Vector2(px + dir * w * 0.6f, y + 6f - rng.RandfRange(0f, 6f)),
+            }, i == 1 ? BallastShadow : BallastBase, InkStyle.InkColor, InkStyle.Stroke);
+        }
+        // 上翘的轨头：粗墨线 + 钢色平涂短线
+        foreach (float ry in new[] { y, y + 12f })
+        {
+            for (int s = 0; s < 2; s++)
+            {
+                float len = 9f + rng.RandfRange(0f, 7f);
+                float tilt = 0.35f + 0.45f * s + rng.RandfRange(-0.10f, 0.10f);
+                var tip = new Vector2(x + dir * len * Mathf.Cos(tilt), ry - len * Mathf.Sin(tilt));
+                c.DrawLine(new Vector2(x, ry), tip, InkStyle.InkColor, 4.2f, true);
+                c.DrawLine(new Vector2(x, ry), tip, SteelBase, 2.2f, true);
+                InkStyle.KawaiiHighlight(c, tip, 1.6f, SteelHighlight);
+            }
+        }
+        // 焦黑爆破痕：硬边实色块，非半透明烟晕
+        c.DrawRect(new Rect2(x - dir * 16f - 8f, y + 17f, 32f, 5f), CharredWood);
+    }
+
+    // ================= 手榴弹 =================
+
+    /// <summary>引信火花：实心亮圆 + 四条放射短线的卡通光芒（不是柔光圆）。</summary>
+    private static void FuseSpark(CanvasItem c, Vector2 p)
+    {
+        var glow = new Color(1.00f, 0.84f, 0.34f);
+        c.DrawCircle(p, 3.2f, glow);
+        c.DrawCircle(p, 1.5f, new Color(1f, 0.98f, 0.82f));
+        for (int i = 0; i < 4; i++)
+        {
+            float a = Mathf.Pi * 0.25f + i * Mathf.Pi * 0.5f;
+            var d = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+            c.DrawLine(p + d * 4.6f, p + d * 7.8f, glow, 1.8f, true);
+        }
+    }
+
+    /// <summary>
+    /// M24 / 巩县仿造木柄手榴弹（东北军制式）：局部坐标，弹头在上方（y -26..+7）。
+    /// 粗墨描边 + 三档平涂 + 卡通高光，与关卡里所有程序化物件同源。
+    /// </summary>
+    public static void StickGrenade(CanvasItem c, float fuse)
+    {
+        var ink = InkStyle.InkColor;
+
+        // 木柄：上宽下窄的锥形，粗墨边 + 平涂
+        InkStyle.PenStroke(c, new[]
+        {
+            new Vector2(-4.2f, -12f), new Vector2(4.2f, -12f),
+            new Vector2(3.1f, 5f), new Vector2(-3.1f, 5f),
+        }, SleeperBase, ink, PropStroke);
+        // 右侧平涂暗面
+        c.DrawColoredPolygon(new[]
+        {
+            new Vector2(1.2f, -11.4f), new Vector2(3.7f, -11.4f),
+            new Vector2(2.7f, 4.4f), new Vector2(1.2f, 4.4f),
+        }, SleeperShadow);
+        // 卡通高光短直线（木柄受光面）
+        InkStyle.KawaiiLineHighlight(c, new Vector2(-2.6f, -9f), new Vector2(-1.9f, 1f),
+            SleeperHighlight, 1.8f);
+
+        // 颈箍
+        InkStyle.InkRect(c, new Rect2(-4.8f, -14.5f, 9.6f, 3.4f), SteelShadow, ink, 1.8f);
+        c.DrawRect(new Rect2(-4.2f, -14.2f, 8.4f, 1.2f), SteelHighlight);
+
+        // 铸铁弹头：切角圆柱，粗墨边 + 平涂
+        InkStyle.PenStroke(c, new[]
+        {
+            new Vector2(-6.6f, -23.5f), new Vector2(-5.2f, -26f),
+            new Vector2(5.2f, -26f), new Vector2(6.6f, -23.5f),
+            new Vector2(6.6f, -14.5f), new Vector2(-6.6f, -14.5f),
+        }, IronBase, ink, PropStroke);
+        // 左侧平涂暗面
+        c.DrawColoredPolygon(new[]
+        {
+            new Vector2(-6.0f, -23.2f), new Vector2(-4.9f, -25.4f),
+            new Vector2(-3.2f, -25.4f), new Vector2(-3.2f, -14.9f),
+            new Vector2(-6.0f, -14.9f),
+        }, IronShadow);
+        // 顶盖横槽 + 卡通高光点
+        c.DrawLine(new Vector2(-5.8f, -22.6f), new Vector2(5.8f, -22.6f), ink, InkStyle.Stroke, true);
+        InkStyle.KawaiiLineHighlight(c, new Vector2(2.0f, -24.2f), new Vector2(5.0f, -24.2f),
+            IronHighlight, 1.6f);
+        InkStyle.KawaiiHighlight(c, new Vector2(3.6f, -18.6f), 1.2f, IronHighlight);
+
+        // 柄尾拉盖
+        InkStyle.InkRect(c, new Rect2(-3.4f, 4.4f, 6.8f, 2.8f), SteelShadow, ink, 1.6f);
+        // 拉绳环：粗墨圈 + 亮面高光
+        c.DrawArc(new Vector2(0f, 9.2f), 2.6f, 0f, Mathf.Tau, 12, ink, 2.0f, true);
+        c.DrawArc(new Vector2(0f, 9.2f), 2.6f, Mathf.Pi * 1.1f, Mathf.Pi * 1.7f, 6,
+            BrassHighlight, 1.2f, true);
+
+        if (fuse < 0.6f && (int)(fuse * 14f) % 2 == 0)
+            FuseSpark(c, new Vector2(0f, -29.5f));
+    }
+
+    /// <summary>
+    /// 日军九一式手雷（1931 年列装）：卵形/近圆柱铸铁弹体带预制破片横沟、
+    /// 黄铜击发管与拉销环。不是木柄弹。同样粗墨描边 + 三档平涂。
+    /// </summary>
+    public static void Type91Grenade(CanvasItem c, float fuse)
+    {
+        var ink = InkStyle.InkColor;
+
+        InkStyle.PenStroke(c, new[]
+        {
+            new Vector2(-7.0f, -16.5f), new Vector2(-5.4f, -20.0f),
+            new Vector2(5.4f, -20.0f), new Vector2(7.0f, -16.5f),
+            new Vector2(7.0f, -6.5f), new Vector2(5.6f, -3.0f),
+            new Vector2(-5.6f, -3.0f), new Vector2(-7.0f, -6.5f),
+        }, IronBase, ink, PropStroke);
+        // 左侧平涂暗面
+        c.DrawColoredPolygon(new[]
+        {
+            new Vector2(-6.3f, -16.2f), new Vector2(-5.1f, -19.4f),
+            new Vector2(-2.8f, -19.4f), new Vector2(-2.8f, -3.6f),
+            new Vector2(-6.3f, -6.8f),
+        }, IronShadow);
+        // 预制破片横沟（内部缝线，次描边）
+        foreach (float gy in new[] { -15.0f, -11.0f, -7.0f })
+            c.DrawLine(new Vector2(-6.2f, gy), new Vector2(6.2f, gy), ink, InkStyle.Stroke, true);
+        // 卡通高光：右侧一条短直线 + 小圆点
+        InkStyle.KawaiiLineHighlight(c, new Vector2(3.2f, -18.2f), new Vector2(5.4f, -18.2f),
+            IronHighlight, 1.6f);
+        InkStyle.KawaiiHighlight(c, new Vector2(4.6f, -12.8f), 1.2f, IronHighlight);
+
+        // 底座缘
+        InkStyle.InkRect(c, new Rect2(-6.4f, -3.0f, 12.8f, 3.0f), IronShadow, ink, 1.6f);
+        c.DrawRect(new Rect2(-5.6f, -2.6f, 11.2f, 1.0f), IronHighlight);
+
+        // 顶部黄铜击发管
+        InkStyle.InkRect(c, new Rect2(-2.6f, -27.0f, 5.2f, 7.5f), BrassBase, ink, 1.8f);
+        c.DrawRect(new Rect2(-2.0f, -26.4f, 1.4f, 6.2f), BrassShadow);
+        InkStyle.KawaiiLineHighlight(c, new Vector2(1.0f, -25.6f), new Vector2(1.0f, -21.0f),
+            BrassHighlight, 1.4f);
+        // 拉销环
+        c.DrawArc(new Vector2(4.8f, -24.5f), 2.6f, 0f, Mathf.Tau, 10, ink, 1.8f, true);
+        c.DrawArc(new Vector2(4.8f, -24.5f), 2.6f, Mathf.Pi * 1.1f, Mathf.Pi * 1.7f, 5,
+            BrassHighlight, 1.2f, true);
+
+        if (fuse < 0.6f && (int)(fuse * 14f) % 2 == 0)
+            FuseSpark(c, new Vector2(0f, -30f));
+    }
+
+    /// <summary>HUD 小图标：同样粗墨边 + 三档平涂；用尽的手雷是暗色实心，不是半透明幽灵。</summary>
+    public static void StickGrenadeIcon(CanvasItem c, Vector2 p, bool full)
+    {
+        var ink = InkStyle.InkColor;
+        Color stick = full ? SleeperBase : new Color(0.36f, 0.34f, 0.32f);
+        Color stickSh = full ? SleeperShadow : new Color(0.24f, 0.23f, 0.22f);
+        Color head = full ? IronBase : new Color(0.32f, 0.33f, 0.33f);
+        Color headSh = full ? IronShadow : new Color(0.22f, 0.23f, 0.23f);
+        Color hi = full ? IronHighlight : new Color(0.42f, 0.42f, 0.42f);
+
+        // 木柄（粗墨框 + 平涂暗面）
+        InkStyle.InkRect(c, new Rect2(p.X - 2.0f, p.Y - 6f, 4.0f, 12f), stick, ink, 1.8f);
+        c.DrawRect(new Rect2(p.X + 0.4f, p.Y - 5f, 1.2f, 10f), stickSh);
+        // 弹头（切角圆柱，粗墨边）
+        InkStyle.PenStroke(c, new[]
+        {
+            new Vector2(p.X - 4.0f, p.Y - 11.6f), new Vector2(p.X - 3.0f, p.Y - 13.4f),
+            new Vector2(p.X + 3.0f, p.Y - 13.4f), new Vector2(p.X + 4.0f, p.Y - 11.6f),
+            new Vector2(p.X + 4.0f, p.Y - 6.0f), new Vector2(p.X - 4.0f, p.Y - 6.0f),
+        }, head, ink, 1.8f);
+        c.DrawColoredPolygon(new[]
+        {
+            new Vector2(p.X - 3.5f, p.Y - 11.4f), new Vector2(p.X - 2.8f, p.Y - 13.0f),
+            new Vector2(p.X - 1.2f, p.Y - 13.0f), new Vector2(p.X - 1.2f, p.Y - 6.4f),
+            new Vector2(p.X - 3.5f, p.Y - 6.4f),
+        }, headSh);
+        // 顶盖 + 卡通高光点
+        c.DrawRect(new Rect2(p.X - 2.1f, p.Y - 14.6f, 4.2f, 2.0f), hi);
+        c.DrawRect(new Rect2(p.X - 2.1f, p.Y - 14.6f, 4.2f, 2.0f), ink, false, 1.4f);
+        if (full) InkStyle.KawaiiHighlight(c, new Vector2(p.X + 2.2f, p.Y - 9.6f), 1.1f, hi);
+    }
+}

@@ -8,12 +8,13 @@
 
 **手绘上色漫画风（Hand-drawn cel-shading manga）** —— 粗墨描边、平涂色块、卡通高光，参考《勇敢的心：世界大战》的手绘质感。游戏采用**混合美术管线**，贴图层与程序化绘制共用同一坐标系，保证整画风格统一：
 
-- **程序化手绘层（纯 `Node2D._Draw()`）**：UI / 菜单 / 暴风雪·飘雪·灯笼光晕·暗角等特效、尸体与血迹、地形细节（沙袋、桥墩、桁架、弹坑、铁轨、碉堡），风格统一入口为 `scripts/InkStyle.cs`（墨色描边 `InkColor` + 平涂色板 + `PenStroke` 工具方法）。
-- **AI 生成贴图层（图生图，保持同款水彩漫画画风）**：
+- **程序化手绘层（纯 `Node2D._Draw()`）**：UI / 菜单 / 暴风雪·飘雪·灯笼光晕·暗角等特效、尸体与血迹、地形细节（沙袋、弹坑、铁轨、碉堡；桥墩 / 桁架仅江桥关卡），风格统一入口为 `scripts/InkStyle.cs`（墨色描边 `InkColor` + 平涂色板 + `PenStroke` 工具方法）。
+- **AI 生成贴图层（图生图，统一手绘上色漫画风；早期个别贴图仍待重做，见 v3.66 差距）**：
   - **史实军服角色立绘**（`assets/art/sprites/`）：东北军 1931 灰蓝棉服护耳棉帽青天白日帽徽、日军昭五式大檐帽黄星三八式步枪；含立姿 / 据枪 / 蹲 / 匍匐专姿（`soldier_na_aim` / `_crouch` / `_prone`）、**阵亡尸体**（`corpse_na/ija_prone/supine` 俯卧 / 仰卧）、NPC / 难民 / 建筑 / 道具。
   - **视差背景贴图**（`assets/art/backdrop/`，layer by layer 厚度 / 纵深感）：雪山 `mountains`、东北民居村落（战后残破）`village_ruined`、榆树 `tree_elm`、白桦 `tree_birch`、柳丛 `willow`、雪地枯草 `grass`，以 `DrawTextureRect` + `DrawSetTransform` 合成进 Far / Mid / Near / Fore 四层视差。初秋支线另含 `*_autumn` 系列（枯黄草坡 / 暖橙远山 / 残叶榆树 / 惨白月亮）。
-  - **战场物件贴图**（`assets/art/props/`）：沙袋掩体堆 `sandbags`、弹药木箱 `crate`、可进入的残破 / 焚毁近景民居 `house_ruined_near` / `house_burned_near`、含桥墩桁架的江桥 `bridge`、电台小屋 `radio_station`，与角色 / 背景同一管线出图。
+  - **战场物件贴图**（`assets/art/props/`）：沙袋掩体堆 `sandbags`、弹药木箱 `crate`、可进入的残破 / 焚毁近景民居 `house_ruined_near` / `house_burned_near`、含桥墩桁架的江桥 `bridge`（**仅江桥关卡使用**）、电台小屋 `radio_station`，与角色 / 背景同一管线出图；`bridge_autumn.png`（九一八关卡的旧桥贴图）v3.66 起已停用。
 - **图层**：4 层视差（Far 0.06 / Mid 0.24 / Near 0.55 / Fore 1.32；ZIndex Far -40 / Mid -30 / Near -20 / Player 0 / Enemy 2 / Fore 5）。贴图层与程序化层叠加产生厚度与纵深。
+- **铁轨 / 手榴弹漫画风唯一入口（v3.66 新增）**：`scripts/MangaPropArt.cs` 统一提供道砟 / 枕木 / 钢轨 / 桥面钢板 / 断轨口与 M24 木柄弹 / 九一式手雷 / HUD 图标的绘制，两关与 HUD 共用；3px 粗描边 + 三档平涂 + 卡通高光，杜绝细密写实钢线与半透明水彩。
 - **室内程序化漫画上色层（v3.65 重做）**：`HouseInteriorUi.RoomBg` 用 `WashPaint`（v3.65 版）按 `InkStyle` 规则画 3px 深墨棕粗描边 + base/shadow/highlight 三档平涂 + 卡通高光，与关卡程序化层完全同源；通信据点按 1931 年野战电台史实操作动线布置器材。v3.64 曾误用钢笔淡彩水彩，已整体推翻。仍是程序化绘制，造型丰富度不及 AI 生成贴图。
 
 ## 游戏流程
@@ -30,7 +31,36 @@
 
 ## 近期更新要点
 
-> 当前主线 **v3.65（2026-11-12，室内画风重做）**；此前为 v3.64（2026-11-11，`f929859` / `c91baea`）、v3.61（嫩江江桥 1931.11.4，已实现）与九一八事变初秋化支线（2026-11 并入 `nakamura85`）。以下按时间倒序记录每次「更新了什么 / 修复了什么」，旧条目一律保留备查。
+> 当前主线 **v3.66（2026-11-12，史实场景边界 + 铁轨/手榴弹回归漫画风）**；此前为 v3.65（2026-11-12，室内画风重做）、v3.64（2026-11-11，`f929859` / `c91baea`）、v3.61（嫩江江桥 1931.11.4，已实现）与九一八事变初秋化支线（2026-11 并入 `nakamura85`）。以下按时间倒序记录每次「更新了什么 / 修复了什么」，旧条目一律保留备查。
+
+### v3.66 · 史实场景边界 + 铁轨/手榴弹回归手绘上色漫画风（2026-11-12）
+
+#### 修复了什么（用户反馈）
+
+> 用户看九一八关卡实机帧后指出：「在二战这边如果历史上没有桥的地方不要画蛇添足加上去，比如九一八事变这边不一定全部地方都有桥，如果二战历史没有就不要添加上去，不然每个地方的设计都会一模一样了」；并指出「铁轨和手榴弹的美术风格也不对，麻烦用回手绘上色漫画风重新做」；P.S. 再次强调「这个作品是用手绘上色漫画风的，不要再用其他奇奇怪怪的美术画风了」。
+
+| # | 问题 | 根因 | 修复 |
+|---|------|------|------|
+| 1 | 九一八现场出现一座与嫩江江桥同款的大钢桁架铁桥 | `N918Level.cs` 是 `JiangqiaoLevel.cs` 的整份移植，连 `DrawBridge()` / `DrawRiverIce()` / 桥墩 / 桥台 / 钢板桥面 / 断桥残骸一起搬了过来。史实上柳条湖事件是**南满铁路一段路轨被炸**，现场并没有桥 | 删除 `DrawBridge()` / `Truss()` / `bridge_autumn.png` 引用与整片冰封江面；`BridgeDeckX / BridgeWreckX` 改名 `LiutiaohuBreakX / LiutiaohuBreakW`；新增 `DrawLiutiaohuBlastGround()` 画被炸翻的旱地路基 + 焦黑弹坑 + 碎枕木。九一八关卡现在只有**贯穿全场、中段炸断**的南满铁路，与江桥的雪原大桥一眼可辨 |
+| 2 | 铁轨是细密写实钢线 + 半透明水彩道砟 | `DrawRailway()` 用羽化高光、1.6px「steel sheen」细线、半透明道砟罩染，混进了钢笔淡彩语言 | 两关统一改走 `scripts/MangaPropArt.cs` 的 `Ballast()` / `Sleeper()` / `RailSegment()` / `DeckPlate()` / `TornRailEnd()`：3px 深墨棕粗描边、`base→shadow→highlight` 三档硬边平涂、卡通高光短线；破损焦痕从羽化柔光 blob 换成硬边实色块 |
+| 3 | 手榴弹是钢笔淡彩 / 细线写实 | `GrenadeProj` / `N918GrenadeProj` / 两个 `VitalsBar` 各画一遍，描边仅 1.1px，带柔和水彩渐变 | 四个绘制点全部收敛到 `MangaPropArt.StickGrenade()`（M24 木柄弹）/ `Type91Grenade()`（日军九一式）/ `StickGrenadeIcon()`（HUD 图标）：粗墨描边 + 三档平涂 + 卡通高光点与放射短线火花；用尽的图标改暗色实心，不再是半透明幽灵 |
+
+#### 更新了什么
+
+- **新增 `scripts/MangaPropArt.cs`**：铁轨与手榴弹两类物件的漫画风绘制唯一入口，两个关卡与 HUD 共用，避免同一物件在四个地方各画一遍又各自跑偏。
+- **关卡差异化**：野地 `DrawGroundDetailing()` 与背景树林带 `DrawGroundBand()` 的终止点从「桥前 240px」改为铺到关卡尽头（九一八没有江、没有桥）；炮弹损伤点同步铺满全场。
+- **新增实机截图** `n918_06_liutiaohu_rail_break.png`：柳条湖断轨爆破点专属帧，`CaptureN918` 新增 stage 6 冻结在 x≈4400 直出真图；画廊由 12 张增至 **13 张**（仍在 5–15 张区间）。
+- **风格红线写进开发者提示**：全作品只用「手绘上色漫画风」，程序化绘制一律走 `InkStyle.cs` / `MangaPropArt.cs`；AI 生成贴图候选图先放 `previews/` 给用户确认后才可覆盖仓库。
+
+#### 验证
+
+`dotnet build witness.csproj` → **Build succeeded / 0 Error / 1 Warning**（仅 `TestFade.cs` 的 `Window.MoveToForeground()` 过时 API 历史警告；本轮顺带清掉 `JiangqiaoLevel.cs` 里重复 `return;` 造成的 CS0162）。`CaptureN918` / `Capture` / `CaptureMap` 三个截图场景全部用 Godot 4.7.2 mono + `SubViewport` + `opengl3` 直出真帧并逐张目视复核：九一八现场的大铁桥与冰封江面完全消失、断轨口可见焦黑弹坑与上翘轨头、两关铁轨与 M24 / 九一式两种手雷均为粗墨描边 + 平涂色块 + 卡通高光。
+
+#### 如实标注的差距（未达标项，不吹）
+
+- `assets/art/props/bridge.png`（江桥关卡的钢桁架桥贴图）仍是**早期钢笔淡彩 / 渲染质感**，与全游戏的粗墨平涂漫画风并不完全一致。按项目规矩「AI 生成图片候选图必须先放 `previews/` 给用户过目确认，绝不擅自覆盖仓库」，本轮**没有**擅自重做这张贴图，需要的话下一轮先出候选图再定。江桥有桥本身符合史实（1931.11 守军炸桥阻敌），只是画风待统一。
+- 九一八关卡的远山 / 房屋 / 树木等背景贴图仍是早期生成资产，画风与程序化层的粗墨平涂仍有落差；本轮只处理用户点名的桥、铁轨、手榴弹。
+- 底部「不抵抗令」剧情对白框（`DialogueUi`）仍沿用旧米白细边样式，属另一层 UI，本轮未动。
 
 ### v3.65 · 室内画风重做：回归手绘上色漫画风（2026-11-12）
 
@@ -147,55 +177,59 @@
 
 ## 游戏截图（实机运行 · 最新画面）
 
-以下全部是 **Godot 4.7.2 mono 实机运行帧**，由自动化巡游脚本产出（`scripts/Capture.cs` / `CaptureN918.cs` / `CaptureMap.cs` / `CaptureRoom.cs`）：关卡塞进 `1280×720` 的 `SubViewport`，用 `opengl3` 渲染驱动直出真图，**不含任何离线预览或合成假图**。画廊**固定 12 张**（保持在 5–15 张区间）：已有画面按同名覆盖，新增玩法按新文件名补入；每次版本更新同步把 `?v=` 缓存串 +1，避免 GitHub 用旧缓存。
+以下全部是 **Godot 4.7.2 mono 实机运行帧**，由自动化巡游脚本产出（`scripts/Capture.cs` / `CaptureN918.cs` / `CaptureMap.cs` / `CaptureRoom.cs`）：关卡塞进 `1280×720` 的 `SubViewport`，用 `opengl3` 渲染驱动直出真图，**不含任何离线预览或合成假图**。画廊**固定 13 张**（保持在 5–15 张区间）：已有画面按同名覆盖，新增玩法按新文件名补入；每次版本更新同步把 `?v=` 缓存串 +1，避免 GitHub 用旧缓存。
 
 **标题画面 · 见证者 / 记忆档案馆**（古城墙雪景 + 飘雪 + 暗角，主菜单含语言下拉，支持 9 种语言）
 
-![标题画面](docs/screenshots/title.png?v=3.65)
+![标题画面](docs/screenshots/title.png?v=3.66)
 
 **东亚大地图 · 第一章（1931.9 沈阳九一八）** —— 读完两张纸条后路线只显影到沈阳；「嫩江 · 江桥」地名、图钉与北上路线此时**均不提前出现**
 
-![大地图第一章](docs/screenshots/map_ch1_shenyang.png?v=3.65)
+![大地图第一章](docs/screenshots/map_ch1_shenyang.png?v=3.66)
 
 **东亚大地图 · 九一八通关后的第二段行军** —— 红图钉从沈阳沿铁路北上迈向嫩江江桥，行军标记到位后才解锁江桥关卡
 
-![大地图第二章](docs/screenshots/map_ch2_jiangqiao.png?v=3.65)
+![大地图第二章](docs/screenshots/map_ch2_jiangqiao.png?v=3.66)
 
 **九一八事变支线 · 开场叙事**（1931.9.18 沈阳近郊柳条湖，通信兵视角）
 
-![九一八开场](docs/screenshots/n918_01_intro.png?v=3.65)
+![九一八开场](docs/screenshots/n918_01_intro.png?v=3.66)
 
-**初秋沈阳柳条湖 · 成片野地** —— 枯黄草坡 / 暖橙远山 / 残叶榆树 / 惨白月亮；v3.64 把「一颗两颗草」改为连续草色带 + 密集草丛，房屋改为固定播种错落排布，沙包不再堵门
+**初秋沈阳柳条湖 · 成片野地** —— 枯黄草坡 / 暖橙远山 / 残叶榆树 / 惨白月亮；v3.64 把「一颗两颗草」改为连续草色带 + 密集草丛，房屋改为固定播种错落排布，沙包不再堵门；**v3.66 起画面里不再有大铁桥与冰封江面**，改为柳条湖断轨爆破点
 
-![九一八场景](docs/screenshots/n918_02_scene.png?v=3.65)
+![九一八场景](docs/screenshots/n918_02_scene.png?v=3.66)
 
 **近景民居 · 门口清爽** —— 白边透明修复后开口 / 窗户 / 破洞无白底白边；沙包掩体已挪离进屋动线
 
-![九一八房屋](docs/screenshots/n918_03_house.png?v=3.65)
+![九一八房屋](docs/screenshots/n918_03_house.png?v=3.66)
 
-**电台小屋 · 背后灰白棋盘格清成透明**，落于通信据点触发机位（x≈4000），不压铁轨 / 桥面
+**电台小屋 · 背后灰白棋盘格清成透明**，落于通信据点触发机位（x≈4000），不压铁轨；九一八现场按史实**没有桥**（v3.66）
 
-![九一八电台](docs/screenshots/n918_04_radio_station.png?v=3.65)
+![九一八电台](docs/screenshots/n918_04_radio_station.png?v=3.66)
+
+**柳条湖断轨爆破点（v3.66 新增实机帧）** —— 历史上没有桥，只有南满铁路被炸断的一段路轨：可见焦黑弹坑、两端上翘的轨头、翻起的道砟与碎枕木；铁轨改为粗墨描边 + 三档平涂的漫画风
+
+![柳条湖断轨爆破点](docs/screenshots/n918_06_liutiaohu_rail_break.png?v=3.66)
 
 **通信据点 · 屋内实机进屋帧（v3.65 重做）** —— 按 1931 年野战电台操作动线布置电闸 / 手摇发电机 / 波段表盘 / 发信机 / 电键耳机 / 天线引入线；墙面地面改为**手绘上色漫画风**（3px 深墨棕粗描边、三档平涂色块、卡通高光），交互物件改为米黄土实色描边标签，与关卡粗墨线平涂风格统一
 
-![通信据点室内](docs/screenshots/n918_05_interior.png?v=3.65)
+![通信据点室内](docs/screenshots/n918_05_interior.png?v=3.66)
 
-**嫩江江桥 1931.11.4 · 铁桥 + 焚毁村落 + 雪山同框**（4 层视差雪原，钢笔淡彩水彩贴图）
+**嫩江江桥 1931.11.4 · 铁桥 + 焚毁村落 + 雪山同框**（4 层视差雪原；江桥有桥符合史实，但桥贴图仍是早期钢笔淡彩质感，画风待统一，见 v3.66 差距）
 
-![嫩江江桥](docs/screenshots/jiangqiao_bridge.png?v=3.65)
+![嫩江江桥](docs/screenshots/jiangqiao_bridge.png?v=3.66)
 
 **江桥雪原村落 · 房屋错落 / 门口不堆沙包** —— 完好、残破、焚毁房屋按固定播种错落排布，不再像排练过
 
-![江桥村落](docs/screenshots/jiangqiao_village.png?v=3.65)
+![江桥村落](docs/screenshots/jiangqiao_village.png?v=3.66)
 
 **手榴弹爆炸 · 沙包掩体被炸飞** —— 按 65g TNT / 重创带 5m≈337px / 破片带 8m≈539px 的现实杀伤模型，躲在掩体后仍会受伤
 
-![爆炸与掩体飞散](docs/screenshots/jiangqiao_blast.png?v=3.65)
+![爆炸与掩体飞散](docs/screenshots/jiangqiao_blast.png?v=3.66)
 
-**敌兵投掷九一式手榴弹 · 铁桥前接敌** —— 落地横躺、2.2 秒引信；敌兵负伤会撤退或卧倒，玩家残血会降速流血
+**手榴弹特写（v3.66 漫画风重做）** —— M24 木柄弹与日军九一式手雷落地横躺，粗墨描边 + 三档平涂 + 卡通高光；2.2 秒引信，敌兵负伤会撤退或卧倒，玩家残血会降速流血
 
-![敌兵投雷](docs/screenshots/jiangqiao_nade.png?v=3.65)
+![敌兵投雷](docs/screenshots/jiangqiao_nade.png?v=3.66)
 
 ## 如何运行（小白版，3 步）
 
@@ -225,6 +259,7 @@
 - 约翰·马吉牧师 16mm 实拍影像（后成为东京审判证据）
 - 远东国际军事法庭（IMTFE）判决书（1948）
 - 南京审判战犯军事法庭判决（1946–1947）
+- 九一八事变 / 柳条湖事件（1931.9.18）与江桥抗战（1931.11）：前者是南满铁路柳条湖段**路轨被炸**、现场无桥；后者守军**炸毁嫩江铁桥**阻敌、确有桥。**关卡里是否出现桥按史实决定**（依据腾讯文档《小萌共同大脑·游戏历史考据·剧本资料库》2026-10 审校版及公开史料），v3.66 据此移除九一八关卡的桥
 
 **具名真实人物首次出场时**，屏幕下方会标注「真实历史人物 · 详见史料卡 X」。在世受害者一律不使用真名。
 
@@ -242,6 +277,7 @@ witness/
 ├── witness.sln/.csproj  # .NET 8 解决方案
 ├── scripts/             # 全部 C# 脚本（标题/关卡/UI/角色）
 │   ├── InkStyle.cs      # 🎨 手绘漫画风全局风格入口（粗描边 + 平涂色板 + PenStroke）
+│   ├── MangaPropArt.cs  # 🎨 v3.66 铁轨/手榴弹漫画风绘制唯一入口（两关 + HUD 共用）
 │   ├── FigureActor.cs   # 骨骼式 2D 人物（IK 双腿/摆臂/呼吸/跳跃 + 手绘漫画风）
 │   ├── SpriteActor.cs   # 角色精灵（立/蹲/匍匐/据枪专姿立绘切换 + 枪口锚点对齐）
 │   ├── TitleScreen.cs   # 标题画面（title.jpg 照片背景 + 程序化飘雪/灯笼晕/暗角）
@@ -256,7 +292,7 @@ witness/
 │   ├── ShakeCheck.cs    # 背景抖动/白线验收工具（锁机位拍两帧比对）
 │   ├── GunCheck.cs      # 掉枪埋雪验收工具（独立场景，五档埋深同框对比）
 │   ├── VerifyTour.cs    # 地图/纸条/关卡验收巡游
-│   ├── EnterableHouse.cs# 可进入房屋 + 室内钢笔淡彩 RoomBg/WashPaint（v3.64）+ 战利品/遗言/撬锁宝箱 UI
+│   ├── EnterableHouse.cs# 可进入房屋 + 室内手绘上色漫画风 RoomBg/WashPaint（v3.65 重做）+ 战利品/遗言/撬锁宝箱 UI
 │   ├── WeaponPickup.cs  # 阵亡掉落枪支拾取（可用/枪栓冻死）+ 弹药补充 + 埋雪分档
 │   ├── FigureParts.cs   # 纸娃娃腿部分件（腿部掩膜 + 裆缝切割 + 髋部桥接片）
 │   ├── SmokeFx.cs       # 程序化动态烟与火（烟柱 / 火焰 / 余烬 / 雪地暖光）
@@ -266,7 +302,7 @@ witness/
 │   ├── art/
 │   │   ├── title.jpg        # 标题背景照片（古城墙雪景）
 │   │   ├── sprites/         # AI 生成的史实军服角色立绘（soldier_na/ija + 专姿 aim/crouch/prone + corpse_na/ija prone·supine + NPC/难民/建筑/道具）
-│   │   ├── props/           # AI 生成的战场物件贴图（sandbags 沙袋掩体堆 / crate 弹药木箱 / house_intact_near·house_ruined_near·house_burned_near 可进入民居 / house_skeleton_near·house_posts 焚毁断壁与焦柱 / bridge 江桥含桥墩 / radio_station 电台小屋 / *_autumn 初秋支线贴图）
+│   │   ├── props/           # AI 生成的战场物件贴图（sandbags 沙袋掩体堆 / crate 弹药木箱 / house_intact_near·house_ruined_near·house_burned_near 可进入民居 / house_skeleton_near·house_posts 焚毁断壁与焦柱 / bridge 江桥含桥墩（仅江桥关卡）/ radio_station 电台小屋 / *_autumn 初秋支线贴图）
 │   │   ├── backdrop/        # 生成的视差背景贴图（mountains/village/tree_elm/tree_birch/willow/grass + *_autumn 初秋支线）
 │   │   └── ...              # 其他场景/道具贴图
 │   └── fonts/           # 字体（未内嵌时回退系统字体）
@@ -284,11 +320,12 @@ witness/
 │   ├── ShakeCheck.tscn  # 背景抖动/白线验收场景（开发用）
 │   ├── GunCheck.tscn    # 掉枪埋雪验收场景（开发用）
 │   └── Verify.tscn      # 地图/纸条验收巡游场景（开发用）
-└── docs/screenshots/    # 实机运行的最新截图（固定 12 张：同名覆盖 + 新玩法补新图，5–15 张区间）
+└── docs/screenshots/    # 实机运行的最新截图（固定 13 张：同名覆盖 + 新玩法补新图，5–15 张区间）
 ```
 
 ## 给开发者的提示
 
+- **美术风格红线（用户 2026-11-12 定调）**：全作品只用「手绘上色漫画风」，程序化绘制一律走 `InkStyle.cs` / `MangaPropArt.cs`；不要用钢笔淡彩、写实渲染或细密钢笔画。AI 生成贴图的候选图先放 `tools/bridge_restyle/previews/` 给用户过目确认后才可覆盖仓库
 - **C# 脚本文件名必须与类名大小写完全一致**，否则 Godot 会静默跳过注册
 - `project.godot` 必须显式写 `[dotnet] project/assembly_name="witness"`，否则报「DLL 找不到」
 - 自动截图巡游：开发时把 `scripts/Capture.cs`（或旧 `scripts/VerifyTour.cs`）临时挂到 `[autoload]` 再正常运行游戏，跑完自动退出并输出到 `docs/screenshots/`；**push 前必须移除**
@@ -298,6 +335,6 @@ witness/
 
 ## 致谢与说明
 
-- 美术：AI 辅助图生图（史实军服立绘 + 视差背景贴图，统一水彩漫画画风）+ 程序化手绘漫画风（场景细节 / UI / 特效 / 尸体血迹）
+- 美术：AI 辅助图生图（史实军服立绘 + 视差背景贴图，统一手绘上色漫画风）+ 程序化手绘漫画风（场景细节 / 铁轨 / 手榴弹 / UI / 特效 / 尸体血迹）
 - 字体：优先加载 `assets/fonts/` 下的字体；未内嵌时自动回退系统字体（Microsoft YaHei UI 等）
 - 本项目为教育用途的非商业垂直切片；致敬所有在至暗时刻选择记录的人

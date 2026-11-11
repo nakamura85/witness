@@ -3466,10 +3466,9 @@ public partial class JiangqiaoLevel : Node2D
                 rng.Seed = (ulong)(i * 7919 + 13);
 
                 // scorched bed under the gap
-                DrawSetTransform(new Vector2(cx, railY + 9f), 0, new Vector2(r / 20f, 0.42f));
-                DrawTextureRect(SoftSnow.Blob(new Color(0.19f, 0.175f, 0.16f), 0.5f),
-                    new Rect2(-20f, -20f, 40f, 40f), false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                // v3.66 漫画风：硬边实色焦痕，不用羽化柔光 blob
+                InkStyle.InkRect(this, new Rect2(cx - r, railY + 4f, r * 2f, 9f),
+                    MangaPropArt.CharredWood, InkStyle.InkColor, InkStyle.Stroke);
 
                 // twisted stubs curling up and out from both cut ends, one pair per rail line
                 foreach (float ry in new[] { railY, railY + 12 })
@@ -3495,7 +3494,7 @@ public partial class JiangqiaoLevel : Node2D
                     float px = cx + rng.RandfRange(-r, r) * 1.15f;
                     float py = railY + rng.RandfRange(2f, 16f);
                     DrawCircle(new Vector2(px, py), rng.RandfRange(0.8f, 1.7f),
-                        new Color(0.27f, 0.25f, 0.23f, 0.8f));
+                        new Color(0.27f, 0.25f, 0.23f));
                 }
             }
 
@@ -3507,10 +3506,9 @@ public partial class JiangqiaoLevel : Node2D
                 var rng2 = new RandomNumberGenerator();
                 rng2.Seed = (ulong)(int)(dxp * 0.71f) + 977;
 
-                DrawSetTransform(new Vector2(dxp, railY + 9f), 0, new Vector2(0.55f, 0.34f));
-                DrawTextureRect(SoftSnow.Blob(new Color(0.21f, 0.19f, 0.17f), 0.5f),
-                    new Rect2(-20f, -20f, 40f, 40f), false);
-                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                // v3.66 漫画风：硬边实色焦痕
+                InkStyle.InkRect(this, new Rect2(dxp - 12f, railY + 5f, 24f, 7f),
+                    MangaPropArt.CharredWood, InkStyle.InkColor, InkStyle.Stroke);
 
                 foreach (float ry in new[] { railY, railY + 12 })
                 foreach (float sgn in new[] { -1f, 1f })
@@ -3530,7 +3528,7 @@ public partial class JiangqiaoLevel : Node2D
                     float px = dxp + rng2.RandfRange(-12f, 12f);
                     float py = railY + rng2.RandfRange(2f, 15f);
                     DrawCircle(new Vector2(px, py), rng2.RandfRange(0.7f, 1.4f),
-                        new Color(0.27f, 0.25f, 0.23f, 0.8f));
+                        new Color(0.27f, 0.25f, 0.23f));
                 }
             }
         }
@@ -3600,36 +3598,26 @@ public partial class JiangqiaoLevel : Node2D
                 new Color(0.90f, 0.92f, 0.92f, 0.55f), 1f, true);
         }
 
+        /// <summary>
+        /// v3.66 · 嫩江江桥铁轨：手绘上色漫画风重做。
+        ///
+        /// 史实：1931.11 江桥抗战，守军炸毁嫩江铁桥阻敌，所以这一关保留
+        /// 桥面钢板与断桥残段（九一八关卡没有桥，那里是柳条湖断轨爆破点）。
+        /// 但画法统一走 MangaPropArt：粗墨描边 + 三档平涂 + 卡通高光，
+        /// 不再用半透明水彩道砟、细密写实钢线与柔和高光。
+        /// </summary>
         private void DrawRailway()
         {
             var skip = new HashSet<int>(_railSkipIdx);
             float railY = GroundY - 1f;
-
-            // v3.25: the track now runs ONTO the bridge.
-            //
-            //   fieldEnd - the open field's ballast bed and its sleepers
-            //              stop at the west end of the deck. A railway
-            //              bridge carries its track on a steel plate, it
-            //              has no ballast and no sleepers.
-            //   trackEnd - the rails carry on across the deck and stop
-            //              where the span is blown apart. Past that there
-            //              is no bridge left to run on.
-            //
-            // Before this the whole line was drawn first and the bridge
-            // was painted over the end of it, so the track stopped in
-            // mid snow and the bridge stood next to it like a separate
-            // picture - no joint, no rails running onto the deck.
             float fieldEnd = BridgeDeckX;
             float trackEnd = BridgeWreckX;
 
-            // a crater sitting on the rail line means the shelling broke the
-            // track - skip sleepers and leave a gap in the rails there, so the
-            // pits read as battlefield damage instead of holes punched through
-            // a pristine line.
             bool OnRailCrater(float x)
             {
                 for (int i = 0; i < _craterX.Length; i++)
-                    if (_craterX[i] > 2380f && _craterX[i] < WorldW && Mathf.Abs(x - _craterX[i]) < _craterR[i] * 0.82f)
+                    if (_craterX[i] > 2380f && _craterX[i] < WorldW &&
+                        Mathf.Abs(x - _craterX[i]) < _craterR[i] * 0.82f)
                         return true;
                 return false;
             }
@@ -3641,232 +3629,71 @@ public partial class JiangqiaoLevel : Node2D
                 return false;
             }
 
-            // ballast bed: packed darker snow with a gently wavy top edge so
-            // it doesn't read as a ruler-straight line drawn on white paper
-            var ballast = new List<Vector2>();
-            for (float x = 2380f; x <= fieldEnd; x += 38f)
-                ballast.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
-            ballast.Add(new Vector2(fieldEnd, railY + 22f));
-            ballast.Add(new Vector2(2380f, railY + 22f));
-            DrawColoredPolygon(ballast.ToArray(), new Color(0.76f, 0.745f, 0.72f, 0.5f));
-            // soft top-edge highlight following the same wave
-            var topEdge = new List<Vector2>();
-            for (float x = 2380f; x <= fieldEnd; x += 38f)
-                topEdge.Add(new Vector2(x, railY + 2f + Mathf.Sin(x * 0.021f) * 1.6f - Mathf.Sin(x * 0.053f) * 0.8f));
-            DrawPolyline(topEdge.ToArray(), new Color(0.92f, 0.91f, 0.885f, 0.7f), 2.6f, false);
+            bool InGap(float x) => OnRailCrater(x) || NearRailDmg(x, 9f);
 
+            // 田野段道砟：硬边平涂三档 + 3px 粗墨边
+            MangaPropArt.Ballast(this, 2380f, fieldEnd, railY);
+
+            // 田野段枕木
             int k = 0;
             for (float x = 2400; x < fieldEnd; x += 34, k++)
             {
-                // v3.25: the last stretch before the deck is never skipped.
-                // One missing tie right at the joint leaves a bare strip of
-                // ballast between the field and the bridge and the line
-                // reads as cut off again.
                 if ((skip.Contains(k) && x < fieldEnd - 150f) || OnRailCrater(x + 11f)) continue;
-                // each sleeper got own height/brightness jitter (deterministic,
-                // picture stays stable between frames)
                 float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
-                float shade = 0.40f + 0.06f * Mathf.Sin(k * 3.7f);
                 bool charred = NearRailDmg(x + 11f, 30f);
-                var wood = charred
-                    ? new Color(0.17f, 0.14f, 0.12f)
-                    : new Color(shade, shade * 0.80f, shade * 0.60f);
-                var r = new Rect2(x, railY + 3 + jy, 22, 13);
-                // sleeper: ink frame then wood fill, the hand-drawn manga way
-                InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
-                // shadow edge, lower-left away from the light
-                InkStyle.InkRect(this, new Rect2(x - 2, r.Position.Y + 7, 22, 5),
-                    new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                // thin snow on the sleeper top for ~60% of them, phase-shifted
-                // so it don't read as a copied row
-                if (!charred && Mathf.Sin(k * 7.31f) > -0.2f)
-                    DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
-                        new Vector2(x + 20, r.Position.Y + 1.2f),
-                        new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
+                MangaPropArt.Sleeper(this, new Rect2(x, railY + 3 + jy, 22, 13),
+                    charred, Mathf.Sin(k * 7.31f) > -0.2f);
             }
 
-            // v3.26: the deck plate.
-            //
-            // The span used to get a flat band of tan sleepers laid straight
-            // onto the texture's riveted girder web. Two full-width bands of
-            // contrasting tone with nothing between them - a tan strip lying
-            // on a dark strip - and the eye read the bridge as having TWO
-            // roads on it. The user called it "one of them is a texture and
-            // the rail is painted on, so it looks like the bridge has two
-            // paths".
-            //
-            // A railway bridge carries its track on a steel deck plate, and
-            // the plate is part of the structure: rail on sleeper, sleeper
-            // on plate, plate on main girder. Drawing that plate here - in
-            // the level's own InkStyle - slots a third, clearly structural
-            // layer between the track and the girder, so the track reads as
-            // ONE continuous line running from the field onto the span.
-            //
-            // The plate's top edge IS the rail line, so the two sit exactly
-            // on each other and the joint with the field track is seamless.
+            // 桥面钢板（仅本关有桥）：三档平涂 + 粗墨边 + 铆钉小圆点
             const float plateH = 13f;
-            var plate = new[]
-            {
-                new Vector2(fieldEnd - 8f, railY + 1f),
-                new Vector2(trackEnd, railY + 1f),
-                new Vector2(trackEnd, railY + 1f + plateH),
-                new Vector2(fieldEnd - 8f, railY + 1f + plateH),
-            };
-            // steel base - a step darker than the snow, a step lighter than
-            // the girder web below it, so the three layers separate
-            DrawColoredPolygon(plate, new Color(0.36f, 0.335f, 0.30f));
-            // the top flange catches the flat winter light
-            DrawColoredPolygon(new[]
-            {
-                new Vector2(fieldEnd - 8f, railY + 1f),
-                new Vector2(trackEnd, railY + 1f),
-                new Vector2(trackEnd, railY + 4f),
-                new Vector2(fieldEnd - 8f, railY + 4f),
-            }, new Color(0.52f, 0.50f, 0.46f));
-            // closed ink outline - the plate is a cut steel edge, it reads as
-            // one plate and not as a loose stripe
-            var plateEdge = new List<Vector2>(plate) { plate[0] };
-            DrawPolyline(plateEdge.ToArray(), InkStyle.InkColor, 2.2f, true);
-            // the last stretch of ballast tapers into the plate instead of
-            // stopping dead at it
-            DrawColoredPolygon(new[]
+            MangaPropArt.DeckPlate(this, fieldEnd - 8f, trackEnd, railY + 1f, plateH);
+            // 田野道砟斜着收口接上钢板
+            InkStyle.PenStroke(this, new[]
             {
                 new Vector2(fieldEnd - 104f, railY + 2f),
                 new Vector2(fieldEnd - 8f, railY + 2f),
                 new Vector2(fieldEnd - 8f, railY + 12f),
                 new Vector2(fieldEnd - 104f, railY + 22f),
-            }, new Color(0.73f, 0.755f, 0.765f, 0.5f));
+            }, MangaPropArt.BallastBase, InkStyle.InkColor, InkStyle.Stroke);
 
-            // v3.26: the sleepers on the span go through the SAME routine as
-            // the sleepers on the field - same wood tone, same height
-            // jitter, same shadow strip, same snow on top. The old bridge
-            // sleepers were a flat un-jittered 9px tan bar, and a perfect
-            // repeating row of flat bars reads as a painted stripe rather
-            // than as track. One rhythm, one material, field to span.
+            // 桥面枕木：与田野同一套画法，只是薄一点
             for (float x = fieldEnd; x < trackEnd; x += 34f)
             {
                 int tk = Mathf.RoundToInt((x - 2400f) / 34f);
                 float jy = Mathf.Sin(tk * 12.9898f) * 2.2f;
-                float shade = 0.40f + 0.06f * Mathf.Sin(tk * 3.7f);
                 bool charred = NearRailDmg(x + 11f, 30f);
-                var wood = charred
-                    ? new Color(0.17f, 0.14f, 0.12f)
-                    : new Color(shade, shade * 0.80f, shade * 0.60f);
-                // laid flat on the steel plate: thinner than the field ties,
-                // which are sunk in ballast
-                var r = new Rect2(x, railY + 3f + jy, 22, 10f);
-                InkStyle.InkRect(this, r, wood, InkStyle.InkColor, InkStyle.Stroke);
-                // shadow edge, lower-left away from the light
-                InkStyle.InkRect(this, new Rect2(x - 2, r.Position.Y + 5f, 22, 4f),
-                    new Color(0.26f, 0.20f, 0.14f, 0.8f), InkStyle.InkSoft, InkStyle.ThinStroke);
-                // thin snow on the sleeper top, phase-shifted exactly like the
-                // field ties, so the two halves of the line carry the same
-                // hand-placed rhythm
-                if (!charred && Mathf.Sin(tk * 7.31f) > -0.2f)
-                    DrawLine(new Vector2(x + 2, r.Position.Y + 1.5f),
-                        new Vector2(x + 20, r.Position.Y + 1.2f),
-                        new Color(0.93f, 0.95f, 0.95f, 0.8f), 2.0f, true);
+                MangaPropArt.Sleeper(this, new Rect2(x, railY + 3f + jy, 22f, 10f),
+                    charred, Mathf.Sin(tk * 7.31f) > -0.2f);
             }
 
-            // two parallel rails: broken at the craters, drawn as short intact
-            // segments with steel sheen. snow caps sit on top in short patches.
-            // v3.25: they carry on across the bridge deck and stop at the
-            // wrecked span, so the line and the bridge are one thing.
-            foreach (float ry in new[] { railY, railY + 12 })
+            // 两条钢轨：分段避开弹坑，漫画风粗墨边 + 平涂 + 卡通高光雪帽
+            foreach (float ry in new[] { railY, railY + 12f })
             {
-                // ink base, segmented around the blast gaps
-                float segStart = 2400f;
+                float segStart = -1f;
                 for (float x = 2400f; x <= trackEnd; x += 10f)
                 {
-                    if (OnRailCrater(x) || NearRailDmg(x, 9f))
+                    bool gap = InGap(x);
+                    if (!gap && segStart < 0f) segStart = x;
+                    if ((gap || x + 10f > trackEnd) && segStart >= 0f)
                     {
-                        if (x - segStart > 4f)
-                            DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
-                        segStart = x + 10f;
+                        bool onSpan = segStart >= fieldEnd;
+                        MangaPropArt.RailSegment(this, segStart, gap ? x : trackEnd, ry,
+                            !onSpan && Mathf.Sin(segStart * 0.07f) > 0.2f);
+                        segStart = -1f;
                     }
                 }
-                if (trackEnd - segStart > 4f)
-                    DrawLine(new Vector2(segStart, ry), new Vector2(trackEnd, ry), InkStyle.InkColor, InkStyle.BoldStroke, true);
-
-                // steel sheen only on the intact lengths
-                segStart = 2400f;
-                for (float x = 2400f; x <= trackEnd; x += 10f)
-                {
-                    if (OnRailCrater(x) || NearRailDmg(x, 9f))
-                    {
-                        if (x - segStart > 4f)
-                            DrawLine(new Vector2(segStart, ry), new Vector2(x, ry), new Color(0.87f, 0.86f, 0.83f), 1.6f, true);
-                        segStart = x + 10f;
-                    }
-                }
-                if (trackEnd - segStart > 4f)
-                    DrawLine(new Vector2(segStart, ry), new Vector2(trackEnd, ry), new Color(0.85f, 0.86f, 0.84f), 1.6f, true);
             }
 
-            // the track is torn apart where the span is blown out: the rails
-            // do not just stop, they end in twisted steel
-            DrawTornTrackEnd(trackEnd, railY);
+            // 断桥处扭曲的轨头
+            MangaPropArt.TornRailEnd(this, trackEnd, railY, 1f, 19311104u);
 
-            // 轨顶积雪：短促的亮段（不是通条白线，雪是被风一段段吹积的），避开被炸断处
-            //
-            // v3.26: on the span these segments used to be exactly as bright
-            // and as long as the ones on the field. Against the flat dark
-            // deck plate that reads as DASHED LANE MARKINGS on a road - and
-            // that is half of what made the bridge look like it carried two
-            // roads. Over the span they are shorter, thinner and half as
-            // opaque: snow lying on a rail in the open, not paint on a
-            // carriageway.
-            for (float sx = 2420; sx < trackEnd; sx += 88)
-            {
-                if (OnRailCrater(sx) || NearRailDmg(sx, 20f)) continue;
-                bool onSpan = sx >= fieldEnd;
-                float seg = onSpan ? 8f + Mathf.Sin(sx * 0.07f) * 4f : 14f + Mathf.Sin(sx * 0.07f) * 8f;
-                float wid = onSpan ? 1.6f : 2.4f;
-                float alp = onSpan ? 0.42f : 0.85f;
-                DrawLine(new Vector2(sx, railY - 1.2f), new Vector2(sx + seg, railY - 1.2f),
-                    new Color(0.96f, 0.97f, 0.97f, alp), wid, true);
-            }
-
-            // scattered gravel / ice specks on the ballast so it isn't a flat wash
+            // 道砟上的碎石：硬边实色小点
             for (float gx = 2410; gx < fieldEnd; gx += 57f)
             {
-                if (OnRailCrater(gx) || NearRailDmg(gx, 12f)) continue;
+                if (InGap(gx)) continue;
                 float gy = railY + 8f + Mathf.Sin(gx * 0.13f) * 4f;
-                DrawCircle(new Vector2(gx, gy), 1.4f, new Color(0.64f, 0.63f, 0.60f, 0.7f));
-            }
-        }
-
-        /// <summary>
-        /// The end of the track on the bridge. The rails do not simply stop
-        /// where the span is blown apart - they end in twisted steel, the
-        /// way a rail tears when the structure under it goes. Without this
-        /// the line stopped in a clean cut and read as a rendering seam
-        /// rather than as a destroyed bridge.
-        /// </summary>
-        private void DrawTornTrackEnd(float x, float railY)
-        {
-            var rng = new RandomNumberGenerator();
-            rng.Seed = 19311104u;
-            foreach (float ry in new[] { railY, railY + 12 })
-            {
-                for (int s = 0; s < 3; s++)
-                {
-                    float len = rng.RandfRange(7f, 15f);
-                    float tilt = 0.30f + 0.42f * s + rng.RandfRange(-0.12f, 0.12f);
-                    float dx = len * Mathf.Cos(tilt);
-                    float dy = -len * Mathf.Sin(tilt);
-                    DrawLine(new Vector2(x, ry), new Vector2(x + dx, ry + dy),
-                        InkStyle.InkColor, InkStyle.ThinStroke, true);
-                    DrawCircle(new Vector2(x + dx, ry + dy), 1.2f, new Color(0.85f, 0.86f, 0.84f));
-                }
-            }
-            // splintered ties and kicked up snow around the break
-            for (int s = 0; s < 7; s++)
-            {
-                float px = x + rng.RandfRange(-18f, 14f);
-                float py = railY + rng.RandfRange(3f, 14f);
-                DrawLine(new Vector2(px, py), new Vector2(px + rng.RandfRange(-5f, 5f), py + rng.RandfRange(-2f, 3f)),
-                    new Color(0.30f, 0.26f, 0.22f, 0.85f), 1.6f, true);
+                DrawCircle(new Vector2(gx, gy), 1.5f, MangaPropArt.BallastShadow);
             }
         }
 
@@ -4054,7 +3881,6 @@ public partial class JiangqiaoLevel : Node2D
                     new Rect2(-20f, -20f, 40f, 40f), false);
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 return;
-                            return;
             }
 
             // 远端桁架（偏后，颜色淡 + 墨边更细）——完好
@@ -5508,113 +5334,14 @@ public partial class GrenadeProj : Node2D
 
     public override void _Draw()
     {
+        // v3.66 接触阴影：压扁的硬边椭圆（漫画风），不是羽化柔光
         DrawSetTransform(new Vector2(0, JiangqiaoLevel.GroundY - Position.Y + 2f), 0, new Vector2(1.3f, 0.3f));
-        DrawCircle(Vector2.Zero, 7f, new Color(0.10f, 0.09f, 0.08f, 0.25f));
+        DrawCircle(Vector2.Zero, 7f, InkStyle.GroundShadow);
         DrawSetTransform(new Vector2(0, 0), _spin, Vector2.One);
-        if (IjaType)
-        {
-            // v3.60 九一式“香瓜手雷”重绘：不再是模糊圆球。史实外形——
-            // 近圆柱铸铁弹体带横向分段沟纹（预制破片槽）、底部底座缘、
-            // 顶部黄铜击发管 + 拉销环。墨线勾边与 M24 同一套语言。
-            var ijaIron = new Color(0.30f, 0.31f, 0.30f);
-            var ijaIronDark = new Color(0.21f, 0.22f, 0.22f);
-            var brass = new Color(0.58f, 0.49f, 0.30f);
-            var ink = new Color(0.16f, 0.15f, 0.13f, 0.9f);
-
-            // 弹体：切角圆柱（y -20..-3，宽14）
-            DrawColoredPolygon(new[] {
-                new Vector2(-7.0f, -16.5f), new Vector2(-5.4f, -20.0f),
-                new Vector2(5.4f, -20.0f), new Vector2(7.0f, -16.5f),
-                new Vector2(7.0f, -6.5f), new Vector2(5.6f, -3.0f),
-                new Vector2(-5.6f, -3.0f), new Vector2(-7.0f, -6.5f),
-            }, ijaIron);
-            // 左侧暗面（受光面在右）
-            DrawColoredPolygon(new[] {
-                new Vector2(-7.0f, -16.5f), new Vector2(-5.4f, -20.0f),
-                new Vector2(-3.0f, -20.0f), new Vector2(-3.0f, -3.0f),
-                new Vector2(-7.0f, -6.5f),
-            }, ijaIronDark);
-            // 横向分段沟纹（预制破片槽——91式的识别特征）
-            DrawLine(new Vector2(-6.7f, -15.0f), new Vector2(6.7f, -15.0f), ink, 1.0f, true);
-            DrawLine(new Vector2(-6.9f, -11.0f), new Vector2(6.9f, -11.0f), ink, 1.0f, true);
-            DrawLine(new Vector2(-6.8f, -7.0f), new Vector2(6.8f, -7.0f), ink, 1.0f, true);
-            // 底座缘
-            DrawRect(new Rect2(-6.4f, -3.0f, 12.8f, 3.0f), ijaIronDark);
-            // 顶部黄铜击发管 + 管箍
-            DrawRect(new Rect2(-2.6f, -27.0f, 5.2f, 7.5f), brass);
-            DrawLine(new Vector2(-2.6f, -22.5f), new Vector2(2.6f, -22.5f), ink, 0.9f, true);
-            // 拉销环（管侧黄铜小环）
-            DrawArc(new Vector2(4.8f, -24.5f), 2.6f, 0f, Mathf.Tau, 10, brass, 1.4f, true);
-            // 引信冒烟近爆
-            if (_fuse < 0.6f && (int)(_fuse * 14f) % 2 == 0)
-                DrawCircle(new Vector2(0f, -29f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
-            // 全身墨线勾边
-            DrawPolyline(new[] {
-                new Vector2(-7.0f, -6.5f), new Vector2(-7.0f, -16.5f),
-                new Vector2(-5.4f, -20.0f), new Vector2(5.4f, -20.0f),
-                new Vector2(7.0f, -16.5f), new Vector2(7.0f, -6.5f),
-                new Vector2(5.6f, -3.0f), new Vector2(-5.6f, -3.0f),
-                new Vector2(-7.0f, -6.5f),
-            }, ink, 1.1f, true);
-        }
-        else
-        {
-            // v3.59 重绘：M24 木柄手榴弹照钢笔淡彩的语言画——先罩色后勾墨线。
-            // 木柄略锥形带木纹与暗面、颈箍、铸铁弹头带顶盖横槽、柄尾拉盖 +
-            // 拉绳环（拉弦式）。不再是两根光秃秃的矩形。
-            var wood = new Color(0.47f, 0.36f, 0.23f);
-            var woodShade = new Color(0.37f, 0.27f, 0.16f);
-            var iron = new Color(0.34f, 0.35f, 0.37f);
-            var ironDark = new Color(0.24f, 0.25f, 0.27f);
-            var ink = new Color(0.17f, 0.15f, 0.13f, 0.9f);
-
-            // 木柄：上宽下窄的锥形（y -12..+5）+ 右侧暗面 + 一条木纹
-            DrawColoredPolygon(new[] {
-                new Vector2(-4.2f, -12f), new Vector2(4.2f, -12f),
-                new Vector2(3.1f, 5f), new Vector2(-3.1f, 5f),
-            }, wood);
-            DrawColoredPolygon(new[] {
-                new Vector2(1.2f, -12f), new Vector2(4.2f, -12f),
-                new Vector2(3.1f, 5f), new Vector2(1.2f, 5f),
-            }, woodShade);
-            DrawLine(new Vector2(-1.6f, -9f), new Vector2(-1.1f, 3f), woodShade, 0.8f, true);
-
-            // 颈箍
-            DrawRect(new Rect2(-4.8f, -14.5f, 9.6f, 3.4f), ironDark);
-
-            // 铸铁弹头：切角圆柱（y -26..-14.5）+ 顶盖横槽 + 左侧暗面
-            DrawColoredPolygon(new[] {
-                new Vector2(-6.6f, -23.5f), new Vector2(-5.2f, -26f),
-                new Vector2(5.2f, -26f), new Vector2(6.6f, -23.5f),
-                new Vector2(6.6f, -14.5f), new Vector2(-6.6f, -14.5f),
-            }, iron);
-            DrawLine(new Vector2(-6.2f, -23f), new Vector2(6.2f, -23f), ironDark, 1.1f, true);
-            DrawColoredPolygon(new[] {
-                new Vector2(-6.6f, -23.5f), new Vector2(-5.2f, -26f),
-                new Vector2(-3.4f, -26f), new Vector2(-3.4f, -14.5f),
-                new Vector2(-6.6f, -14.5f),
-            }, ironDark);
-
-            // 柄尾拉盖 + 拉绳环（拉弦式的识别特征）
-            DrawRect(new Rect2(-3.4f, 4.4f, 6.8f, 2.6f), ironDark);
-            DrawArc(new Vector2(0f, 8.6f), 2.6f, 0f, Mathf.Tau, 12,
-                new Color(0.72f, 0.66f, 0.55f), 1.3f, true);
-
-            // 全身墨线勾边
-            DrawPolyline(new[] {
-                new Vector2(-6.6f, -14.5f), new Vector2(-6.6f, -23.5f),
-                new Vector2(-5.2f, -26f), new Vector2(5.2f, -26f),
-                new Vector2(6.6f, -23.5f), new Vector2(6.6f, -14.5f),
-                new Vector2(4.8f, -12f), new Vector2(4.2f, -12f),
-                new Vector2(3.1f, 5f), new Vector2(3.4f, 7f),
-                new Vector2(-3.4f, 7f), new Vector2(-3.1f, 5f),
-                new Vector2(-4.2f, -12f), new Vector2(-4.8f, -12f),
-                new Vector2(-6.6f, -14.5f),
-            }, ink, 1.1f, true);
-
-            if (_fuse < 0.6f && (int)(_fuse * 14f) % 2 == 0)
-                DrawCircle(new Vector2(0f, -28f), 3f, new Color(1f, 0.85f, 0.4f, 0.95f));
-        }
+        // 统一走 MangaPropArt：粗墨描边 + 三档平涂 + 卡通高光。
+        // M24 木柄弹（东北军）与九一式手雷（日军）都只在这一个入口画。
+        if (IjaType) MangaPropArt.Type91Grenade(this, _fuse);
+        else MangaPropArt.StickGrenade(this, _fuse);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }
@@ -5814,21 +5541,8 @@ public partial class VitalsBar : Control
 
     private void DrawStickGrenade(Vector2 basePt, bool full)
     {
-        // Type 24 style: wooden stick handle + tin oval head + end cap
-        var stick = full ? new Color(0.58f, 0.42f, 0.24f) : new Color(0.30f, 0.26f, 0.22f, 0.55f);
-        var head = full ? new Color(0.36f, 0.38f, 0.33f) : new Color(0.26f, 0.26f, 0.24f, 0.55f);
-        var cap = full ? new Color(0.66f, 0.62f, 0.54f) : new Color(0.34f, 0.33f, 0.30f, 0.55f);
-
-        // stick: vertical, head sits on top
-        DrawRect(new Rect2(basePt.X - 1.6f, basePt.Y - 6f, 3.2f, 12f), stick);
-        // tin head
-        DrawCircle(basePt + new Vector2(0, -8.2f), 4.2f, head);
-        DrawRect(new Rect2(basePt.X - 2.1f, basePt.Y - 14.6f, 4.2f, 2.6f), cap);
-        // pull cord hint on a live one
-        if (full)
-            DrawLine(new Vector2(basePt.X + 1.8f, basePt.Y + 6f),
-                new Vector2(basePt.X + 3.6f, basePt.Y + 8.6f),
-                new Color(0.80f, 0.74f, 0.62f, 0.8f), 1f, true);
+        // v3.66: 统一走 MangaPropArt 的漫画风手榴弹图标
+        MangaPropArt.StickGrenadeIcon(this, basePt, full);
     }
 }
 
