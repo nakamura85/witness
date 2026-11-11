@@ -210,7 +210,7 @@ public partial class AsiaMap : Control
         };
         _enter.AddThemeStyleboxOverride("normal", enterStyle);
         _enter.AddThemeColorOverride("font_color", new Color(0.94f, 0.89f, 0.77f));
-        _enter.Pressed += () => EnterJiangqiao();
+        _enter.Pressed += () => EnterCurrent();
         AddChild(_enter);
     }
 
@@ -234,28 +234,31 @@ public partial class AsiaMap : Control
 
         // v2.9: full chronological timeline. The old list started at 1932
         // (731 predecessor), so the column read "731 first, Jiangqiao later".
-        // Now 9.18 and Jiangqiao lead the list and the bridge row is the
-        // highlighted current chapter, so the order is fixed: 9.18 ->
-        // Jiangqiao (1931.11) -> 731 predecessor (1932) -> formed (1936) ->
-        // combat use (1940).
-        (string, Color?)[] rows =
+        // Now 9.18 and Jiangqiao lead the list and the CURRENT chapter is
+        // highlighted, so the order is fixed and the highlight advances with
+        // progress: 9.18 (first playable) -> Jiangqiao (1931.11) -> 731
+        // predecessor (1932) -> formed (1936) -> combat use (1940).
+        bool n918Current = !GameState.I.S.N918Done;
+        (string, bool)[] rows =
         {
-            ("1931.9　沈阳 · 九一八事变", null),
-            ("1931.11　嫩江江桥 · 当前战役", new Color(0.62f, 0.21f, 0.16f, 0.85f)),
-            ("1932　哈尔滨 · 细菌战研究所（731 前身）", null),
-            ("1936　关东军防疫给水部（731 成军）", null),
-            ("1937　南京", null),
-            ("1938　平房基地 · 人体实验", null),
-            ("1940　细菌战投入实战", null),
-            ("1942　马来亚 · 知知港", null),
-            ("1942　新加坡", null),
-            ("1945　终战", null),
+            ("1931.9　沈阳 · 九一八事变（当前章节）", n918Current),
+            ("1931.11　嫩江江桥", !n918Current),
+            ("1932　哈尔滨 · 细菌战研究所（731 前身）", false),
+            ("1936　关东军防疫给水部（731 成军）", false),
+            ("1937　南京", false),
+            ("1938　平房基地 · 人体实验", false),
+            ("1940　细菌战投入实战", false),
+            ("1942　马来亚 · 知知港", false),
+            ("1942　新加坡", false),
+            ("1945　终战", false),
         };
         for (int i = 0; i < rows.Length; i++)
         {
             var l = new Label { Text = rows[i].Item1 };
             l.AddThemeFontSizeOverride("font_size", 11);
-            l.AddThemeColorOverride("font_color", rows[i].Item2 ?? new Color(0.26f, 0.22f, 0.18f, 0.52f));
+            l.AddThemeColorOverride("font_color",
+                rows[i].Item2 ? new Color(0.62f, 0.21f, 0.16f, 0.90f)
+                              : new Color(0.26f, 0.22f, 0.18f, 0.52f));
             l.MouseFilter = MouseFilterEnum.Ignore;
             col.AddChild(l);
         }
@@ -266,7 +269,7 @@ public partial class AsiaMap : Control
 
         var note = new Label
         {
-            Text = "每一章对应一次真实惨案。\n先做 1931 嫩江江桥这一关。",
+            Text = "每一章对应一次真实惨案。\n按时间线：先走 1931.9 九一八，再进 1931.11 嫩江江桥。",
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             CustomMinimumSize = new Vector2(224, 0),
         };
@@ -387,16 +390,25 @@ public partial class AsiaMap : Control
         _note1931.Visible = RouteOn;
         _enter.Visible = RouteOn && BriefRead;
 
+        bool n918Done = GameState.I.S.N918Done;
+        bool jqDone = GameState.I.S.JiangqiaoDone;
         _status.Text =
             $"源头档案  {(KoreaRead ? 1 : 0) + (TaiwanRead ? 1 : 0)} / 2"
             + (RouteOn ? "      ·      路线已显影" : "")
-            + (GameState.I.S.JiangqiaoDone ? "      ·      江桥已见证" : "");
+            + (n918Done ? "      ·      九一八已见证" : "")
+            + (jqDone ? "      ·      江桥已见证" : "");
 
         _hint.Text = !KoreaRead || !TaiwanRead
             ? "先读右侧两张纸条：1895 台湾，1910 大韩帝国。"
             : !BriefRead
-                ? "路线显影了：九一八之后，日军沿四洮、洮昂铁路北上。读作战简报，进入江桥阵地。"
-                : "阵地已在等待。点下方按钮，进入 1931 年 11 月 4 日。";
+                ? "路线显影了：1931 年 9 月 18 日夜，柳条湖铁路被炸，关东军进攻北大营。先走进九一八那一夜。"
+                : (n918Done
+                    ? "九一八那夜已经走过。现在沿铁路北上，进入 1931 年 11 月的嫩江江桥。"
+                    : "阵地已在等待。点下方按钮，进入 1931 年 9 月 18 日夜的沈阳近郊。");
+
+        _enter.Text = n918Done
+            ? "进入关卡 · 嫩江江桥 1931.11.4  ›"
+            : "进入关卡 · 九一八事变 1931.9.18  ›";
 
         if (RouteOn)
         {
@@ -531,7 +543,7 @@ public partial class AsiaMap : Control
             {
                 "1931 年 9 月 18 日夜，日军自行炸毁沈阳北侧柳条湖段的南满铁路路轨，反诬中国军队所为，随即进攻北大营、占领沈阳。此后数月，辽宁、吉林相继沦陷。",
                 "抵抗并没有结束。一个多月后，部队就将在下方的嫩江江桥打响反击——这是九一八之后，中国军队第一次有组织的、大规模的抵抗。",
-                "（九一八是完整章节，正式关卡日后制作；此处先以档案带过，先行进入嫩江江桥。）",
+                "（这一夜已在上一关《九一八事变》完整呈现。现在部队沿铁路北上，进入一个月后的嫩江江桥阵地。）",
             },
             "依据：远东国际军事法庭判决书（九一八部分）；辽宁省档案馆公开史料。",
             () =>
@@ -541,6 +553,16 @@ public partial class AsiaMap : Control
             });
         ui.Closed += () => _main.StartJiangqiao();
         AddChild(ui);
+    }
+
+    /// <summary>
+    /// 入口按钮：按时间线先打九一八（沈阳），完成后再进嫩江江桥。
+    /// 大地图随进度自动把“当前章节”推进到对应地点（红图钉 + 圈注 + 章节列表高亮）。
+    /// </summary>
+    private void EnterCurrent()
+    {
+        if (!GameState.I.S.N918Done) { _main.StartN918(); return; }
+        EnterJiangqiao();
     }
 
     // ================= 地图绘制（逐层） =================
@@ -1042,9 +1064,11 @@ public partial class AsiaMap : Control
 
         private void DrawPins()
         {
-            Pin(P(123.35f, 46.45f), GameState.I.S.JiangqiaoDone, true); // 嫩江 · 江桥（泰来）
-            Pin(P(126.6f, 45.8f), false, false);                        // 哈尔滨 · 731
-            Pin(P(118.8f, 32f), false, false);                          // 南京
+            bool n918Current = !GameState.I.S.N918Done;
+            Pin(P(123.4f, 41.8f), GameState.I.S.N918Done, n918Current);        // 沈阳 · 九一八事变（章节①，当前）
+            Pin(P(123.35f, 46.45f), GameState.I.S.JiangqiaoDone, !n918Current); // 嫩江 · 江桥（章节②，当前）
+            Pin(P(126.6f, 45.8f), false, false);                               // 哈尔滨 · 731
+            Pin(P(118.8f, 32f), false, false);                                 // 南京
         }
 
         private void Pin(Vector2 p, bool done, bool key)
@@ -1087,11 +1111,12 @@ public partial class AsiaMap : Control
             DrawString(ThemeDB.FallbackFont, new Vector2(264, 589), "1895 / 1910 已并入大日本帝国版图",
                 HorizontalAlignment.Left, -1, 10, new Color(Ink, 0.44f));
 
-            // 手写圈注：1931 的终点（嫩江江桥）
+            // 手写圈注：当前章节所在地（九一八→沈阳；江桥→嫩江），随进度自动推进
             if (RouteOn)
             {
                 float pulse = 0.55f + 0.2f * Mathf.Sin((float)Time.GetTicksMsec() / 420f);
-                DrawArc(P(123.35f, 46.45f), 15f + pulse * 3f, 0, Mathf.Tau, 28,
+                Vector2 cur = !GameState.I.S.N918Done ? P(123.4f, 41.8f) : P(123.35f, 46.45f);
+                DrawArc(cur, 15f + pulse * 3f, 0, Mathf.Tau, 28,
                     new Color(Route, 0.55f), 1.4f, true);
             }
         }

@@ -1768,6 +1768,7 @@ public partial class N918Level : Node2D
 
         _ended = true;
         GameState.I.S.N918Done = true;
+        GameState.I.S.MapNote918 = true;   // 已实际通关九一八关卡，进入江桥前不再重复弹九一八档案
         GameState.I.Save();
         _player.ControlLocked = true;
         _blackTarget = 0.65f;
