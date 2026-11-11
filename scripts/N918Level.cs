@@ -670,30 +670,28 @@ public partial class N918Level : Node2D
     /// </summary>
     public static readonly VillageHouse[] VillageHouses =
     {
-        // —— west of the start: the cluster the user pointed at ——
-        new("village_autumn", -640f, 104f, false, 1, new Vector2(0.482f, 0.152f), true),
-        new("house_skeleton_near_autumn", -395f, 66f, true, 2, new Vector2(0.45f, 0.42f)),
-        new("house_posts_autumn", -255f, 44f, false, 0, new Vector2(0.50f, 0.50f)),
-        new("house_ruined_near_autumn", -110f, 74f, true, 0, new Vector2(0.45f, 0.26f)),
+        // —— 九一八 · 沈阳北大营：驻军营盘。前排成排营房 + 一座木瞭望塔（见 DrawMidLandmark）。
+        // 夜袭轰炸，所以黑烟（Smoke=2）明显比江桥那关多，整体读起来是“被炮火覆盖的军营”。
+        // 这套排布刻意和 JiangqiaoLevel 的 VillageHouses 错开，让两关远景不再一模一样。
+        new("village_autumn", -700f, 112f, false, 2, new Vector2(0.482f, 0.152f), true),   // 被轰的长营房
+        new("house_intact_near_autumn", -430f, 82f, true, 1, new Vector2(0.700f, 0.147f)),  // 卫兵房，还在冒烟
+        new("house_skeleton_near_autumn", -250f, 64f, false, 2, new Vector2(0.45f, 0.42f)),
+        new("house_posts_autumn", -90f, 40f, true, 0, new Vector2(0.50f, 0.50f)),
+        new("house_ruined_near_autumn", 80f, 72f, false, 2, new Vector2(0.45f, 0.26f)),
 
-        // —— village gate: the one house still standing, chimney still smoking ——
-        // v3.19: the intact house at 285 and the village panorama at 470 were
-        // one pixel apart - the roofs touched and the two read as a single
-        // wide building with a chimney in the middle. The panorama is 224
-        // wide, so the house has to sit clear of it.
-        new("house_intact_near_autumn", 250f, 96f, false, 1, new Vector2(0.700f, 0.147f)),
-        new("village_autumn", 500f, 118f, true, 1, new Vector2(0.482f, 0.152f), true),
-        new("house_skeleton_near_autumn", 700f, 62f, false, 2, new Vector2(0.45f, 0.42f)),
-        new("house_posts_autumn", 810f, 40f, true, 0, new Vector2(0.50f, 0.50f)),
+        // —— 营门：立着的主房 + 一座在烧的营房
+        new("house_intact_near_autumn", 300f, 94f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("village_autumn", 560f, 122f, true, 2, new Vector2(0.482f, 0.152f), true),     // 营房中弹起火
+        new("house_skeleton_near_autumn", 760f, 58f, false, 2, new Vector2(0.45f, 0.42f)),
+        new("house_posts_autumn", 880f, 36f, true, 0, new Vector2(0.50f, 0.50f)),
 
-        // —— middle and back: keep them sparse, never a continuous row ——
-        // v3.19: the intact house at 2990 overlapped the stumps at 3040 by 30
-        // pixels. The stumps moved clear.
-        new("house_ruined_near_autumn", 2480f, 70f, true, 0, new Vector2(0.45f, 0.26f)),
-        new("house_intact_near_autumn", 2960f, 58f, false, 1, new Vector2(0.700f, 0.147f)),
-        new("house_posts_autumn", 3080f, 38f, true, 0, new Vector2(0.50f, 0.50f)),
-        new("house_burned_near_autumn", 4180f, 78f, false, 2, new Vector2(0.545f, 0.615f)),
-        new("village_autumn", 4580f, 88f, true, 1, new Vector2(0.482f, 0.152f), true),
+        // —— 中后段：稀疏，但多是被打穿的残骸（轰炸带），不是完整村落
+        new("house_ruined_near_autumn", 2440f, 68f, true, 2, new Vector2(0.45f, 0.26f)),
+        new("house_intact_near_autumn", 2920f, 56f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("house_burned_near_autumn", 3060f, 78f, true, 2, new Vector2(0.545f, 0.615f)),
+        new("house_posts_autumn", 3190f, 34f, false, 0, new Vector2(0.50f, 0.50f)),
+        new("house_skeleton_near_autumn", 4180f, 70f, true, 2, new Vector2(0.45f, 0.42f)),
+        new("village_autumn", 4620f, 92f, false, 2, new Vector2(0.482f, 0.152f), true),
     };
 
     /// <summary>Cached house textures for the distant village (loaded once, then kept).</summary>
@@ -2593,6 +2591,9 @@ public partial class N918Level : Node2D
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
 
+            // 关卡专属地标：九一八 = 北大营木瞭望塔，和江桥那关的土垒旗杆区分开来
+            DrawMidLandmark();
+
             // mid tree line: generated birch/elm sprites, fixed seed layout
             var midTreeRng = new RandomNumberGenerator();
             midTreeRng.Seed = 19311104;
@@ -2629,6 +2630,34 @@ public partial class N918Level : Node2D
                 for (int i = 0; i < 4; i++)
                     DrawCircle(new Vector2(x + Mathf.Sin(i * 1.4f) * 14f, 500 - i * 34),
                         20f + i * 9f, new Color(0.30f, 0.29f, 0.28f, 0.055f));
+        }
+
+        /// <summary>九一八专属地标：远处一座木瞭望塔，点出“驻军营盘”的轮廓（与江桥的土垒旗杆区分）。</summary>
+        private void DrawMidLandmark()
+        {
+            float bx = 1500f;
+            float baseY = VillageBaseY;
+            float topY = baseY - 150f;
+            Color timber = new Color(0.32f, 0.29f, 0.26f, 0.95f);
+            // 接触阴影，让塔站在雪上而不是飘着
+            DrawSetTransform(new Vector2(bx, baseY - 1f), 0, new Vector2(0.42f, 0.16f));
+            DrawTextureRect(SoftBlob(new Color(0.42f, 0.47f, 0.52f), 0.22f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+            // 斜撑（剪刀撑）+ 主柱
+            DrawLine(new Vector2(bx - 10f, baseY), new Vector2(bx, topY + 26f), timber, 3f, true);
+            DrawLine(new Vector2(bx + 10f, baseY), new Vector2(bx, topY + 26f), timber, 3f, true);
+            DrawLine(new Vector2(bx - 6f, baseY - 30f), new Vector2(bx + 6f, baseY - 30f), timber, 2f, true);
+            DrawLine(new Vector2(bx - 5f, baseY - 60f), new Vector2(bx + 5f, baseY - 60f), timber, 2f, true);
+            DrawLine(new Vector2(bx, baseY), new Vector2(bx, topY + 22f), timber, 3.4f, true);
+            // 顶部瞭望小屋 + 屋顶
+            DrawRect(new Rect2(bx - 16f, topY - 2f, 32f, 24f), new Color(0.40f, 0.36f, 0.31f, 0.96f));
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(bx - 20f, topY - 2f),
+                new Vector2(bx + 20f, topY - 2f),
+                new Vector2(bx, topY - 20f),
+            }, new Color(0.30f, 0.27f, 0.24f, 0.96f));
         }
 
         // —— 近景：枯树带、灌木柳丛、雪坎、铁丝网、废车（一律低于人物腰部，绝不遮脸）——
@@ -3246,6 +3275,9 @@ public partial class N918Level : Node2D
             DrawPolyline(surface.Select(p => p + new Vector2(0, 8)).ToArray(),
                 new Color(0.58f, 0.54f, 0.38f, 0.26f), 5f, true);
 
+            // 草地细节：枯草丛 / 小石块 / 泥土斑 / 野草，破掉“一片纯色无生机”的枯燥感
+            DrawGroundDetailing();
+
             // 冰面裂缝与车辙
             for (int i = 0; i < 26; i++)
             {
@@ -3273,6 +3305,98 @@ public partial class N918Level : Node2D
             DrawCraters();
             DrawRailBlastDamage();
             DrawTrenchLines();
+        }
+
+        /// <summary>
+        /// v3.55 初秋野地细节：在地面之上撒入枯草丛、小石块、泥土斑与野草，
+        /// 破掉“一片纯色、没有任何生动”的枯燥感（用户 Phase C 第 1 条）。
+        /// 固定随机种子 → 每帧重画结果完全一致，不会抖。避开房屋脚、不画到
+        /// 桥前的江面。颜色走枯黄/赭石/灰石，和地表的土黄调子叠出层次。
+        /// </summary>
+        private void DrawGroundDetailing()
+        {
+            var rng = new RandomNumberGenerator();
+            rng.Seed = 19310918;   // 与树林带 19311105 区分，免得草和树同相
+            const float EndX = BridgeDeckX - 240f;   // 桥前是河面/桥，不画草
+
+            float x = -400f;
+            while (x < EndX)
+            {
+                if (InsideHouseFootprint(x, 22f)) { x += 42f; continue; }
+
+                // 地表起伏和 _Draw 里的 surface 同一条正弦曲线，草才站得住
+                float sy = GroundY - Mathf.Sin(x * 0.008f) * 2.2f - Mathf.Sin(x * 0.031f) * 1.1f;
+
+                float pick = rng.Randf();
+                if (pick < 0.46f)
+                {
+                    // 枯草丛：3~5 根向外弯的细线
+                    int blades = 3 + (int)(rng.Randf() * 3f);
+                    float h = 7f + rng.Randf() * 9f;
+                    Color tuft = new Color(0.52f + rng.Randf() * 0.06f,
+                                          0.46f + rng.Randf() * 0.06f,
+                                          0.30f + rng.Randf() * 0.05f, 0.85f);
+                    for (int b = 0; b < blades; b++)
+                    {
+                        float dx = (b - (blades - 1) * 0.5f) * (2.2f + rng.Randf() * 1.6f);
+                        float lean = dx * (0.5f + rng.Randf() * 0.45f);
+                        var g = new List<Vector2>
+                        {
+                            new Vector2(x + dx, sy),
+                            new Vector2(x + dx * 0.6f + lean * 0.4f, sy - h * 0.55f),
+                            new Vector2(x + dx * 0.2f + lean * 0.9f, sy - h),
+                        };
+                        DrawPolyline(g.ToArray(), tuft, 1.1f, false);
+                    }
+                }
+                else if (pick < 0.66f)
+                {
+                    // 小石块：扁椭圆 + 一点贴地暗影
+                    float rw = 4f + rng.Randf() * 6f;
+                    float rh = rw * (0.45f + rng.Randf() * 0.22f);
+                    var rock = new List<Vector2>();
+                    int seg = 10;
+                    for (int s = 0; s <= seg; s++)
+                    {
+                        float a = Mathf.Tau * s / seg;
+                        float r = 1f + Mathf.Sin(a * 2f) * 0.12f;
+                        rock.Add(new Vector2(x + Mathf.Cos(a) * rw * r,
+                                              sy - rh + Mathf.Sin(a) * rh * r));
+                    }
+                    DrawColoredPolygon(rock.ToArray(), new Color(0.54f, 0.53f, 0.55f, 0.9f));
+                    DrawLine(new Vector2(x - rw, sy), new Vector2(x + rw, sy),
+                        new Color(0.34f, 0.32f, 0.30f, 0.5f), 1.6f, true);
+                }
+                else if (pick < 0.86f)
+                {
+                    // 泥土斑：贴地浅色土斑，柔化“纯色地表”
+                    float pw = 16f + rng.Randf() * 30f;
+                    var patch = new List<Vector2>();
+                    int seg = 12;
+                    for (int s = 0; s <= seg; s++)
+                    {
+                        float t = (float)s / seg;
+                        float px = x - pw * 0.5f + t * pw;
+                        float py = sy + 3f + Mathf.Sin(t * Mathf.Tau) * (3f + rng.Randf() * 3f);
+                        patch.Add(new Vector2(px, py));
+                    }
+                    DrawColoredPolygon(patch.ToArray(), new Color(0.50f, 0.44f, 0.30f, 0.30f));
+                }
+                else
+                {
+                    // 野草：单根带穗的细草，微微歪
+                    float h = 10f + rng.Randf() * 12f;
+                    float lean = rng.RandfRange(-5f, 5f);
+                    Color weed = new Color(0.46f, 0.50f, 0.30f, 0.8f);
+                    DrawLine(new Vector2(x, sy), new Vector2(x + lean, sy - h),
+                        new Color(weed.R, weed.G, weed.B, weed.A), 1.0f, false);
+                    DrawLine(new Vector2(x + lean, sy - h),
+                        new Vector2(x + lean + 2.5f, sy - h - 4f),
+                        new Color(weed.R + 0.1f, weed.G + 0.08f, weed.B, weed.A), 1.0f, false);
+                }
+
+                x += 34f + rng.Randf() * 40f;
+            }
         }
 
         private void DrawRiverIce()

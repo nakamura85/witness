@@ -678,30 +678,23 @@ public partial class JiangqiaoLevel : Node2D
     /// </summary>
     public static readonly VillageHouse[] VillageHouses =
     {
-        // —— west of the start: the cluster the user pointed at ——
-        new("village", -640f, 104f, false, 1, new Vector2(0.482f, 0.152f), true),
-        new("house_skeleton_near", -395f, 66f, true, 2, new Vector2(0.45f, 0.42f)),
-        new("house_posts", -255f, 44f, false, 0, new Vector2(0.50f, 0.50f)),
-        new("house_ruined_near", -110f, 74f, true, 0, new Vector2(0.45f, 0.26f)),
+        // —— 嫩江江桥 · 江畔村落：守军驻地。整体稀疏、以 intact 为主，
+        // 只有一两处被炮火掀掉（Smoke=2），读起来是“防御阵地”而非“被夷平的镇子”。
+        // 排布刻意和 N918Level 错开（X / 数量 / 烟种都不同），两关远景不再一模一样。
+        new("house_intact_near", -700f, 100f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("house_posts", -500f, 42f, true, 0, new Vector2(0.50f, 0.50f)),
+        new("house_ruined_near", -340f, 72f, false, 0, new Vector2(0.45f, 0.26f)),
+        new("house_intact_near", 60f, 86f, true, 1, new Vector2(0.700f, 0.147f)),
+        new("village", 430f, 112f, false, 1, new Vector2(0.482f, 0.152f), true),     // 村中主屋
+        new("house_skeleton_near", 700f, 58f, true, 2, new Vector2(0.45f, 0.42f)),   // 被掀掉一处
 
-        // —— village gate: the one house still standing, chimney still smoking ——
-        // v3.19: the intact house at 285 and the village panorama at 470 were
-        // one pixel apart - the roofs touched and the two read as a single
-        // wide building with a chimney in the middle. The panorama is 224
-        // wide, so the house has to sit clear of it.
-        new("house_intact_near", 250f, 96f, false, 1, new Vector2(0.700f, 0.147f)),
-        new("village", 500f, 118f, true, 1, new Vector2(0.482f, 0.152f), true),
-        new("house_skeleton_near", 700f, 62f, false, 2, new Vector2(0.45f, 0.42f)),
-        new("house_posts", 810f, 40f, true, 0, new Vector2(0.50f, 0.50f)),
-
-        // —— middle and back: keep them sparse, never a continuous row ——
-        // v3.19: the intact house at 2990 overlapped the stumps at 3040 by 30
-        // pixels. The stumps moved clear.
-        new("house_ruined_near", 2480f, 70f, true, 0, new Vector2(0.45f, 0.26f)),
-        new("house_intact_near", 2960f, 58f, false, 1, new Vector2(0.700f, 0.147f)),
-        new("house_posts", 3080f, 38f, true, 0, new Vector2(0.50f, 0.50f)),
-        new("house_burned_near", 4180f, 78f, false, 2, new Vector2(0.545f, 0.615f)),
-        new("village", 4580f, 88f, true, 1, new Vector2(0.482f, 0.152f), true),
+        // —— 中后段：开阔，守军土垒 + 旗杆在 DrawMidLandmark 另画
+        new("house_ruined_near", 2360f, 66f, false, 0, new Vector2(0.45f, 0.26f)),
+        new("house_intact_near", 2820f, 60f, true, 1, new Vector2(0.700f, 0.147f)),
+        new("house_posts", 2960f, 34f, false, 0, new Vector2(0.50f, 0.50f)),
+        new("house_burned_near", 3120f, 72f, true, 2, new Vector2(0.545f, 0.615f)),
+        new("house_intact_near", 4080f, 84f, false, 1, new Vector2(0.700f, 0.147f)),
+        new("village", 4520f, 86f, true, 1, new Vector2(0.482f, 0.152f), true),
     };
 
     /// <summary>Cached house textures for the distant village (loaded once, then kept).</summary>
@@ -2595,6 +2588,9 @@ public partial class JiangqiaoLevel : Node2D
                 DrawSetTransform(Vector2.Zero, 0, Vector2.One);
             }
 
+            // 关卡专属地标：嫩江江桥 = 守军土垒 + 旗杆，和九一八那关的木瞭望塔区分开来
+            DrawMidLandmark();
+
             // mid tree line: generated birch/elm sprites, fixed seed layout
             var midTreeRng = new RandomNumberGenerator();
             midTreeRng.Seed = 19311104;
@@ -2631,6 +2627,36 @@ public partial class JiangqiaoLevel : Node2D
                 for (int i = 0; i < 4; i++)
                     DrawCircle(new Vector2(x + Mathf.Sin(i * 1.4f) * 14f, 500 - i * 34),
                         20f + i * 9f, new Color(0.30f, 0.29f, 0.28f, 0.055f));
+        }
+
+        /// <summary>嫩江江桥专属地标：江畔守军土垒 + 旗杆，点出“江畔阻击”的轮廓（与九一八的木瞭望塔区分）。</summary>
+        private void DrawMidLandmark()
+        {
+            float bx = 1900f;
+            float baseY = VillageBaseY;
+            Color earth = new Color(0.55f, 0.52f, 0.45f, 0.95f);
+            Color earthDark = new Color(0.46f, 0.43f, 0.37f, 0.95f);
+            // 低矮土垒（扁梯形）
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(bx - 70f, baseY),
+                new Vector2(bx - 58f, baseY - 26f),
+                new Vector2(bx + 58f, baseY - 26f),
+                new Vector2(bx + 70f, baseY),
+            }, earth);
+            // 垒上沙袋（几道短横）
+            for (int i = -2; i <= 2; i++)
+                DrawRect(new Rect2(bx + i * 22f - 9f, baseY - 26f, 18f, 9f), earthDark);
+            // 旗杆
+            DrawLine(new Vector2(bx, baseY - 24f), new Vector2(bx, baseY - 120f),
+                new Color(0.30f, 0.28f, 0.26f, 0.95f), 2.4f, true);
+            // 守军旗（暗红三角旗）
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(bx, baseY - 118f),
+                new Vector2(bx + 30f, baseY - 110f),
+                new Vector2(bx, baseY - 100f),
+            }, new Color(0.55f, 0.22f, 0.20f, 0.95f));
         }
 
         // —— 近景：枯树带、灌木柳丛、雪坎、铁丝网、废车（一律低于人物腰部，绝不遮脸）——
