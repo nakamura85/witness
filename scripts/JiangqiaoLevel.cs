@@ -266,6 +266,12 @@ public partial class JiangqiaoLevel : Node2D
         BuildMidSmoke();
         BuildTerrain();
         BuildHouses();
+        // v3.64b: CoverArt 在构造函数阶段就入树了，那时房屋还没建；
+        // 这里才现场收集所有房屋门口/占地，注入后重算沙包落位。
+        var builtHouses = _game.GetChildren().OfType<EnterableHouse>().ToArray();
+        _coverArt.DoorXs = builtHouses.Select(h => h.DoorX).ToArray();
+        _coverArt.HouseSpans = _houses.SelectMany(h => new[] { h.Position.X, h.HalfW * 2f }).ToArray();
+        _coverArt.RebuildLayout();
         BuildPlayer();
         BuildPickups();
         BuildTestimonies();
@@ -335,22 +341,36 @@ public partial class JiangqiaoLevel : Node2D
         // The burnt ones keep the size they have. A shell with no roof and
         // a stump field have no wall to measure, and the standing houses
         // have to stay the big ones or the village reads flat.
-        AddHouse("f1", 460f + Jit(28), "house_posts", 250f, false, 14f);
-        AddHouse("f2", 1294f + Jit(42), "house_skeleton_near", 350f, false, 16f);
-        AddHouse("f4", 1680f + Jit(45), "house_posts", 210f, false, 19f);
-        AddHouse("f3", 3910f + Jit(35), "house_burned_near", 331f, false, 12f);
+        // v3.64: 固定播种错落布置。旧版用 GD.RandRange 每次运行都变，且基准点
+        // 几乎等距、抖动只有 ±24~45，整排房子像彩排过；烧毁/烧坏的也一样齐。
+        // 现在远景废墟连位置、尺寸、沉入深度、前后层都拉开，近景只动位置与
+        // 地基高度（宽度仍锁 WallH 人高红线，不动比例）。
+        var hr = new RandomNumberGenerator();
+        hr.Seed = 19311104;   // 江桥 1931.11.4，与草地/树林种子错开，可复现
+        AddHouse("f1", 460f + hr.RandfRange(-110f, 110f), "house_posts",
+            250f * hr.RandfRange(0.87f, 1.13f), false, 14f + hr.RandfRange(-6f, 9f), hr.RandfRange(-5f, 6f));
+        AddHouse("f2", 1294f + hr.RandfRange(-130f, 130f), "house_skeleton_near",
+            350f * hr.RandfRange(0.86f, 1.12f), false, 16f + hr.RandfRange(-7f, 8f), hr.RandfRange(-6f, 6f));
+        AddHouse("f4", 1680f + hr.RandfRange(-120f, 120f), "house_posts",
+            210f * hr.RandfRange(0.88f, 1.16f), false, 19f + hr.RandfRange(-8f, 7f), hr.RandfRange(-5f, 7f));
+        AddHouse("f3", 3910f + hr.RandfRange(-120f, 120f), "house_burned_near",
+            331f * hr.RandfRange(0.90f, 1.10f), false, 12f + hr.RandfRange(-5f, 9f), hr.RandfRange(-6f, 5f));
 
         // near row: enterable loot spots, the intact one teaches players
         // "the house that still looks whole got the goods" lah.
         // h3 sits fixed (no jitter) so the gap after it stays open for the
         // crater + fallen soldier vignette next to it.
-        AddHouse("h1", 845f + Jit(24), "house_ruined_near", HouseWidthForWall("house_ruined_near", WallH), true, 0f);
-        AddHouse("h3", 1925f, "house_intact_near", HouseWidthForWall("house_intact_near", WallH), true, 0f);
+        AddHouse("h1", 845f + hr.RandfRange(-70f, 70f), "house_ruined_near",
+            HouseWidthForWall("house_ruined_near", WallH), true, 0f, hr.RandfRange(-4f, 4f));
+        AddHouse("h3", 1925f + hr.RandfRange(-42f, 42f), "house_intact_near",
+            HouseWidthForWall("house_intact_near", WallH), true, 0f, hr.RandfRange(-4f, 4f));
         // v3.39: h4 is the near roofless ruin (house_posts). The user set
         // "near non-burnt houses stand 1.5 man-heights", so lock it to WallH
         // like the intact houses instead of the old fixed 320px width.
-        AddHouse("h4", 3244f + Jit(45), "house_posts", HouseWidthForWall("house_posts", WallH), false, 0f);
-        AddHouse("h2", 2760f, "house_burned_near", 450f, true, 0f);
+        AddHouse("h4", 3244f + hr.RandfRange(-60f, 60f), "house_posts",
+            HouseWidthForWall("house_posts", WallH), false, 0f, hr.RandfRange(-4f, 4f));
+        AddHouse("h2", 2760f + hr.RandfRange(-35f, 35f), "house_burned_near", 450f, true, 0f,
+            hr.RandfRange(-3f, 3f));
     }
 
     /// <summary>
@@ -591,10 +611,11 @@ public partial class JiangqiaoLevel : Node2D
         }
     }
 
-    private void AddHouse(string id, float x, string tex, float w, bool enterable, float lift)
+    private void AddHouse(string id, float x, string tex, float w, bool enterable, float lift, float sink = 0f)
     {
         // 屋基下沉 8px 进雪面：雪面顶边是起伏波浪线，平的房屋底边会露缝显得"飘在雪上"（#6）
-        var h = new EnterableHouse(id, new Vector2(x, GroundY + 8f), tex, w, enterable, lift);
+        // v3.64: sink 只改地基高度，不改 ZIndex / 雾化，用来打散「同一条地平线」的排队感
+        var h = new EnterableHouse(id, new Vector2(x, GroundY + 8f + sink), tex, w, enterable, lift);
         _game.AddChild(h);
         _houseRects.Add((x, w));
         if (enterable) _houses.Add(h);
@@ -913,6 +934,8 @@ public partial class JiangqiaoLevel : Node2D
 
         // 掩体沙袋在人之前（ZIndex 5，高于玩家 0 与敌兵 2），
         // 经过时人从垛子后面过，而不是站在垛子顶上。
+        // v3.64b: 构造函数阶段房屋尚未建立；避让注入放在 _Ready()
+        // 的 BuildHouses() 之后，见本类 _Ready()。
         _coverArt = new CoverArt { ZIndex = 5 };
         _game.AddChild(_coverArt);
 
@@ -2976,18 +2999,30 @@ public partial class JiangqiaoLevel : Node2D
             DrawPolyline(crest.Select(p => p + new Vector2(0, 10)).ToArray(),
                 new Color(0.70f, 0.75f, 0.78f, 0.35f), 8f, true);
 
-            // snow grass: generated tuft clusters, tips only above the snow line
+            // v3.64 雪原枯草成片：旧版每 340px 才一撮，读起来像「一颗两颗草」。
+            // 现在按斑块密集铺贴（斑块内 60~110px 一丛、前后交叠），
+            // 斑块间只留窄空地；江桥是 11 月雪原，草只露尖，密度刻意低于九一八野地。
             var reedRng = new RandomNumberGenerator();
             reedRng.Seed = 19311106;
-            for (int i = 0; i < 30; i++)
+            float gx = -1350f;
+            while (gx < 5000f)
             {
-                float x = -1350 + i * 340 + Mathf.Sin(i * 2.3f) * 82f + reedRng.RandfRange(-30f, 30f);
-                float baseY = 722 + Mathf.Sin(x * 0.006f) * 9f;
-                Sprite("grass", new Vector2(x, baseY + 3f), 24f + reedRng.Randf() * 14f, 0.95f,
-                    flip: reedRng.Randf() < 0.5f);
-                if (i % 2 == 0)
-                    Sprite("grass", new Vector2(x + 70f, baseY + 4f), 16f + reedRng.Randf() * 10f, 0.85f,
-                        flip: reedRng.Randf() >= 0.5f);
+                if (InsideHouseFootprint(gx, 40f)) { gx += 90f; continue; }
+                float patchW = 220f + reedRng.Randf() * 300f;
+                float px = gx;
+                while (px < gx + patchW)
+                {
+                    if (!InsideHouseFootprint(px, 24f))
+                    {
+                        float baseY = 722f + Mathf.Sin(px * 0.006f) * 9f;
+                        Sprite("grass", new Vector2(px, baseY + 3f),
+                            20f + reedRng.Randf() * 15f, 0.95f, flip: reedRng.Randf() < 0.5f);
+                        Sprite("grass", new Vector2(px + reedRng.RandfRange(-16f, 16f), baseY + 5f),
+                            14f + reedRng.Randf() * 11f, 0.78f, flip: reedRng.Randf() >= 0.5f);
+                    }
+                    px += 74f + reedRng.Randf() * 52f;
+                }
+                gx += patchW + 70f + reedRng.Randf() * 110f;
             }
         }
 
@@ -3114,7 +3149,10 @@ public partial class JiangqiaoLevel : Node2D
         /// </summary>
         private static bool InsideSandbag(float x)
         {
-            foreach (float bx in CoverArt.SandbagBaseX)
+            // v3.64: 沙包避让后实际位置可能已偏离基准，铁丝网要按实际位置让位
+            var centers = CoverArt.ActualCenters.Length == CoverArt.SandbagBaseX.Length
+                ? CoverArt.ActualCenters : CoverArt.SandbagBaseX;
+            foreach (float bx in centers)
                 if (Mathf.Abs(x - bx) < CoverArt.SandbagHalfWidth) return true;
             return false;
         }
@@ -4222,6 +4260,58 @@ public partial class JiangqiaoLevel : Node2D
         internal static readonly float[] SandbagBaseX = { 980f, 2320f, 3640f, 4160f };
         internal static readonly float SandbagHalfWidth = 54f * 2.55f * 0.5f + 24f;
 
+        /// <summary>v3.64: 由关卡注入的可进入房屋门口 X（沙包必须避让）。</summary>
+        public float[] DoorXs = System.Array.Empty<float>();
+        /// <summary>v3.64: 可进入房屋占地，扁平存 [x,w,x,w,...]；远景废墟是背景层，不算。</summary>
+        public float[] HouseSpans = System.Array.Empty<float>();
+        /// <summary>v3.64: 避让后的实际落位，供铁丝网 InsideSandbag 使用。</summary>
+        internal static float[] ActualCenters = System.Array.Empty<float>();
+
+        /// <summary>
+        /// 沙包不得堵在房门口（会挡住 E 进屋与进出动线），也不得压在可进入房屋占地上。
+        /// 从基准点向两侧交替试探，优先靠基准最近的合法位置；不越桥头。
+        /// </summary>
+        private float SafeSandbagX(float want)
+        {
+            const float DoorClear = 96f;      // 门口通行余量（人宽 + 交互半径）
+            const float MaxX = 4280f;         // 桥头之前，不把沙包推到桥口
+            float need = SandbagHalfWidth + DoorClear;
+
+            // v3.64b: 同 N918Level，实时从场景树读门口，不依赖空快照注入
+            float[] doors = DoorXs;
+            var parentNode = GetParent();
+            if (parentNode != null)
+            {
+                var live = parentNode.GetChildren().OfType<EnterableHouse>()
+                                    .Select(h => h.DoorX).ToArray();
+                if (live.Length > 0) doors = live;
+            }
+
+            bool Blocked(float v)
+            {
+                if (v > MaxX || v < -100f) return true;
+                foreach (float d in doors)
+                    if (Mathf.Abs(v - d) < need) return true;
+                for (int i = 0; i + 1 < HouseSpans.Length; i += 2)
+                {
+                    float hx = HouseSpans[i], hw = HouseSpans[i + 1];
+                    if (v + SandbagHalfWidth * 0.6f > hx - 12f &&
+                        v - SandbagHalfWidth * 0.6f < hx + hw + 12f) return true;
+                }
+                return false;
+            }
+            if (!Blocked(want)) return want;
+            float step = need + 34f;
+            for (int k = 1; k <= 9; k++)
+            {
+                float right = want + step * k;
+                if (!Blocked(right)) return right;
+                float left = want - step * k;
+                if (!Blocked(left)) return left;
+            }
+            return want - step * 9f;
+        }
+
         internal const float FullHp = 100f;
 
         private StackSpec[] _stacks = System.Array.Empty<StackSpec>();
@@ -4409,7 +4499,10 @@ public partial class JiangqiaoLevel : Node2D
             return wrecked;
         }
 
-        public override void _Ready()
+        public override void _Ready() => RebuildLayout();
+
+        /// <summary>v3.64b: 同 N918Level，注入可用后由关卡再调一次落位。</summary>
+        internal void RebuildLayout()
         {
             var rng = new RandomNumberGenerator();
             rng.Randomize();
@@ -4427,15 +4520,20 @@ public partial class JiangqiaoLevel : Node2D
                 // the wall has to come down with him or it reads as chest
                 // high cover.
                 float h = 47f + rng.RandfRange(-4f, 5f);
+                float wantX = bases[i] + rng.RandfRange(-24f, 24f);
+                float cx = SafeSandbagX(wantX);   // v3.64 避让房门口 + 房屋占地
                 list.Add(new StackSpec
                 {
-                    X = bases[i] + rng.RandfRange(-24f, 24f),
+                    X = cx,
                     BaseY = GroundY - 2f,
                     W = h * (2.55f + rng.RandfRange(-0.25f, 0.3f)),
                     H = h,
                 });
             }
             _stacks = list.ToArray();
+            ActualCenters = new float[list.Count];
+            for (int i = 0; i < list.Count; i++) ActualCenters[i] = list[i].X;
+            // 落位完成（ActualCenters 供铁丝网 InsideSandbag 使用）
             _sackTex = GD.Load<Texture2D>("res://assets/art/props/sandbags.png");
             BuildBagSlices();
             // v3.55: the tidy wreck texture is retired - an explosion SCATTERS

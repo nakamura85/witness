@@ -16,7 +16,7 @@ public partial class CaptureMap : Node
     private float _t;
     private int _stage;
     private bool _started;
-    private bool _ko0, _tw0;
+    private bool _ko0, _tw0, _n0;
 
     private static string Dir
         => ProjectSettings.GlobalizePath("res://_shots");
@@ -31,6 +31,7 @@ public partial class CaptureMap : Node
 
         _ko0 = GameState.I.S.MapNoteKorea;
         _tw0 = GameState.I.S.MapNoteTaiwan;
+        _n0 = GameState.I.S.N918Done;
 
         SwapTo(new TitleScreen(new Main()));
         _started = true;
@@ -126,9 +127,24 @@ public partial class CaptureMap : Node
         }
         else if (_stage == 9 && _t > 10.7f)
         {
-            // restore the player's note-read state so the save stays clean
+            // v3.64b: 模拟「九一八通关后回到大地图」，验证江桥地名/图钉
+            // 与第二段行军不是提前显示，而是此刻才显影并沿铁路北上。
+            GameState.I.S.N918Done = true;
+            SwapTo(new AsiaMap(new Main()));
+            _stage = 11;
+        }
+        else if (_stage == 11 && _t > 14.4f)
+        {
+            // 第二段动画 2.8s 生长，给足时间再拍
+            SaveShot("map_05_after_918.png");
+            _stage = 12;
+        }
+        else if (_stage == 12 && _t > 15.0f)
+        {
+            // restore the player's note-read + chapter state so the save stays clean
             GameState.I.S.MapNoteKorea = _ko0;
             GameState.I.S.MapNoteTaiwan = _tw0;
+            GameState.I.S.N918Done = _n0;
             GameState.I.Save();
             GD.Print("CAPTUREMAP done");
             GetTree().Quit();

@@ -52,6 +52,11 @@ public partial class EnterableHouse : Node2D
         // a half-burnt door leaf leans back into the frame (v3.45: was an
         // intact plank door - a burned house would not keep one)
         ["house_burned_near"] = new(0.260f, 0.42f, true),
+        // v3.64b: 九一八关卡用 _autumn 变体贴图（同图上色），此前没登记
+        // 导致 DoorX 全部 fallback 到 0.18 —— 门画错位置，沙包避让也算错门口。
+        ["house_intact_near_autumn"] = new(0.492f, 0.36f, false),
+        ["house_ruined_near_autumn"] = new(0.200f, 0.50f, false),
+        ["house_burned_near_autumn"] = new(0.260f, 0.42f, true),
     };
 
     private static Texture2D _leafTex;
@@ -287,6 +292,13 @@ public enum RoomType
 /// </summary>
 public partial class HouseInteriorUi : CanvasLayer
 {
+    /// <summary>
+    /// 截图/预览用：造一间屋内水彩背景（不依赖存档、关卡或 CanvasLayer）。
+    /// scenes/CaptureRoom.tscn 用它渲染真实帧，验证室内画风。
+    /// </summary>
+    public static Control CreateRoomPreview(RoomType type, int variant, int seed)
+        => new RoomBg(type, variant, seed);
+
     public event Action Closed;
     public event Action<int> GotAmmo;
     public event Action<int> GotGrenade;
@@ -472,22 +484,25 @@ public partial class HouseInteriorUi : CanvasLayer
         };
         var normal = new StyleBoxFlat
         {
-            BgColor = s.Done ? new Color(0.17f, 0.15f, 0.13f) : new Color(0.905f, 0.855f, 0.735f),
-            BorderColor = new Color(0.24f, 0.20f, 0.16f),
+            BgColor = s.Done ? new Color(0.78f, 0.74f, 0.66f, 0.88f) : new Color(0.965f, 0.94f, 0.875f, 0.96f),
+            BorderColor = new Color(0.30f, 0.25f, 0.20f),
             BorderWidthLeft = 1, BorderWidthRight = 1, BorderWidthTop = 1, BorderWidthBottom = 1,
-            ContentMarginLeft = 14, ContentMarginRight = 14, ContentMarginTop = 8, ContentMarginBottom = 8,
+            CornerRadiusTopLeft = 1, CornerRadiusTopRight = 1, CornerRadiusBottomLeft = 1, CornerRadiusBottomRight = 1,
+            ShadowColor = new Color(0.12f, 0.10f, 0.08f, 0.30f), ShadowSize = 4, ShadowOffset = new Vector2(2, 3),
+            ContentMarginLeft = 11, ContentMarginRight = 11, ContentMarginTop = 6, ContentMarginBottom = 6,
         };
         s.AddThemeStyleboxOverride("normal", normal);
         var hover = new StyleBoxFlat
         {
-            BgColor = s.Done ? new Color(0.20f, 0.18f, 0.15f) : new Color(0.95f, 0.91f, 0.80f),
-            BorderColor = new Color(0.24f, 0.20f, 0.16f),
+            BgColor = s.Done ? new Color(0.82f, 0.78f, 0.70f, 0.92f) : new Color(0.99f, 0.97f, 0.92f),
+            BorderColor = new Color(0.42f, 0.20f, 0.15f),
             BorderWidthLeft = 1, BorderWidthRight = 1, BorderWidthTop = 1, BorderWidthBottom = 1,
-            ContentMarginLeft = 14, ContentMarginRight = 14, ContentMarginTop = 8, ContentMarginBottom = 8,
+            ShadowColor = new Color(0.12f, 0.10f, 0.08f, 0.34f), ShadowSize = 5, ShadowOffset = new Vector2(2, 3),
+            ContentMarginLeft = 11, ContentMarginRight = 11, ContentMarginTop = 6, ContentMarginBottom = 6,
         };
         s.AddThemeStyleboxOverride("hover", hover);
-        s.AddThemeColorOverride("font_color", s.Done ? new Color(0.45f, 0.42f, 0.36f) : new Color(0.18f, 0.15f, 0.12f));
-        s.AddThemeFontSizeOverride("font_size", 15);
+        s.AddThemeColorOverride("font_color", s.Done ? new Color(0.42f, 0.38f, 0.32f) : new Color(0.22f, 0.18f, 0.15f));
+        s.AddThemeFontSizeOverride("font_size", 14);
         s.Pressed += () => OnSpot(s);
         _spots.Add(s);
         if (kind == "chest") _chestSpot = s;
@@ -771,7 +786,8 @@ public partial class HouseInteriorUi : CanvasLayer
         content.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         panel.AddChild(content);
 
-        var room = new RoomBg(_roomType, _roomVariant);
+        // v3.64: 钢笔淡彩水彩室内；houseId 播种让每间屋的纸纹/水痕/排线都不同
+        var room = new RoomBg(_roomType, _roomVariant, _houseId.GetHashCode() & 0xffff);
         room.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         content.AddChild(room);
         room.QueueRedraw();
@@ -784,7 +800,8 @@ public partial class HouseInteriorUi : CanvasLayer
         // (PanelContainer only manages its first child; extra direct children render blank)
         var title = new Label { Text = $"{_houseTitle} · 屋内" };
         title.AddThemeFontSizeOverride("font_size", 22);
-        title.AddThemeColorOverride("font_color", new Color(0.92f, 0.88f, 0.76f));
+        // v3.64: 屋内改成纸本色底，标题/提示必须改成墨色才看得清
+        title.AddThemeColorOverride("font_color", new Color(0.24f, 0.20f, 0.17f));
         title.SetAnchorsPreset(Control.LayoutPreset.TopWide);
         title.OffsetTop = 6;
         title.HorizontalAlignment = HorizontalAlignment.Center;
@@ -792,7 +809,7 @@ public partial class HouseInteriorUi : CanvasLayer
 
         _hint = new Label { Text = "在屋子里翻找能用的东西，点一下就能查看。按 E 离开。" };
         _hint.AddThemeFontSizeOverride("font_size", 14);
-        _hint.AddThemeColorOverride("font_color", new Color(0.64f, 0.59f, 0.50f));
+        _hint.AddThemeColorOverride("font_color", new Color(0.38f, 0.33f, 0.27f));
         _hint.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
         _hint.OffsetBottom = -48;
         _hint.HorizontalAlignment = HorizontalAlignment.Center;
@@ -828,8 +845,11 @@ public partial class HouseInteriorUi : CanvasLayer
             p += new Vector2(_rng.RandfRange(-18f, 18f), _rng.RandfRange(-12f, 12f));
             float w = (s.Kind == "radio" || s.Kind == "power") ? 224f : 188f;
             s.Position = p;
-            s.Size = new Vector2(w, 46);
-            s.CustomMinimumSize = new Vector2(w, 46);
+            s.Size = new Vector2(w, 42);
+            s.CustomMinimumSize = new Vector2(w, 42);
+            // v3.64: 标签不再是一排整齐的按钮，而是随手贴在物件旁的小纸签
+            s.PivotOffset = s.Size * 0.5f;
+            s.Rotation = Mathf.DegToRad(_rng.RandfRange(-2.2f, 2.2f));
             spotsLayer.AddChild(s);
         }
     }
@@ -845,9 +865,9 @@ public partial class HouseInteriorUi : CanvasLayer
         {
             return new System.Collections.Generic.Dictionary<string, Vector2>
             {
-                ["power"]   = new Vector2(34, 64),    // 发电机 / 电闸（左）
-                ["radio"]   = new Vector2(700, 50),   // 发信机（右墙）
-                ["letter"]  = new Vector2(430, 360),  // 地图桌
+                ["power"]   = new Vector2(24, 272),   // 手摇发电机下方（不压住电闸箱）
+                ["radio"]   = new Vector2(690, 154),  // 发信机下方（不压住表盘旋钮）
+                ["letter"]  = new Vector2(430, 360),  // 电台桌上方
                 ["ash"]     = new Vector2(770, 470),  // 墙角废墟
                 ["chest"]   = new Vector2(250, 360),  // 木箱
                 ["ammo"]    = new Vector2(340, 300),
@@ -904,180 +924,683 @@ public partial class HouseInteriorUi : CanvasLayer
     }
 
     /// <summary>
-    /// 屋内背景：三种固定常识格局（住家 / 通信据点机房 / 仓库焚毁）。
-    /// 纯程序绘制（与项目其余 InkStyle 一致），不引入新贴图资产。
+    /// v3.64 钢笔淡彩（line-and-wash / pen &amp; wash）室内绘制工具。
+    ///
+    /// 与 assets/art 的美术同源：细深褐灰墨线（手绘轻重变化、断续排线）、
+    /// 低饱和水彩罩染柔边（多层半透明错位叠色，不做硬边赛璐璐平涂）、
+    /// 可见纸纹与水痕。全部确定性伪随机，同一间屋每次打开完全一致。
+    /// </summary>
+    internal static class WashPaint
+    {
+        public static readonly Color Paper = new(0.905f, 0.865f, 0.765f);       // 纸本色
+        public static readonly Color PaperLit = new(0.945f, 0.915f, 0.835f);    // 受光纸面
+        public static readonly Color PaperShade = new(0.80f, 0.75f, 0.65f);     // 背光纸面
+        public static readonly Color Ink = new(0.235f, 0.195f, 0.165f);         // 深褐灰墨线
+        public static readonly Color InkSoft = new(0.38f, 0.33f, 0.28f);        // 次级墨线
+        public static readonly Color WallWarm = new(0.55f, 0.46f, 0.35f);       // 土坯墙罩染
+        public static readonly Color WallCool = new(0.44f, 0.47f, 0.48f);       // 机房灰蓝罩染
+        public static readonly Color Wood = new(0.52f, 0.38f, 0.25f);           // 木器罩染
+        public static readonly Color WoodDark = new(0.34f, 0.25f, 0.18f);
+        public static readonly Color ClothBlue = new(0.46f, 0.51f, 0.55f);      // 被褥 / 军毯
+        public static readonly Color NightBlue = new(0.22f, 0.27f, 0.34f);      // 窗外夜色
+        public static readonly Color Ember = new(0.82f, 0.42f, 0.18f);          // 灶火 / 余烬
+        public static readonly Color Red = new(0.62f, 0.21f, 0.16f);            // 作战图朱红
+        public static readonly Color Char = new(0.20f, 0.17f, 0.15f);           // 焦木
+
+        /// <summary>确定性伪随机（0..1），同 seed 同结果，画面不闪。</summary>
+        public static float H(float n, float seed)
+            => Mathf.Abs(Mathf.Sin(n * 12.9898f + seed * 78.233f) * 43758.5453f) % 1f;
+
+        /// <summary>
+        /// 水彩罩染矩形：逐顶点 alpha 羽化的柔边 + 颜料浓淡斑 + 沉积水痕。
+        /// v3.64b：旧版是 4 层硬边 DrawRect 叠加，边缘只有几像素阶梯，
+        /// 实机看仍是平涂色块；这里改成外环全透明 / 内环实色的三角带，
+        /// 才是真正的水彩柔边（不是赛璐璐硬边）。
+        /// </summary>
+        public static void Wash(CanvasItem c, Rect2 r, Color col, float alpha, float seed, int layers = 4)
+        {
+            SoftWash(c, r, col, alpha, seed);
+
+            // 颜料浓淡：色块内部深浅不一，模拟水彩未干时的聚色与留白
+            int n = layers < 2 ? 2 : layers;
+            for (int i = 0; i < n; i++)
+            {
+                float bx = r.Position.X + H(seed + i * 7.3f, 61f) * r.Size.X;
+                float by = r.Position.Y + H(seed + i * 11.7f, 67f) * r.Size.Y;
+                float br = Mathf.Min(r.Size.X, r.Size.Y) *
+                           (0.16f + H(seed + i * 3.1f, 71f) * 0.34f);
+                var bc = H(seed + i, 73f) > 0.45f
+                    ? new Color(col.R * 0.80f, col.G * 0.80f, col.B * 0.80f)
+                    : new Color(0.96f, 0.93f, 0.85f);
+                Blot(c, new Vector2(bx, by), br, bc,
+                    alpha * (0.10f + 0.10f * H(seed + i, 79f)), seed + i * 5f);
+            }
+
+            // 下缘颜料沉积（水彩干掉后颜色堆在边界）
+            WaterEdge(c,
+                new Vector2(r.Position.X + 3f, r.Position.Y + r.Size.Y - 2f),
+                new Vector2(r.Position.X + r.Size.X - 3f, r.Position.Y + r.Size.Y - 2f),
+                new Color(col.R * 0.68f, col.G * 0.68f, col.B * 0.68f), seed + 17f);
+        }
+
+        /// <summary>逐顶点羽化罩染：外环 alpha=0 → 内环实色，三角带插值出柔边。</summary>
+        public static void SoftWash(CanvasItem c, Rect2 r, Color col, float alpha, float seed)
+        {
+            const int Per = 5;
+            const int N = Per * 4;
+            if (r.Size.X < 2f || r.Size.Y < 2f) return;
+
+            var outer = new Vector2[N];
+            int k = 0;
+            for (int i = 0; i < Per; i++)
+                outer[k++] = new Vector2(r.Position.X + r.Size.X * i / Per, r.Position.Y);
+            for (int i = 0; i < Per; i++)
+                outer[k++] = new Vector2(r.Position.X + r.Size.X, r.Position.Y + r.Size.Y * i / Per);
+            for (int i = 0; i < Per; i++)
+                outer[k++] = new Vector2(r.Position.X + r.Size.X * (1f - (float)i / Per),
+                                         r.Position.Y + r.Size.Y);
+            for (int i = 0; i < Per; i++)
+                outer[k++] = new Vector2(r.Position.X,
+                                         r.Position.Y + r.Size.Y * (1f - (float)i / Per));
+
+            // 边缘手绘抖动，避免尺子画出来的死直线。
+            // v3.64b: 抖动必须随尺寸缩放 —— 小物件（如 16×14 铁锁）相邻采样点
+            // 只有 3px，固定 ±1.6px 会让轮廓自交，触发 triangulation failed。
+            float jit = Mathf.Min(3.2f, Mathf.Min(r.Size.X, r.Size.Y) / 10f);
+            for (int i = 0; i < N; i++)
+                outer[i] += new Vector2(
+                    (H(seed + i * 1.9f, 5f) - 0.5f) * jit,
+                    (H(seed + i * 2.7f, 9f) - 0.5f) * jit);
+
+            float feather = Mathf.Clamp(Mathf.Min(r.Size.X, r.Size.Y) * 0.16f, 1.5f, 15f);
+            float kx = Mathf.Clamp(1f - feather / Mathf.Max(1f, r.Size.X * 0.5f), 0.45f, 1f);
+            float ky = Mathf.Clamp(1f - feather / Mathf.Max(1f, r.Size.Y * 0.5f), 0.45f, 1f);
+            var center = r.Position + r.Size * 0.5f;
+            var inner = new Vector2[N];
+            for (int i = 0; i < N; i++)
+                inner[i] = center + new Vector2(
+                    (outer[i].X - center.X) * kx,
+                    (outer[i].Y - center.Y) * ky);
+
+            var clear = new Color(col.R, col.G, col.B, 0f);
+            var full = new Color(col.R, col.G, col.B, alpha);
+            for (int i = 0; i < N; i++)
+            {
+                int j = (i + 1) % N;
+                c.DrawPolygon(new[] { outer[i], outer[j], inner[j] },
+                    new[] { clear, clear, full });
+                c.DrawPolygon(new[] { outer[i], inner[j], inner[i] },
+                    new[] { clear, full, full });
+            }
+            var innerCols = new Color[N];
+            for (int i = 0; i < N; i++) innerCols[i] = full;
+            c.DrawPolygon(inner, innerCols);
+        }
+
+        /// <summary>柔边色斑：多层错位递减 alpha 的圆，模拟水彩晕开的一摊颜料。</summary>
+        public static void Blot(CanvasItem c, Vector2 p, float radius, Color col, float alpha, float seed)
+        {
+            if (radius < 1f) return;
+            for (int i = 5; i >= 1; i--)
+            {
+                float rr = radius * (0.30f + i * 0.17f);
+                var q = p + new Vector2(
+                    (H(seed + i, 83f) - 0.5f) * radius * 0.5f,
+                    (H(seed + i, 89f) - 0.5f) * radius * 0.5f);
+                c.DrawCircle(q, rr, new Color(col.R, col.G, col.B, alpha / (i + 1f)));
+            }
+        }
+
+        /// <summary>水彩罩染不规则多边形（顶点带手绘抖动）。</summary>
+        public static void WashPoly(CanvasItem c, Vector2[] poly, Color col, float alpha, float seed)
+        {
+            for (int pass = 0; pass < 3; pass++)
+            {
+                float j = pass * 2.4f;
+                var p = new Vector2[poly.Length];
+                for (int i = 0; i < poly.Length; i++)
+                    p[i] = poly[i] + new Vector2(
+                        (H(seed + i * 2.1f + pass, 3f) - 0.5f) * (2f + j),
+                        (H(seed + i * 3.7f + pass, 9f) - 0.5f) * (2f + j));
+                c.DrawColoredPolygon(p, new Color(col.R, col.G, col.B, alpha * (0.30f + 0.18f * pass)));
+            }
+            c.DrawColoredPolygon(poly, new Color(col.R, col.G, col.B, alpha * 0.34f));
+        }
+
+        /// <summary>手绘墨线：分段折线 + 确定性抖动，避免尺子画出来的死直线。</summary>
+        public static void Pen(CanvasItem c, Vector2 a, Vector2 b, float width, Color col, float seed, float jitter = 1.1f)
+        {
+            int seg = Mathf.Max(2, (int)(a.DistanceTo(b) / 42f));
+            var pts = new Vector2[seg + 1];
+            var n = (b - a).Normalized().Orthogonal();
+            for (int i = 0; i <= seg; i++)
+            {
+                float t = (float)i / seg;
+                float falloff = (i == 0 || i == seg) ? 0.25f : 1f;
+                pts[i] = a.Lerp(b, t) + n * (H(seed + i * 1.7f, 5f) - 0.5f) * jitter * 2f * falloff;
+            }
+            c.DrawPolyline(pts, col, width, true);
+        }
+
+        /// <summary>矩形墨线勾边（四条手绘线，角上略微出头，像钢笔速写）。</summary>
+        public static void InkRect(CanvasItem c, Rect2 r, float width, Color col, float seed)
+        {
+            var a = r.Position; var b = r.Position + r.Size;
+            Pen(c, a + new Vector2(-1.5f, 0), new Vector2(b.X + 1.5f, a.Y), width, col, seed);
+            Pen(c, new Vector2(b.X, a.Y - 1f), new Vector2(b.X, b.Y + 1.5f), width, col, seed + 3f);
+            Pen(c, new Vector2(b.X + 1.5f, b.Y), new Vector2(a.X - 1f, b.Y), width, col, seed + 6f);
+            Pen(c, new Vector2(a.X, b.Y + 1f), new Vector2(a.X, a.Y - 1.5f), width, col, seed + 9f);
+        }
+
+        /// <summary>断续排线阴影（水彩画的交叉排线，不是平涂黑块）。</summary>
+        public static void Hatch(CanvasItem c, Rect2 r, int n, Color col, float seed, float angle = -0.55f)
+        {
+            var dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+            for (int i = 0; i < n; i++)
+            {
+                float t = (i + 0.5f) / n;
+                var o = new Vector2(r.Position.X + r.Size.X * t, r.Position.Y + H(seed + i, 13f) * 4f);
+                float len = r.Size.Y * (0.55f + H(seed + i, 17f) * 0.45f);
+                Pen(c, o, o + dir * len, 0.8f, new Color(col.R, col.G, col.B, 0.42f), seed + i * 2.3f, 0.7f);
+            }
+        }
+
+        /// <summary>柔边水痕（多层同心半透明圆），用于灶火、灯光、余烬、月光。</summary>
+        public static void Bloom(CanvasItem c, Vector2 p, float radius, Color col, float alpha, float seed)
+        {
+            for (int i = 4; i >= 1; i--)
+            {
+                float rr = radius * (0.55f + i * 0.35f);
+                var q = p + new Vector2((H(seed + i, 23f) - 0.5f) * radius * 0.3f,
+                                        (H(seed + i, 29f) - 0.5f) * radius * 0.3f);
+                c.DrawCircle(q, rr, new Color(col.R, col.G, col.B, alpha / (i + 1f)));
+            }
+        }
+
+        /// <summary>
+        /// 纸纹：低对比细点 + 纸纤维短斜线，铺满整张纸。
+        /// v3.64b：260 点铺 1000×640 等于看不见，提到 1400 并加入纤维斜线，
+        /// 让纸本颗粒在实机分辨率下真的可见。
+        /// </summary>
+        public static void Grain(CanvasItem c, float W, float Hh, float seed, int count = 1400)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                float x = H(seed + i * 1.13f, 31f) * W;
+                float y = H(seed + i * 2.71f, 37f) * Hh;
+                float a = 0.030f + H(seed + i, 41f) * 0.055f;
+                var col = new Color(0.30f, 0.25f, 0.20f, a);
+                if (H(seed + i, 43f) < 0.66f)
+                    c.DrawCircle(new Vector2(x, y), 0.5f + H(seed + i, 47f) * 0.65f, col);
+                else
+                    c.DrawLine(new Vector2(x, y),
+                        new Vector2(x + 2.0f + H(seed + i, 53f) * 3.5f,
+                                    y - 1.2f - H(seed + i, 59f) * 1.4f), col, 0.7f, true);
+            }
+        }
+
+        /// <summary>水渍：一条淡色不规则曲线，模拟水彩干掉后的边界。</summary>
+        public static void WaterEdge(CanvasItem c, Vector2 a, Vector2 b, Color col, float seed)
+        {
+            int seg = 8;
+            var pts = new Vector2[seg + 1];
+            var n = (b - a).Normalized().Orthogonal();
+            for (int i = 0; i <= seg; i++)
+                pts[i] = a.Lerp(b, (float)i / seg)
+                    + n * (H(seed + i, 53f) - 0.5f) * 5f;
+            c.DrawPolyline(pts, new Color(col.R, col.G, col.B, 0.22f), 2.2f, true);
+        }
+    }
+
+    /// <summary>
+    /// 屋内背景：钢笔淡彩水彩风（v3.64 重绘）。
+    /// 三种格局：住家 / 通信据点机房（按 1931 年野战电台史实布置）/ 焚毁仓库。
+    /// 主体家具位置固定（与可点击落点对齐），装饰细节按 houseId 播种变化。
     /// </summary>
     private partial class RoomBg : Control
     {
         private readonly RoomType _type;
         private readonly int _variant;
-        public RoomBg(RoomType type = RoomType.Residence, int variant = 0)
+        private readonly int _seed;
+
+        public RoomBg(RoomType type = RoomType.Residence, int variant = 0, int seed = 0)
         {
             _type = type;
             _variant = variant;
+            _seed = seed;
         }
+
         public override void _Draw()
         {
             float W = Size.X, H = Size.Y;
+            // 纸本色打底（整张画都是画在纸上的，不再是深棕纯色块）
+            DrawRect(new Rect2(0, 0, W, H), WashPaint.Paper);
+            WashPaint.Wash(this, new Rect2(0, 0, W, H), WashPaint.PaperShade, 0.16f, _seed + 1f, 3);
             switch (_type)
             {
                 case RoomType.CommOutpost: DrawCommOutpost(W, H); break;
                 case RoomType.BurntWarehouse: DrawBurnt(W, H); break;
                 default: DrawResidence(W, H, _variant); break;
             }
+
+            // 整张画再罩一层极淡的纸面不均匀水痕：水彩纸吸色不匀，
+            // 有些地方偏冷灰、有些地方偏暖，而不是一整块均匀底色。
+            for (int i = 0; i < 7; i++)
+            {
+                float x = WashPaint.H(_seed + i * 13.1f, 97f) * W;
+                float y = WashPaint.H(_seed + i * 17.7f, 101f) * H;
+                WashPaint.Blot(this, new Vector2(x, y),
+                    90f + WashPaint.H(_seed + i, 103f) * 150f,
+                    i % 2 == 0 ? WashPaint.PaperShade : new Color(0.72f, 0.75f, 0.74f),
+                    0.055f, _seed + i * 3f);
+            }
+            WashPaint.Grain(this, W, H, _seed + 91f);
+            // 画面四周淡淡的纸边水痕
+            WashPaint.WaterEdge(this, new Vector2(6, 8),
+                new Vector2(W - 6, 8 + (WashPaint.H(_seed + 2f, _seed + 0.77f) - 0.5f) * 3f),
+                WashPaint.InkSoft, _seed + 3f);
+            WashPaint.WaterEdge(this, new Vector2(6, H - 8), new Vector2(W - 6, H - 8),
+                WashPaint.InkSoft, _seed + 5f);
         }
-        // ---------- 住家：炕 / 灶台 / 桌子 / 柜子 ----------
-        private void DrawResidence(float W, float H, int variant)
+
+        private float H(float n) => WashPaint.H(n, _seed + 0.77f);
+        private Color Shade(Color c, float k = 0.72f) => new(c.R * k, c.G * k, c.B * k, c.A);
+        private Color WithA(Color c, float a) => new(c.R, c.G, c.B, a);
+
+        // ---------- 共用：墙 / 地 ----------
+        private void DrawWallAndFloor(float W, float Hh, float fy, Color wall, float seed)
+        {
+            // 后墙：上浅下深的水彩罩染
+            // v3.64b：主罩染浓度下调，让纸白留白透出来 —— 钢笔「淡」彩，
+            // 不是把整面墙涂满不透明色。
+            WashPaint.Wash(this, new Rect2(0, 0, W, fy), WashPaint.PaperLit, 0.22f, seed + 1f, 3);
+            WashPaint.Wash(this, new Rect2(0, 0, W, fy), wall, 0.31f, seed + 2f, 4);
+            WashPaint.Wash(this, new Rect2(0, fy * 0.62f, W, fy * 0.38f), Shade(wall), 0.20f, seed + 4f, 3);
+
+            // 墙板横缝：断续手绘墨线，轻重不一
+            for (float y = 34f; y < fy - 6f; y += 44f)
+            {
+                float seg = 0.6f + H(y) * 0.4f;
+                WashPaint.Pen(this, new Vector2(0, y), new Vector2(W * seg, y + (H(y + 1f) - 0.5f) * 2f),
+                    0.9f, WithA(WashPaint.InkSoft, 0.55f), seed + y, 1.4f);
+                if (seg < 0.98f)
+                    WashPaint.Pen(this, new Vector2(W * (seg + 0.04f), y + 1f),
+                        new Vector2(W, y - 0.5f), 0.8f, WithA(WashPaint.InkSoft, 0.40f), seed + y + 7f, 1.2f);
+            }
+            // 墙角排线阴影
+            WashPaint.Hatch(this, new Rect2(0, 0, 34, fy), 9, WashPaint.InkSoft, seed + 21f);
+            WashPaint.Hatch(this, new Rect2(W - 34, 0, 34, fy), 9, WashPaint.InkSoft, seed + 31f);
+
+            // 地面：土黄 / 水泥灰罩染 + 透视斜板缝
+            WashPaint.Wash(this, new Rect2(0, fy, W, Hh - fy), Shade(wall, 0.78f), 0.40f, seed + 8f, 4);
+            WashPaint.Pen(this, new Vector2(0, fy), new Vector2(W, fy), 1.6f, WashPaint.Ink, seed + 11f, 1.2f);
+            for (float x = 10f; x < W + 90f; x += 62f)
+                WashPaint.Pen(this, new Vector2(x, fy), new Vector2(x - 78f, Hh),
+                    0.85f, WithA(WashPaint.InkSoft, 0.55f), seed + x, 1.6f);
+            WashPaint.WaterEdge(this, new Vector2(0, fy + 12f), new Vector2(W, fy + 8f),
+                WashPaint.InkSoft, seed + 13f);
+        }
+
+        /// <summary>纸窗：深蓝夜色水彩 + 木格墨线 + 月色柔晕。</summary>
+        private void DrawPaperWindow(float x, float y, float w, float h, float seed)
+        {
+            WashPaint.Wash(this, new Rect2(x, y, w, h), WashPaint.NightBlue, 0.82f, seed + 1f, 4);
+            // 窗纸受月光照亮的一角
+            WashPaint.Bloom(this, new Vector2(x + w * 0.72f, y + h * 0.30f), 22f,
+                new Color(0.92f, 0.90f, 0.72f), 0.55f, seed);
+            WashPaint.InkRect(this, new Rect2(x, y, w, h), 2.2f, WashPaint.Ink, seed + 2f);
+            WashPaint.Pen(this, new Vector2(x + w / 2, y), new Vector2(x + w / 2, y + h),
+                1.5f, WashPaint.Ink, seed + 3f);
+            WashPaint.Pen(this, new Vector2(x, y + h / 2), new Vector2(x + w, y + h / 2),
+                1.5f, WashPaint.Ink, seed + 4f);
+            WashPaint.Hatch(this, new Rect2(x + 2, y + h - 24, w - 4, 22), 6, WashPaint.Ink, seed + 5f);
+        }
+
+        /// <summary>木桌：水彩木色罩染 + 手绘墨线 + 桌腿排线。</summary>
+        private void DrawTable(float x, float y, float w, float seed)
+        {
+            WashPaint.Wash(this, new Rect2(x, y, w, 16f), WashPaint.Wood, 0.72f, seed, 3);
+            WashPaint.InkRect(this, new Rect2(x, y, w, 16f), 1.6f, WashPaint.Ink, seed + 1f);
+            WashPaint.Pen(this, new Vector2(x + 4, y + 4), new Vector2(x + w - 4, y + 4),
+                0.8f, WithA(WashPaint.InkSoft, 0.6f), seed + 2f);
+            foreach (float lx in new[] { x + 20f, x + w - 20f })
+            {
+                WashPaint.Wash(this, new Rect2(lx - 5f, y + 16f, 10f, 92f), WashPaint.WoodDark, 0.62f, seed + lx, 2);
+                WashPaint.Pen(this, new Vector2(lx, y + 16f), new Vector2(lx + (H(lx) - 0.5f) * 4f, y + 108f),
+                    3.2f, WashPaint.Ink, seed + lx + 1f);
+            }
+            WashPaint.Hatch(this, new Rect2(x, y + 16f, w, 20f), 10, WashPaint.Ink, seed + 7f);
+        }
+
+        /// <summary>木箱 / 弹药箱：水彩木色 + 板缝 + 铁扣。</summary>
+        private void DrawCrate(float x, float y, float w, float h, float seed, bool locked = false)
+        {
+            WashPaint.Wash(this, new Rect2(x, y, w, h), WashPaint.Wood, 0.66f, seed, 3);
+            WashPaint.Wash(this, new Rect2(x, y + h * 0.62f, w, h * 0.38f), WashPaint.WoodDark, 0.40f, seed + 2f, 2);
+            WashPaint.InkRect(this, new Rect2(x, y, w, h), 1.9f, WashPaint.Ink, seed + 3f);
+            WashPaint.Pen(this, new Vector2(x, y + h * 0.46f), new Vector2(x + w, y + h * 0.46f),
+                1.1f, WithA(WashPaint.Ink, 0.75f), seed + 4f);
+            // 斜撑
+            WashPaint.Pen(this, new Vector2(x + 5, y + 5), new Vector2(x + w - 5, y + h - 5),
+                1.0f, WithA(WashPaint.InkSoft, 0.55f), seed + 5f);
+            if (locked)
+            {
+                WashPaint.Bloom(this, new Vector2(x + w / 2, y + h * 0.46f), 12f,
+                    new Color(0.40f, 0.36f, 0.30f), 0.35f, seed + 6f);
+                DrawRect(new Rect2(x + w / 2 - 8f, y + h * 0.40f, 16f, 14f),
+                    new Color(0.36f, 0.32f, 0.26f, 0.85f));
+                WashPaint.InkRect(this, new Rect2(x + w / 2 - 8f, y + h * 0.40f, 16f, 14f),
+                    1.1f, WashPaint.Ink, seed + 7f);
+            }
+            WashPaint.Hatch(this, new Rect2(x, y + h - 14f, w, 12f), 7, WashPaint.Ink, seed + 8f);
+        }
+
+        // ---------- 住家：土炕 / 灶台 / 木桌 / 柜子 / 水缸 ----------
+        private void DrawResidence(float W, float Hh, int variant)
         {
             bool flip = variant != 0;
-            float fy = H * 0.64f;
+            float fy = Hh * 0.64f;
+            DrawWallAndFloor(W, Hh, fy, WashPaint.WallWarm, _seed + 10f);
 
-            // 后墙（暖色木墙）
-            DrawRect(new Rect2(0, 0, W, fy), new Color(0.18f, 0.14f, 0.11f));
-            for (float y = 30; y < fy; y += 42)
-                DrawLine(new Vector2(0, y), new Vector2(W, y), new Color(0.13f, 0.10f, 0.08f), 1);
+            // 纸窗（左右随变体）
+            float wx = flip ? W - 196f : 36f;
+            DrawPaperWindow(wx, 36f, 154f, 108f, _seed + 20f);
 
-            // 地板（透视斜线）
-            DrawRect(new Rect2(0, fy, W, H - fy), new Color(0.11f, 0.085f, 0.06f));
-            for (float x = 12; x < W; x += 56)
-                DrawLine(new Vector2(x, fy), new Vector2(x - 70, H), new Color(0.075f, 0.058f, 0.04f), 1);
+            // 土炕：砖台 + 层叠被褥（水彩罩染，不再是纯色矩形）
+            float kx = flip ? W - 262f : 38f, ky = fy - 92f, kw = 224f, kh = 90f;
+            WashPaint.Wash(this, new Rect2(kx, ky, kw, kh), WashPaint.WallWarm, 0.62f, _seed + 30f, 3);
+            WashPaint.InkRect(this, new Rect2(kx, ky, kw, kh), 1.8f, WashPaint.Ink, _seed + 31f);
+            for (float bx = kx + 16f; bx < kx + kw - 10f; bx += 34f)
+                WashPaint.Pen(this, new Vector2(bx, ky + 4), new Vector2(bx, ky + kh - 4),
+                    0.8f, WithA(WashPaint.InkSoft, 0.5f), _seed + bx);
+            // 叠好的棉被（两床，蓝灰 + 米白）
+            WashPaint.WashPoly(this, new[] {
+                new Vector2(kx + 14, ky + 10), new Vector2(kx + kw - 16, ky + 8),
+                new Vector2(kx + kw - 12, ky + 34), new Vector2(kx + 12, ky + 36),
+            }, WashPaint.ClothBlue, 0.78f, _seed + 32f);
+            WashPaint.WashPoly(this, new[] {
+                new Vector2(kx + 20, ky + 38), new Vector2(kx + kw - 22, ky + 36),
+                new Vector2(kx + kw - 18, ky + 58), new Vector2(kx + 18, ky + 60),
+            }, WashPaint.PaperLit, 0.72f, _seed + 33f);
+            WashPaint.Pen(this, new Vector2(kx + 14, ky + 36), new Vector2(kx + kw - 12, ky + 34),
+                1.1f, WashPaint.Ink, _seed + 34f);
+            WashPaint.Hatch(this, new Rect2(kx + 10, ky + kh - 20, kw - 20, 18), 9, WashPaint.Ink, _seed + 35f);
 
-            // 夜窗（外头初秋夜色 + 月）— variant 决定左右
-            float wx = flip ? W - 184f : 34f, wy = 34f, ww = 150f, wh = 104f;
-            DrawRect(new Rect2(wx, wy, ww, wh), new Color(0.05f, 0.07f, 0.12f));
-            DrawLine(new Vector2(wx + ww / 2, wy), new Vector2(wx + ww / 2, wy + wh), new Color(0.22f, 0.17f, 0.13f), 3);
-            DrawLine(new Vector2(wx, wy + wh / 2), new Vector2(wx + ww, wy + wh / 2), new Color(0.22f, 0.17f, 0.13f), 3);
-            DrawCircle(new Vector2(wx + 112, wy + 30), 12, new Color(0.86f, 0.83f, 0.60f, 0.9f));
+            // 灶台：砖砌 + 灶口暖光 + 铁锅
+            float sx = flip ? 62f : W - 186f, sy = Hh - 158f, sw = 132f, sh = 128f;
+            WashPaint.Wash(this, new Rect2(sx, sy, sw, sh), Shade(WashPaint.WallWarm, 0.62f), 0.70f, _seed + 40f, 3);
+            WashPaint.InkRect(this, new Rect2(sx, sy, sw, sh), 2.0f, WashPaint.Ink, _seed + 41f);
+            for (float by = sy + 24f; by < sy + sh; by += 26f)
+                WashPaint.Pen(this, new Vector2(sx, by), new Vector2(sx + sw, by),
+                    0.8f, WithA(WashPaint.InkSoft, 0.55f), _seed + by);
+            // 灶膛 + 火光水痕
+            WashPaint.Bloom(this, new Vector2(sx + sw * 0.5f, sy + 76f), 34f, WashPaint.Ember, 0.50f, _seed + 42f);
+            DrawCircle(new Vector2(sx + sw * 0.5f, sy + 76f), 17f, new Color(0.16f, 0.13f, 0.11f, 0.85f));
+            WashPaint.Bloom(this, new Vector2(sx + sw * 0.5f, sy + 76f), 11f,
+                new Color(0.95f, 0.72f, 0.36f), 0.60f, _seed + 43f);
+            // 铁锅（墨线椭圆 + 水彩罩染）
+            WashPaint.WashPoly(this, new[] {
+                new Vector2(sx + 12, sy - 6), new Vector2(sx + sw - 12, sy - 6),
+                new Vector2(sx + sw - 26, sy + 12), new Vector2(sx + 26, sy + 12),
+            }, new Color(0.28f, 0.30f, 0.31f), 0.78f, _seed + 44f);
+            WashPaint.Pen(this, new Vector2(sx + 12, sy - 6), new Vector2(sx + sw - 12, sy - 6),
+                2.0f, WashPaint.Ink, _seed + 45f);
 
-            // 炕（床，靠一侧的台子）
-            float kx = flip ? W - 250f : 36f, ky = fy - 86f, kw = 214f, kh = 86f;
-            DrawRect(new Rect2(kx, ky, kw, kh), new Color(0.20f, 0.15f, 0.11f));
-            DrawRect(new Rect2(kx + 10, ky + 10, kw - 20, 18), new Color(0.30f, 0.24f, 0.18f)); // 被褥
-            DrawRect(new Rect2(kx + 10, ky + 34, kw - 20, 16), new Color(0.26f, 0.21f, 0.16f));
-            for (float x = kx + 14; x < kx + kw - 10; x += 30)
-                DrawLine(new Vector2(x, ky), new Vector2(x, ky + kh), new Color(0.14f, 0.11f, 0.08f), 1);
+            // 木桌（中下）
+            DrawTable(W * 0.39f, Hh - 126f, 236f, _seed + 50f);
+            // 桌上的粗瓷碗 + 一小叠纸
+            WashPaint.Bloom(this, new Vector2(W * 0.39f + 58f, Hh - 132f), 14f,
+                WashPaint.PaperLit, 0.42f, _seed + 51f);
+            WashPaint.Pen(this, new Vector2(W * 0.39f + 44f, Hh - 130f),
+                new Vector2(W * 0.39f + 72f, Hh - 130f), 1.6f, WashPaint.Ink, _seed + 52f);
+            WashPaint.WashPoly(this, new[] {
+                new Vector2(W * 0.39f + 150, Hh - 138), new Vector2(W * 0.39f + 194, Hh - 140),
+                new Vector2(W * 0.39f + 196, Hh - 126), new Vector2(W * 0.39f + 148, Hh - 126),
+            }, WashPaint.PaperLit, 0.80f, _seed + 53f);
 
-            // 灶台（另一侧，砖砌 + 灶火）
-            float sx = flip ? 60f : W - 168f, sy = H - 150f, sw = 124f, sh = 124f;
-            DrawRect(new Rect2(sx, sy, sw, sh), new Color(0.08f, 0.07f, 0.06f));
-            DrawRect(new Rect2(sx + 14, sy + 12, sw - 28, 12), new Color(0.13f, 0.10f, 0.08f));
-            DrawCircle(new Vector2(sx + sw / 2, sy + 64), 24, new Color(0.95f, 0.55f, 0.22f, 0.5f));
-            DrawCircle(new Vector2(sx + sw / 2, sy + 64), 12, new Color(1.0f, 0.75f, 0.35f, 0.6f));
+            // 柜子（墙角，双门 + 把手）
+            float cx = flip ? 300f : W - 158f, cy = Hh - 156f, cw = 126f, ch = 132f;
+            WashPaint.Wash(this, new Rect2(cx, cy, cw, ch), WashPaint.WoodDark, 0.62f, _seed + 60f, 3);
+            WashPaint.InkRect(this, new Rect2(cx, cy, cw, ch), 1.9f, WashPaint.Ink, _seed + 61f);
+            WashPaint.Pen(this, new Vector2(cx + cw / 2, cy), new Vector2(cx + cw / 2, cy + ch),
+                1.3f, WashPaint.Ink, _seed + 62f);
+            DrawCircle(new Vector2(cx + cw / 2 - 12, cy + ch / 2), 3f, new Color(0.62f, 0.55f, 0.40f));
+            DrawCircle(new Vector2(cx + cw / 2 + 12, cy + ch / 2), 3f, new Color(0.62f, 0.55f, 0.40f));
+            WashPaint.Hatch(this, new Rect2(cx + 4, cy + 4, cw - 8, 18), 7, WashPaint.Ink, _seed + 63f);
 
-            // 桌子（中下）
-            float tx = W * 0.40f, ty = H - 120f, tw = 236f, th = 16f;
-            DrawRect(new Rect2(tx, ty, tw, th), new Color(0.21f, 0.15f, 0.10f));
-            DrawLine(new Vector2(tx + 20, ty + th), new Vector2(tx + 20, H - 28), new Color(0.15f, 0.10f, 0.07f), 6);
-            DrawLine(new Vector2(tx + tw - 20, ty + th), new Vector2(tx + tw - 20, H - 28), new Color(0.15f, 0.10f, 0.07f), 6);
-
-            // 柜子（一侧墙角）
-            float cx = flip ? 300f : W - 150f, cy = H - 150f, cw = 120f, ch = 128f;
-            DrawRect(new Rect2(cx, cy, cw, ch), new Color(0.13f, 0.10f, 0.07f));
-            DrawLine(new Vector2(cx + cw / 2, cy), new Vector2(cx + cw / 2, cy + ch), new Color(0.09f, 0.07f, 0.05f), 3);
-            DrawCircle(new Vector2(cx + cw / 2 - 12, cy + ch / 2), 3, new Color(0.4f, 0.34f, 0.26f));
-            DrawCircle(new Vector2(cx + cw / 2 + 12, cy + ch / 2), 3, new Color(0.4f, 0.34f, 0.26f));
-
-            // 水缸（点缀）
-            float vx = flip ? W - 210f : 210f;
-            DrawCircle(new Vector2(vx, H - 36f), 22, new Color(0.10f, 0.12f, 0.13f));
-            DrawCircle(new Vector2(vx, H - 36f), 16, new Color(0.16f, 0.20f, 0.22f, 0.7f));
+            // 水缸（点缀）+ 墙上的干辣椒串（生活气）
+            float vx = flip ? W - 220f : 218f;
+            WashPaint.WashPoly(this, new[] {
+                new Vector2(vx - 22, Hh - 58), new Vector2(vx + 22, Hh - 58),
+                new Vector2(vx + 16, Hh - 16), new Vector2(vx - 16, Hh - 16),
+            }, new Color(0.36f, 0.40f, 0.42f), 0.72f, _seed + 70f);
+            WashPaint.Pen(this, new Vector2(vx - 22, Hh - 58), new Vector2(vx + 22, Hh - 58),
+                1.6f, WashPaint.Ink, _seed + 71f);
+            for (int i = 0; i < 5; i++)
+            {
+                float cxp = (flip ? 60f : W - 90f) + (H(i + 80f) - 0.5f) * 26f;
+                float cyp = 150f + i * 17f;
+                WashPaint.Pen(this, new Vector2(cxp, cyp), new Vector2(cxp + 9f, cyp + 8f),
+                    2.6f, new Color(0.62f, 0.25f, 0.16f, 0.75f), _seed + 72f + i);
+            }
+            // 地面水渍与墙脚阴影
+            WashPaint.WaterEdge(this, new Vector2(0, Hh - 24f), new Vector2(W, Hh - 30f),
+                WashPaint.InkSoft, _seed + 75f);
         }
 
-        // ---------- 通信据点机房：发电机 / 电闸 / 发信机 / 地图桌 ----------
-        private void DrawCommOutpost(float W, float H)
+        // ---------- 通信据点机房（1931 野战电台史实布局） ----------
+        /// <summary>
+        /// 史实依据：1931 年东北军 / 关东军野战通信据点为「收发报机 + 手摇发电机
+        /// （或蓄电池）+ 电键 + 耳机 + 天线引入 + 电闸配电 + 密码本 / 作战地图 + 电台桌」
+        /// 的组合。布置按操作动线：左墙配电与人力发电 → 中桌操作电键、抄收电文
+        /// → 右侧发信机靠天线引入口；墙上挂作战地图，地面走线绕开踏板。
+        /// </summary>
+        private void DrawCommOutpost(float W, float Hh)
         {
-            float fy = H * 0.66f;
+            float fy = Hh * 0.66f;
+            DrawWallAndFloor(W, Hh, fy, WashPaint.WallCool, _seed + 110f);
 
-            // 后墙（机房混凝土灰）
-            DrawRect(new Rect2(0, 0, W, fy), new Color(0.15f, 0.15f, 0.16f));
-            for (float y = 28; y < fy; y += 40)
-                DrawLine(new Vector2(0, y), new Vector2(W, y), new Color(0.11f, 0.11f, 0.12f), 1);
+            // 墙上作战地图（米黄纸 + 铁路线 + 朱红圈注 + 图钉）
+            float mx = W * 0.30f, my = 28f, mw = 232f, mh = 138f;
+            WashPaint.Wash(this, new Rect2(mx, my, mw, mh), WashPaint.PaperLit, 0.86f, _seed + 120f, 3);
+            WashPaint.InkRect(this, new Rect2(mx, my, mw, mh), 1.8f, WashPaint.Ink, _seed + 121f);
+            WashPaint.Pen(this, new Vector2(mx + 14, my + 62), new Vector2(mx + mw - 16, my + 50),
+                1.8f, WithA(WashPaint.InkSoft, 0.8f), _seed + 122f);
+            WashPaint.Pen(this, new Vector2(mx + 14, my + 100), new Vector2(mx + mw - 40, my + 70),
+                1.4f, WithA(WashPaint.InkSoft, 0.7f), _seed + 123f);
+            DrawArc(new Vector2(mx + 120, my + 80), 20f, 0, Mathf.Tau, 18,
+                new Color(WashPaint.Red.R, WashPaint.Red.G, WashPaint.Red.B, 0.75f), 1.8f, true);
+            DrawCircle(new Vector2(mx + 22, my + 16), 3.2f, WashPaint.Red);
+            DrawCircle(new Vector2(mx + mw - 22, my + 16), 3.2f, WashPaint.Red);
+            WashPaint.Hatch(this, new Rect2(mx + 4, my + mh - 16, mw - 8, 14), 8, WashPaint.Ink, _seed + 124f);
 
-            // 地板（木箱拼地）
-            DrawRect(new Rect2(0, fy, W, H - fy), new Color(0.09f, 0.075f, 0.06f));
-            for (float x = 12; x < W; x += 54)
-                DrawLine(new Vector2(x, fy), new Vector2(x - 66, H), new Color(0.06f, 0.05f, 0.04f), 1);
+            // 左墙：电闸箱（刀闸 + 瓷瓶 + 导线）
+            float ex = 22f, ey = 42f, ew = 152f, eh = 100f;
+            WashPaint.Wash(this, new Rect2(ex, ey, ew, eh), new Color(0.30f, 0.30f, 0.29f), 0.72f, _seed + 130f, 3);
+            WashPaint.InkRect(this, new Rect2(ex, ey, ew, eh), 2.0f, WashPaint.Ink, _seed + 131f);
+            for (int i = 0; i < 3; i++)
+            {
+                float px = ex + 30f + i * 44f;
+                DrawCircle(new Vector2(px, ey + 30f), 5f, new Color(0.78f, 0.74f, 0.62f, 0.9f));
+                WashPaint.Pen(this, new Vector2(px, ey + 34f), new Vector2(px + (i - 1) * 8f, ey + 62f),
+                    2.2f, new Color(0.45f, 0.40f, 0.32f), _seed + 132f + i);
+            }
+            WashPaint.Pen(this, new Vector2(ex + 8, ey + eh - 14), new Vector2(ex + ew - 8, ey + eh - 14),
+                1.4f, WashPaint.Ink, _seed + 135f);
 
-            // 作战地图（墙上，居中靠上）
-            float mapX = W * 0.30f;
-            DrawRect(new Rect2(mapX, 30, 220, 130), new Color(0.22f, 0.19f, 0.14f));
-            DrawLine(new Vector2(mapX + 14, 60), new Vector2(mapX + 206, 60), new Color(0.55f, 0.35f, 0.18f), 2);
-            DrawLine(new Vector2(mapX + 14, 90), new Vector2(mapX + 160, 130), new Color(0.55f, 0.35f, 0.18f), 2);
-            DrawCircle(new Vector2(mapX + 120, 95), 5, new Color(0.7f, 0.2f, 0.18f));
+            // 手摇发电机（木箱机身 + 飞轮 + 曲柄 + 皮带）
+            float gx = 36f, gy = 156f, gw = 138f, gh = 104f;
+            WashPaint.Wash(this, new Rect2(gx, gy, gw, gh), WashPaint.WoodDark, 0.66f, _seed + 140f, 3);
+            WashPaint.InkRect(this, new Rect2(gx, gy, gw, gh), 2.0f, WashPaint.Ink, _seed + 141f);
+            DrawArc(new Vector2(gx + 52f, gy + 54f), 26f, 0, Mathf.Tau, 20,
+                new Color(0.34f, 0.32f, 0.28f, 0.9f), 4.0f, true);
+            DrawCircle(new Vector2(gx + 52f, gy + 54f), 8f, new Color(0.26f, 0.24f, 0.20f, 0.9f));
+            WashPaint.Pen(this, new Vector2(gx + 52f, gy + 54f), new Vector2(gx + 76f, gy + 34f),
+                3.0f, WashPaint.Ink, _seed + 142f);
+            DrawCircle(new Vector2(gx + 78f, gy + 32f), 6f, new Color(0.52f, 0.44f, 0.32f));
+            // 引到电闸箱的导线
+            WashPaint.Pen(this, new Vector2(gx + gw - 6f, gy + 12f), new Vector2(ex + ew - 10f, ey + eh + 6f),
+                1.6f, WithA(WashPaint.Ink, 0.8f), _seed + 143f, 3.2f);
+            WashPaint.Hatch(this, new Rect2(gx, gy + gh - 16, gw, 14), 7, WashPaint.Ink, _seed + 144f);
 
-            // 电闸箱（左墙）
-            DrawRect(new Rect2(20, 40, 150, 96), new Color(0.10f, 0.10f, 0.11f));
-            DrawLine(new Vector2(40, 70), new Vector2(150, 70), new Color(0.5f, 0.42f, 0.18f), 3); // 闸刀
-            DrawLine(new Vector2(95, 58), new Vector2(95, 120), new Color(0.30f, 0.30f, 0.32f), 2);
+            // 电台桌（中下）：铺电报纸、电键、耳机、油灯
+            float tx = W * 0.33f, ty = Hh - 138f, tw = 292f;
+            DrawTable(tx, ty, tw, _seed + 150f);
+            // 电报纸
+            WashPaint.WashPoly(this, new[] {
+                new Vector2(tx + 24, ty - 26), new Vector2(tx + 128, ty - 30),
+                new Vector2(tx + 130, ty - 4), new Vector2(tx + 22, ty - 4),
+            }, WashPaint.PaperLit, 0.92f, _seed + 151f);
+            for (int i = 0; i < 4; i++)
+                WashPaint.Pen(this, new Vector2(tx + 30, ty - 22 + i * 5f),
+                    new Vector2(tx + 118 - i * 8f, ty - 22 + i * 5f), 0.8f,
+                    WithA(WashPaint.InkSoft, 0.6f), _seed + 152f + i);
+            // 电键（发报键）：底座 + 杠杆 +  knob
+            WashPaint.Wash(this, new Rect2(tx + 162f, ty - 16f, 58f, 14f),
+                new Color(0.30f, 0.28f, 0.24f), 0.80f, _seed + 156f, 2);
+            WashPaint.InkRect(this, new Rect2(tx + 162f, ty - 16f, 58f, 14f), 1.4f, WashPaint.Ink, _seed + 157f);
+            WashPaint.Pen(this, new Vector2(tx + 168f, ty - 16f), new Vector2(tx + 214f, ty - 28f),
+                2.4f, WashPaint.Ink, _seed + 158f);
+            DrawCircle(new Vector2(tx + 214f, ty - 30f), 7f, new Color(0.24f, 0.21f, 0.18f, 0.9f));
+            // 耳机（两个听筒 + 弧形头带）
+            DrawArc(new Vector2(tx + 252f, ty - 6f), 17f, Mathf.Pi, Mathf.Tau, 12,
+                WashPaint.Ink, 2.2f, true);
+            DrawCircle(new Vector2(tx + 235f, ty - 4f), 5f, new Color(0.28f, 0.26f, 0.23f));
+            DrawCircle(new Vector2(tx + 269f, ty - 4f), 5f, new Color(0.28f, 0.26f, 0.23f));
+            // 油灯（暖光水痕）
+            WashPaint.Bloom(this, new Vector2(tx + 16f, ty - 24f), 22f,
+                new Color(0.92f, 0.72f, 0.38f), 0.52f, _seed + 160f);
+            WashPaint.Pen(this, new Vector2(tx + 10f, ty - 4f), new Vector2(tx + 22f, ty - 4f),
+                3.0f, WashPaint.Ink, _seed + 161f);
 
-            // 发电机（左，电闸旁）
-            DrawRect(new Rect2(34, 150, 130, 104), new Color(0.14f, 0.12f, 0.10f));
-            DrawCircle(new Vector2(99, 202), 26, new Color(0.30f, 0.27f, 0.22f));
-            DrawCircle(new Vector2(99, 202), 9, new Color(0.10f, 0.09f, 0.07f));
-            DrawLine(new Vector2(99, 150), new Vector2(99, 110), new Color(0.25f, 0.22f, 0.18f), 3);
+            // 右墙：无线电发信机（铁箱 + 表盘 + 旋钮 + 散热栅 + 电子管）
+            float rx = W - 244f, ry = 34f, rw = 208f, rh = 104f;
+            WashPaint.Wash(this, new Rect2(rx, ry, rw, rh), new Color(0.36f, 0.35f, 0.32f), 0.74f, _seed + 170f, 3);
+            WashPaint.InkRect(this, new Rect2(rx, ry, rw, rh), 2.2f, WashPaint.Ink, _seed + 171f);
+            // 波段表盘
+            DrawArc(new Vector2(rx + 46f, ry + 42f), 24f, 0, Mathf.Tau, 20,
+                new Color(0.86f, 0.82f, 0.68f, 0.9f), 7f, true);
+            DrawCircle(new Vector2(rx + 46f, ry + 42f), 18f, new Color(0.78f, 0.74f, 0.60f, 0.75f));
+            WashPaint.Pen(this, new Vector2(rx + 46f, ry + 42f), new Vector2(rx + 58f, ry + 30f),
+                1.8f, WashPaint.Red, _seed + 172f);
+            // 旋钮
+            for (int i = 0; i < 3; i++)
+            {
+                float kx = rx + 104f + i * 34f;
+                DrawCircle(new Vector2(kx, ry + 42f), 9f, new Color(0.22f, 0.20f, 0.18f, 0.9f));
+                DrawCircle(new Vector2(kx, ry + 42f), 4f, new Color(0.62f, 0.56f, 0.44f, 0.9f));
+            }
+            // 散热栅
+            for (int i = 0; i < 7; i++)
+                WashPaint.Pen(this, new Vector2(rx + 18f + i * 26f, ry + 76f),
+                    new Vector2(rx + 18f + i * 26f, ry + 92f), 1.2f,
+                    WithA(WashPaint.Ink, 0.7f), _seed + 173f + i);
+            // 天线引入线：穿墙上出画，带绝缘子
+            WashPaint.Pen(this, new Vector2(rx + rw - 20f, ry), new Vector2(rx + rw - 20f, -26f),
+                2.0f, WashPaint.Ink, _seed + 180f);
+            DrawCircle(new Vector2(rx + rw - 20f, ry + 4f), 6f, new Color(0.80f, 0.76f, 0.62f, 0.9f));
+            WashPaint.Pen(this, new Vector2(rx + rw - 20f, -26f), new Vector2(W - 26f, -34f),
+                1.6f, WashPaint.InkSoft, _seed + 181f);
 
-            // 地图桌（中下，桌上铺地图）
-            float tx = W * 0.34f, ty = H - 134f, tw = 280f, th = 16f;
-            DrawRect(new Rect2(tx, ty, tw, th), new Color(0.20f, 0.16f, 0.11f));
-            DrawLine(new Vector2(tx + 24, ty + th), new Vector2(tx + 24, H - 26), new Color(0.14f, 0.11f, 0.08f), 6);
-            DrawLine(new Vector2(tx + tw - 24, ty + th), new Vector2(tx + tw - 24, H - 26), new Color(0.14f, 0.11f, 0.08f), 6);
-            DrawRect(new Rect2(tx + 30, ty - 30, tw - 60, 28), new Color(0.23f, 0.20f, 0.15f));
-
-            // 发信机（右墙，天线伸出画外）
-            DrawRect(new Rect2(W - 236, 36, 200, 96), new Color(0.14f, 0.12f, 0.10f));
-            DrawLine(new Vector2(W - 136, 36), new Vector2(W - 136, -30), new Color(0.20f, 0.17f, 0.13f), 4);
-            DrawCircle(new Vector2(W - 136, -30), 8, new Color(0.20f, 0.17f, 0.13f));
-            DrawRect(new Rect2(W - 210, 70, 70, 40), new Color(0.10f, 0.09f, 0.08f)); // 电键
-
-            // 木箱（左中）
-            DrawRect(new Rect2(250, H - 120, 96, 96), new Color(0.18f, 0.13f, 0.09f));
-            DrawLine(new Vector2(250, H - 72), new Vector2(346, H - 72), new Color(0.12f, 0.09f, 0.06f), 2);
-            DrawRect(new Rect2(360, H - 104, 80, 80), new Color(0.16f, 0.12f, 0.08f));
+            // 蓄电池组（木箱里的玻璃瓶）+ 备用木箱
+            DrawCrate(250f, Hh - 122f, 100f, 98f, _seed + 190f);
+            for (int i = 0; i < 3; i++)
+            {
+                float bx = 264f + i * 30f;
+                WashPaint.Wash(this, new Rect2(bx, Hh - 138f, 20f, 24f),
+                    new Color(0.44f, 0.52f, 0.48f), 0.70f, _seed + 191f + i, 2);
+                WashPaint.InkRect(this, new Rect2(bx, Hh - 138f, 20f, 24f), 1.0f, WashPaint.Ink, _seed + 194f + i);
+            }
+            DrawCrate(366f, Hh - 108f, 84f, 84f, _seed + 200f);
+            // 沿地走线（从发电机绕到电台桌，再上发信机）
+            WashPaint.Pen(this, new Vector2(gx + gw, Hh - 40f), new Vector2(tx - 10f, Hh - 44f),
+                1.6f, WithA(WashPaint.Ink, 0.7f), _seed + 210f, 4.0f);
+            WashPaint.Pen(this, new Vector2(tx + tw + 8f, Hh - 46f), new Vector2(rx + 20f, ry + rh + 22f),
+                1.4f, WithA(WashPaint.Ink, 0.6f), _seed + 211f, 4.0f);
+            // 墙角废墟（灰烬水彩团）与遗书纸片
+            WashPaint.Bloom(this, new Vector2(W - 74f, Hh - 56f), 34f,
+                new Color(0.32f, 0.30f, 0.28f), 0.42f, _seed + 220f);
+            WashPaint.WashPoly(this, new[] {
+                new Vector2(W - 108, Hh - 66), new Vector2(W - 62, Hh - 70),
+                new Vector2(W - 54, Hh - 48), new Vector2(W - 104, Hh - 46),
+            }, WashPaint.PaperLit, 0.66f, _seed + 221f);
         }
 
-        // ---------- 仓库 / 焚毁的院落：货架 / 木箱 / 灰烬 ----------
-        private void DrawBurnt(float W, float H)
+        // ---------- 仓库 / 焚毁的院落：焦梁 / 破墙透光 / 灰烬 ----------
+        private void DrawBurnt(float W, float Hh)
         {
-            float fy = H * 0.62f;
+            float fy = Hh * 0.62f;
+            // 焦墙：深灰褐罩染，不是纯黑块
+            DrawWallAndFloor(W, Hh, fy, WashPaint.Char, _seed + 310f);
+            WashPaint.Wash(this, new Rect2(0, 0, W, fy), new Color(0.14f, 0.12f, 0.11f), 0.55f, _seed + 311f, 4);
+            // 炭化纹理：不规则墨线 + 交叉排线
+            for (int i = 0; i < 12; i++)
+            {
+                float x = 20f + H(320f + i) * (W - 40f);
+                float y = 20f + H(330f + i) * (fy - 40f);
+                WashPaint.Pen(this, new Vector2(x, y), new Vector2(x + 30f + H(340f + i) * 40f, y + 22f),
+                    1.1f, WithA(WashPaint.Ink, 0.5f), _seed + 350f + i, 3f);
+            }
+            WashPaint.Hatch(this, new Rect2(W * 0.42f, 0, W * 0.34f, fy), 14,
+                WashPaint.Ink, _seed + 360f, 0.5f);
 
-            // 破墙（烧黑的砖，墙洞透光）
-            DrawRect(new Rect2(0, 0, W, fy), new Color(0.12f, 0.10f, 0.09f));
-            for (float y = 26; y < fy; y += 36)
-                DrawLine(new Vector2(0, y), new Vector2(W, y), new Color(0.08f, 0.07f, 0.06f), 1);
-            // 透光洞（右上方，外头天光）
-            DrawRect(new Rect2(W - 220, 30, 150, 120), new Color(0.20f, 0.22f, 0.24f, 0.55f));
-            DrawLine(new Vector2(W - 220, 30), new Vector2(W - 70, 30), new Color(0.05f, 0.05f, 0.05f), 4);
-            DrawLine(new Vector2(W - 220, 150), new Vector2(W - 70, 150), new Color(0.05f, 0.05f, 0.05f), 4);
-            DrawLine(new Vector2(W - 220, 30), new Vector2(W - 220, 150), new Color(0.05f, 0.05f, 0.05f), 4);
-            DrawLine(new Vector2(W - 70, 30), new Vector2(W - 70, 150), new Color(0.05f, 0.05f, 0.05f), 4);
+            // 透光破洞：冷蓝天光水痕 + 参差墨边
+            float hx = W - 232f, hy = 28f, hw = 162f, hh = 126f;
+            WashPaint.Wash(this, new Rect2(hx, hy, hw, hh), new Color(0.50f, 0.56f, 0.60f), 0.70f, _seed + 370f, 4);
+            WashPaint.Bloom(this, new Vector2(hx + hw * 0.5f, hy + hh * 0.4f), 46f,
+                WashPaint.PaperLit, 0.48f, _seed + 371f);
+            WashPaint.InkRect(this, new Rect2(hx, hy, hw, hh), 2.6f, WashPaint.Ink, _seed + 372f);
 
-            // 地面（焦土 + 斜梁）
-            DrawRect(new Rect2(0, fy, W, H - fy), new Color(0.08f, 0.07f, 0.06f));
-            DrawLine(new Vector2(120, fy), new Vector2(W - 40, H), new Color(0.06f, 0.05f, 0.04f), 1);
-            // 斜塌的房梁
-            DrawLine(new Vector2(40, 20), new Vector2(W * 0.5f, fy + 30), new Color(0.14f, 0.10f, 0.07f), 8);
-            DrawLine(new Vector2(W - 60, 10), new Vector2(W * 0.42f, fy + 50), new Color(0.14f, 0.10f, 0.07f), 8);
+            // 斜塌的房梁（粗墨线 + 焦木罩染，交叉）
+            WashPaint.WashPoly(this, new[] {
+                new Vector2(36, 12), new Vector2(66, 6), new Vector2(W * 0.52f + 12, fy + 34),
+                new Vector2(W * 0.52f - 10, fy + 40),
+            }, WashPaint.WoodDark, 0.72f, _seed + 380f);
+            WashPaint.Pen(this, new Vector2(44, 12), new Vector2(W * 0.52f, fy + 36),
+                7.0f, WashPaint.Ink, _seed + 381f, 3.0f);
+            WashPaint.WashPoly(this, new[] {
+                new Vector2(W - 64, 6), new Vector2(W - 34, 14), new Vector2(W * 0.42f + 10, fy + 52),
+                new Vector2(W * 0.42f - 12, fy + 46),
+            }, WashPaint.WoodDark, 0.66f, _seed + 382f);
+            WashPaint.Pen(this, new Vector2(W - 48, 10), new Vector2(W * 0.42f, fy + 48),
+                6.0f, WashPaint.Ink, _seed + 383f, 3.0f);
 
-            // 残货架（右中，断裂）
-            DrawRect(new Rect2(W - 250, 200, 150, 12), new Color(0.16f, 0.12f, 0.09f));
-            DrawRect(new Rect2(W - 235, 150, 40, 44), new Color(0.18f, 0.13f, 0.10f));
-            DrawRect(new Rect2(W - 175, 162, 46, 38), new Color(0.15f, 0.11f, 0.08f));
+            // 残货架（断裂木条）
+            float shx = W - 262f, shy = 196f;
+            WashPaint.Wash(this, new Rect2(shx, shy, 158f, 12f), WashPaint.WoodDark, 0.66f, _seed + 390f, 2);
+            WashPaint.Pen(this, new Vector2(shx - 4, shy), new Vector2(shx + 120f, shy + 4),
+                3.0f, WashPaint.Ink, _seed + 391f);
+            WashPaint.Pen(this, new Vector2(shx + 20, shy - 52f), new Vector2(shx + 18, shy),
+                3.0f, WashPaint.Ink, _seed + 392f);
+            DrawCrate(shx + 10f, shy - 50f, 44f, 40f, _seed + 393f);
+            DrawCrate(shx + 74f, shy - 38f, 48f, 34f, _seed + 394f);
 
-            // 木箱（中）
-            DrawRect(new Rect2(600, H - 128, 110, 104), new Color(0.17f, 0.12f, 0.08f));
-            DrawLine(new Vector2(600, H - 76), new Vector2(710, H - 76), new Color(0.11f, 0.08f, 0.05f), 2);
-            DrawRect(new Rect2(470, H - 110, 90, 90), new Color(0.15f, 0.11f, 0.07f));
+            // 木箱（中）+ 残桌（左）
+            DrawCrate(600f, Hh - 132f, 112f, 106f, _seed + 400f, locked: true);
+            DrawCrate(470f, Hh - 112f, 92f, 90f, _seed + 401f);
+            DrawTable(226f, Hh - 122f, 152f, _seed + 402f);
 
-            // 灰烬堆（中下，余烬）
-            DrawCircle(new Vector2(470, H - 34), 40, new Color(0.06f, 0.05f, 0.04f));
-            DrawCircle(new Vector2(452, H - 40), 6, new Color(0.9f, 0.4f, 0.12f, 0.7f));
-            DrawCircle(new Vector2(486, H - 30), 5, new Color(0.9f, 0.45f, 0.15f, 0.6f));
-            DrawCircle(new Vector2(470, H - 48), 4, new Color(0.95f, 0.5f, 0.18f, 0.5f));
-
-            // 残桌（左）
-            DrawRect(new Rect2(230, H - 118, 150, 14), new Color(0.13f, 0.10f, 0.07f));
-            DrawLine(new Vector2(250, H - 104), new Vector2(250, H - 30), new Color(0.10f, 0.08f, 0.05f), 5);
-            DrawLine(new Vector2(360, H - 104), new Vector2(360, H - 30), new Color(0.10f, 0.08f, 0.05f), 5);
+            // 灰烬堆（灰蓝水彩团 + 余烬）
+            WashPaint.Bloom(this, new Vector2(470f, Hh - 34f), 46f,
+                new Color(0.30f, 0.29f, 0.27f), 0.55f, _seed + 410f);
+            for (int i = 0; i < 5; i++)
+            {
+                float px = 440f + H(420f + i) * 70f;
+                float py = Hh - 30f - H(430f + i) * 18f;
+                WashPaint.Bloom(this, new Vector2(px, py), 7f, WashPaint.Ember, 0.46f, _seed + 440f + i);
+            }
+            // 地上散落的焦纸片
+            for (int i = 0; i < 4; i++)
+            {
+                float px = 120f + H(450f + i) * 300f;
+                float py = Hh - 40f - H(460f + i) * 60f;
+                WashPaint.WashPoly(this, new[] {
+                    new Vector2(px, py), new Vector2(px + 18, py - 3),
+                    new Vector2(px + 20, py + 10), new Vector2(px + 2, py + 12),
+                }, WashPaint.PaperShade, 0.60f, _seed + 470f + i);
+            }
+            WashPaint.WaterEdge(this, new Vector2(0, Hh - 20f), new Vector2(W, Hh - 26f),
+                WashPaint.InkSoft, _seed + 480f);
         }
     }
 }

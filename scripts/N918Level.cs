@@ -272,6 +272,11 @@ public partial class N918Level : Node2D
         BuildMidSmoke();
         BuildTerrain();
         BuildHouses();
+        // v3.64b: CoverArt 在构造函数里就入树并先落位一次，那时房屋还没建；
+        // 这里才是唯一能拿到完整门口/占地的时机，注入后重算落位。
+        _coverArt.DoorXs = _doorXsAll.ToArray();
+        _coverArt.HouseSpans = _houses.SelectMany(h => new[] { h.Position.X, h.HalfW * 2f }).ToArray();
+        _coverArt.RebuildLayout();
         BuildPlayer();
         BuildPickups();
         BuildTestimonies();
@@ -322,22 +327,35 @@ public partial class N918Level : Node2D
     /// </summary>
     private void BuildHouses()
     {
-        // 远景废墟列（不可进入背景）——初秋变体
-        AddHouse("f1", 460f + Jit(28), "house_posts_autumn", 250f, false, 14f);
-        AddHouse("f2", 1294f + Jit(42), "house_skeleton_near_autumn", 350f, false, 16f);
-        AddHouse("f4", 1680f + Jit(45), "house_posts_autumn", 210f, false, 19f);
-        AddHouse("f3", 3910f + Jit(35), "house_burned_near_autumn", 331f, false, 12f);
+        // v3.64: 固定播种错落布置（九一八 1931.9.18），与江桥不同相。
+        // 远景废墟连位置/尺寸/沉入深度都拉开，近景只动位置与地基高度。
+        var hr = new RandomNumberGenerator();
+        hr.Seed = 19310918;
+        AddHouse("f1", 460f + hr.RandfRange(-110f, 110f), "house_posts_autumn",
+            250f * hr.RandfRange(0.87f, 1.13f), false, 14f + hr.RandfRange(-6f, 9f), hr.RandfRange(-5f, 6f));
+        AddHouse("f2", 1294f + hr.RandfRange(-130f, 130f), "house_skeleton_near_autumn",
+            350f * hr.RandfRange(0.86f, 1.12f), false, 16f + hr.RandfRange(-7f, 8f), hr.RandfRange(-6f, 6f));
+        AddHouse("f4", 1680f + hr.RandfRange(-120f, 120f), "house_posts_autumn",
+            210f * hr.RandfRange(0.88f, 1.16f), false, 19f + hr.RandfRange(-8f, 7f), hr.RandfRange(-5f, 7f));
+        AddHouse("f3", 3910f + hr.RandfRange(-120f, 120f), "house_burned_near_autumn",
+            331f * hr.RandfRange(0.90f, 1.10f), false, 12f + hr.RandfRange(-5f, 9f), hr.RandfRange(-6f, 5f));
 
         // 近景可进入：柳条湖巡道工小屋
-        AddHouse("h1", 845f + Jit(24), "house_ruined_near_autumn", HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f);
-        // 北大营外民居（固定位，给不抵抗令抉择留出空间）
-        AddHouse("h2", 2080f, "house_intact_near_autumn", HouseWidthForWall("house_intact_near_autumn", WallH), true, 0f);
+        AddHouse("h1", 845f + hr.RandfRange(-70f, 70f), "house_ruined_near_autumn",
+            HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f, hr.RandfRange(-4f, 4f));
+        // 北大营外民居（抉择点附近，只给小幅错落）
+        AddHouse("h2", 2080f + hr.RandfRange(-30f, 30f), "house_intact_near_autumn",
+            HouseWidthForWall("house_intact_near_autumn", WallH), true, 0f, hr.RandfRange(-3f, 3f));
         // 民居群：完整民居 + 屋顶坍塌院落
-        AddHouse("h3", 3120f, "house_ruined_near_autumn", HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f);
-        AddHouse("h4", 3700f + Jit(40), "house_posts_autumn", HouseWidthForWall("house_posts_autumn", WallH), false, 0f);
+        AddHouse("h3", 3120f + hr.RandfRange(-65f, 65f), "house_ruined_near_autumn",
+            HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f, hr.RandfRange(-4f, 4f));
+        AddHouse("h4", 3700f + hr.RandfRange(-55f, 55f), "house_posts_autumn",
+            HouseWidthForWall("house_posts_autumn", WallH), false, 0f, hr.RandfRange(-4f, 4f));
         // 通信据点（无线电发信机）：专属军事据点建筑 radio_station（本就无雪，沿用）
         // v_next: 原先落在 x4620（正好压在江桥桥面 4457-4902 上）→ 移到 4000，落在桥台之前的地面、不压桥面/铁轨结构
-        AddHouse("comm", 4000f, "radio_station", HouseWidthForWall("radio_station", WallH), true, 0f);
+        // 通信据点是通关关键机位，只给 ±18 的微错落，避免破坏发报流程
+        AddHouse("comm", 4000f + hr.RandfRange(-18f, 18f), "radio_station",
+            HouseWidthForWall("radio_station", WallH), true, 0f);
     }
 
     /// <summary>
@@ -590,12 +608,14 @@ public partial class N918Level : Node2D
         }
     }
 
-    private void AddHouse(string id, float x, string tex, float w, bool enterable, float lift)
+    private void AddHouse(string id, float x, string tex, float w, bool enterable, float lift, float sink = 0f)
     {
         // 屋基下沉 8px 进雪面：雪面顶边是起伏波浪线，平的房屋底边会露缝显得"飘在雪上"（#6）
-        var h = new EnterableHouse(id, new Vector2(x, GroundY + 8f), tex, w, enterable, lift);
+        // v3.64: sink 只改地基高度，不改 ZIndex / 雾化
+        var h = new EnterableHouse(id, new Vector2(x, GroundY + 8f + sink), tex, w, enterable, lift);
         _game.AddChild(h);
         _houseRects.Add((x, w));
+        _doorXsAll.Add(h.DoorX);   // v3.64b: 远景废墟门口也要避开沙包
         if (enterable) _houses.Add(h);
         AddHouseSmoke(h, tex, x, w, lift);
     }
@@ -605,6 +625,8 @@ public partial class N918Level : Node2D
     // static: read from the nested near-layer class (same pattern as
     // InsideSandbag); the level is a singleton so this stays consistent.
     private static readonly List<(float X, float W)> _houseRects = new();
+    /// <summary>v3.64b: 所有房屋（含远景废墟）门口 X，沙包避让用。</summary>
+    private readonly List<float> _doorXsAll = new();
 
     /// <summary>
     /// True when x falls under a house footprint (with a small shoulder),
@@ -913,6 +935,8 @@ public partial class N918Level : Node2D
 
         // 掩体沙袋在人之前（ZIndex 5，高于玩家 0 与敌兵 2），
         // 经过时人从垛子后面过，而不是站在垛子顶上。
+        // v3.64b: 这里在构造函数阶段，房屋尚未建立；避让注入放到 _Ready()
+        // 的 BuildHouses() 之后，见本类 _Ready()。
         _coverArt = new CoverArt { ZIndex = 5 };
         _game.AddChild(_coverArt);
 
@@ -2977,18 +3001,30 @@ public partial class N918Level : Node2D
             DrawPolyline(crest.Select(p => p + new Vector2(0, 10)).ToArray(),
                 new Color(0.70f, 0.75f, 0.78f, 0.35f), 8f, true);
 
-            // snow grass: generated tuft clusters, tips only above the snow line
+            // v3.64 初秋野地成片：按斑块密集铺贴，斑块内 60~110px 一丛、
+            // 前后交叠，斑块间只留窄空地；与地面程序化草丛（DrawGroundDetailing）
+            // 合起来读成「一整片野地」，不再是零星一颗两颗。
             var reedRng = new RandomNumberGenerator();
-            reedRng.Seed = 19311106;
-            for (int i = 0; i < 30; i++)
+            reedRng.Seed = 19310919;
+            float gx = -1350f;
+            while (gx < 5000f)
             {
-                float x = -1350 + i * 340 + Mathf.Sin(i * 2.3f) * 82f + reedRng.RandfRange(-30f, 30f);
-                float baseY = 722 + Mathf.Sin(x * 0.006f) * 9f;
-                Sprite("grass", new Vector2(x, baseY + 3f), 24f + reedRng.Randf() * 14f, 0.95f,
-                    flip: reedRng.Randf() < 0.5f);
-                if (i % 2 == 0)
-                    Sprite("grass", new Vector2(x + 70f, baseY + 4f), 16f + reedRng.Randf() * 10f, 0.85f,
-                        flip: reedRng.Randf() >= 0.5f);
+                if (InsideHouseFootprint(gx, 40f)) { gx += 90f; continue; }
+                float patchW = 240f + reedRng.Randf() * 320f;
+                float px = gx;
+                while (px < gx + patchW)
+                {
+                    if (!InsideHouseFootprint(px, 24f))
+                    {
+                        float baseY = 722f + Mathf.Sin(px * 0.006f) * 9f;
+                        Sprite("grass", new Vector2(px, baseY + 3f),
+                            26f + reedRng.Randf() * 18f, 0.95f, flip: reedRng.Randf() < 0.5f);
+                        Sprite("grass", new Vector2(px + reedRng.RandfRange(-16f, 16f), baseY + 5f),
+                            15f + reedRng.Randf() * 12f, 0.80f, flip: reedRng.Randf() >= 0.5f);
+                    }
+                    px += 26f + reedRng.Randf() * 26f;
+                }
+                gx += patchW + 40f + reedRng.Randf() * 90f;
             }
         }
 
@@ -3115,7 +3151,10 @@ public partial class N918Level : Node2D
         /// </summary>
         private static bool InsideSandbag(float x)
         {
-            foreach (float bx in CoverArt.SandbagBaseX)
+            // v3.64: 沙包避让后实际位置可能已偏离基准，铁丝网要按实际位置让位
+            var centers = CoverArt.ActualCenters.Length == CoverArt.SandbagBaseX.Length
+                ? CoverArt.ActualCenters : CoverArt.SandbagBaseX;
+            foreach (float bx in centers)
                 if (Mathf.Abs(x - bx) < CoverArt.SandbagHalfWidth) return true;
             return false;
         }
@@ -3315,15 +3354,15 @@ public partial class N918Level : Node2D
         }
 
         /// <summary>
-        /// v3.55 初秋野地细节：在地面之上撒入枯草丛、小石块、泥土斑与野草，
-        /// 破掉“一片纯色、没有任何生动”的枯燥感（用户 Phase C 第 1 条）。
-        /// 固定随机种子 → 每帧重画结果完全一致，不会抖。避开房屋脚、不画到
-        /// 桥前的江面。颜色走枯黄/赭石/灰石，和地表的土黄调子叠出层次。
+        /// v3.64 野地成片：旧版每隔 34~74px 才画一丛，地面看起来只有「一颗两颗草」。
+        /// 现在按斑块生成：一片 190~470px 的野地里以 7~16px 间距密集长草，
+        /// 斑块之间只留很窄的空地（泥土/石块），整体读成一整片草原而非零星草撮。
+        /// 固定种子 19310918，与树林带错开，避免草树同相。
         /// </summary>
         private void DrawGroundDetailing()
         {
             var rng = new RandomNumberGenerator();
-            rng.Seed = 19310918;   // 与树林带 19311105 区分，免得草和树同相
+            rng.Seed = 19310918;
             const float EndX = BridgeDeckX - 240f;   // 桥前是河面/桥，不画草
 
             float x = -400f;
@@ -3331,78 +3370,130 @@ public partial class N918Level : Node2D
             {
                 if (InsideHouseFootprint(x, 22f)) { x += 42f; continue; }
 
-                // 地表起伏和 _Draw 里的 surface 同一条正弦曲线，草才站得住
-                float sy = GroundY - Mathf.Sin(x * 0.008f) * 2.2f - Mathf.Sin(x * 0.031f) * 1.1f;
-
-                float pick = rng.Randf();
-                if (pick < 0.46f)
+                // v3.64b: 野地为主，只留极窄裸地接缝，整体读成一整片
+                bool meadow = rng.Randf() < 0.93f;
+                if (!meadow)
                 {
-                    // 枯草丛：3~5 根向外弯的细线
-                    int blades = 3 + (int)(rng.Randf() * 3f);
-                    float h = 7f + rng.Randf() * 9f;
-                    Color tuft = new Color(0.52f + rng.Randf() * 0.06f,
-                                          0.46f + rng.Randf() * 0.06f,
-                                          0.30f + rng.Randf() * 0.05f, 0.85f);
-                    for (int b = 0; b < blades; b++)
-                    {
-                        float dx = (b - (blades - 1) * 0.5f) * (2.2f + rng.Randf() * 1.6f);
-                        float lean = dx * (0.5f + rng.Randf() * 0.45f);
-                        var g = new List<Vector2>
-                        {
-                            new Vector2(x + dx, sy),
-                            new Vector2(x + dx * 0.6f + lean * 0.4f, sy - h * 0.55f),
-                            new Vector2(x + dx * 0.2f + lean * 0.9f, sy - h),
-                        };
-                        DrawPolyline(g.ToArray(), tuft, 1.1f, false);
-                    }
-                }
-                else if (pick < 0.66f)
-                {
-                    // 小石块：扁椭圆 + 一点贴地暗影
-                    float rw = 4f + rng.Randf() * 6f;
-                    float rh = rw * (0.45f + rng.Randf() * 0.22f);
-                    var rock = new List<Vector2>();
-                    int seg = 10;
-                    for (int s = 0; s <= seg; s++)
-                    {
-                        float a = Mathf.Tau * s / seg;
-                        float r = 1f + Mathf.Sin(a * 2f) * 0.12f;
-                        rock.Add(new Vector2(x + Mathf.Cos(a) * rw * r,
-                                              sy - rh + Mathf.Sin(a) * rh * r));
-                    }
-                    DrawColoredPolygon(rock.ToArray(), new Color(0.54f, 0.53f, 0.55f, 0.9f));
-                    DrawLine(new Vector2(x - rw, sy), new Vector2(x + rw, sy),
-                        new Color(0.34f, 0.32f, 0.30f, 0.5f), 1.6f, true);
-                }
-                else if (pick < 0.86f)
-                {
-                    // 泥土斑：贴地浅色土斑，柔化“纯色地表”
-                    float pw = 16f + rng.Randf() * 30f;
-                    var patch = new List<Vector2>();
-                    int seg = 12;
-                    for (int s = 0; s <= seg; s++)
-                    {
-                        float t = (float)s / seg;
-                        float px = x - pw * 0.5f + t * pw;
-                        float py = sy + 3f + Mathf.Sin(t * Mathf.Tau) * (3f + rng.Randf() * 3f);
-                        patch.Add(new Vector2(px, py));
-                    }
-                    DrawColoredPolygon(patch.ToArray(), new Color(0.50f, 0.44f, 0.30f, 0.30f));
-                }
-                else
-                {
-                    // 野草：单根带穗的细草，微微歪
-                    float h = 10f + rng.Randf() * 12f;
-                    float lean = rng.RandfRange(-5f, 5f);
-                    Color weed = new Color(0.46f, 0.50f, 0.30f, 0.8f);
-                    DrawLine(new Vector2(x, sy), new Vector2(x + lean, sy - h),
-                        new Color(weed.R, weed.G, weed.B, weed.A), 1.0f, false);
-                    DrawLine(new Vector2(x + lean, sy - h),
-                        new Vector2(x + lean + 2.5f, sy - h - 4f),
-                        new Color(weed.R + 0.1f, weed.G + 0.08f, weed.B, weed.A), 1.0f, false);
+                    float bare = 30f + rng.Randf() * 34f;
+                    DrawBareGround(x, bare, rng);
+                    x += bare + 8f;
+                    continue;
                 }
 
-                x += 34f + rng.Randf() * 40f;
+                float patchW = 190f + rng.Randf() * 280f;
+                // v3.64b: 先铺一条连续草地色带，斑块才读成「一整片野地」，
+                // 而不是几根孤零零的草线
+                DrawMeadowBand(x, Mathf.Min(patchW, EndX - x), rng);
+                float px = x;
+                // 斑块两头的草渐疏，中间密，边缘才不会像被刀切过
+                while (px < x + patchW && px < EndX)
+                {
+                    float t = (px - x) / patchW;
+                    float edge = Mathf.Min(t, 1f - t);
+                    if (!InsideHouseFootprint(px, 12f) && rng.Randf() < 0.75f + edge * 0.7f)
+                        DrawMeadowTuft(px, rng);
+                    px += 5f + rng.Randf() * 6f;
+                }
+                x += patchW + 10f + rng.Randf() * 22f;
+            }
+        }
+
+        /// <summary>
+        /// 一整片野地的底色：沿地面线铺连续起伏的枯草绿水彩带。
+        /// v3.64 只画细线草丛，在 1280×720 下几乎看不见，读起来还是
+        /// 「一颗两颗草」；这里用逐段凸四边形叠三层水彩色，形成连续草面。
+        /// </summary>
+        private void DrawMeadowBand(float x, float w, RandomNumberGenerator rng)
+        {
+            if (w < 20f) return;
+            const int N = 26;
+            var top = new Vector2[N];
+            var bottom = new Vector2[N];
+            for (int i = 0; i < N; i++)
+            {
+                float px = x + w * i / (N - 1);
+                float gy = GroundY - Mathf.Sin(px * 0.008f) * 2.2f
+                                  - Mathf.Sin(px * 0.031f) * 1.1f;
+                top[i] = new Vector2(px, gy - 16f - rng.RandfRange(0f, 10f));
+                bottom[i] = new Vector2(px, gy + 48f + rng.RandfRange(0f, 18f));
+            }
+            // 逐段凸四边形填充，避免非凸多边形触发 triangulation failed
+            for (int layer = 0; layer < 3; layer++)
+            {
+                var col = layer == 0 ? new Color(0.50f, 0.51f, 0.30f, 0.22f)
+                        : layer == 1 ? new Color(0.40f, 0.45f, 0.25f, 0.20f)
+                                     : new Color(0.62f, 0.56f, 0.33f, 0.16f);
+                float dy = layer * 3f;
+                for (int i = 0; i < N - 1; i++)
+                    DrawColoredPolygon(new[]
+                    {
+                        top[i] + new Vector2(0, dy),
+                        top[i + 1] + new Vector2(0, dy),
+                        bottom[i + 1] + new Vector2(0, dy),
+                        bottom[i] + new Vector2(0, dy),
+                    }, col);
+            }
+        }
+
+        /// <summary>一丛野草：4~7 根向外弯的细线 + 偶尔的穗子 / 小白花。</summary>
+        private void DrawMeadowTuft(float x, RandomNumberGenerator rng)
+        {
+            float sy = GroundY - Mathf.Sin(x * 0.008f) * 2.2f - Mathf.Sin(x * 0.031f) * 1.1f;
+            int blades = 4 + (int)(rng.Randf() * 4f);
+            float h = 14f + rng.Randf() * 20f;
+            var col = new Color(0.49f + rng.Randf() * 0.12f,
+                                0.50f + rng.Randf() * 0.10f,
+                                0.29f + rng.Randf() * 0.09f, 0.86f);
+            for (int b = 0; b < blades; b++)
+            {
+                float dx = (b - (blades - 1) * 0.5f) * (2.0f + rng.Randf() * 1.5f);
+                float lean = dx * (0.6f + rng.Randf() * 0.5f);
+                DrawLine(new Vector2(x + dx, sy),
+                    new Vector2(x + dx + lean, sy - h * (0.7f + rng.Randf() * 0.5f)),
+                    col, 1.4f, true);
+            }
+            float pick = rng.Randf();
+            if (pick < 0.13f)
+            {
+                // 带穗野草
+                float tip = sy - h - 8f;
+                DrawLine(new Vector2(x, sy), new Vector2(x + 2f, tip),
+                    new Color(0.40f, 0.46f, 0.28f, 0.82f), 1.2f, true);
+                DrawCircle(new Vector2(x + 2f, tip - 2f), 2f,
+                    new Color(0.66f, 0.60f, 0.34f, 0.85f));
+            }
+            else if (pick < 0.17f)
+            {
+                // 小白花 / 枯花头
+                DrawCircle(new Vector2(x + 3f, sy - h - 3f), 2.2f,
+                    new Color(0.82f, 0.79f, 0.64f, 0.80f));
+            }
+        }
+
+        /// <summary>斑块间的裸地：贴地土斑 + 一两颗小石头。</summary>
+        private void DrawBareGround(float x, float w, RandomNumberGenerator rng)
+        {
+            float sy = GroundY - Mathf.Sin(x * 0.008f) * 2.2f - Mathf.Sin(x * 0.031f) * 1.1f;
+            var patch = new List<Vector2>();
+            int seg = 10;
+            for (int s = 0; s <= seg; s++)
+            {
+                float t = (float)s / seg;
+                patch.Add(new Vector2(x - w * 0.5f + t * w,
+                    sy + 3f + Mathf.Sin(t * Mathf.Tau) * (2f + rng.Randf() * 3f)));
+            }
+            DrawColoredPolygon(patch.ToArray(), new Color(0.50f, 0.44f, 0.30f, 0.26f));
+            if (rng.Randf() < 0.45f)
+            {
+                float rw = 4f + rng.Randf() * 5f;
+                var rock = new List<Vector2>();
+                for (int s = 0; s <= 8; s++)
+                {
+                    float a = Mathf.Tau * s / 8f;
+                    rock.Add(new Vector2(x + Mathf.Cos(a) * rw,
+                        sy - rw * 0.5f + Mathf.Sin(a) * rw * 0.5f));
+                }
+                DrawColoredPolygon(rock.ToArray(), new Color(0.54f, 0.53f, 0.55f, 0.85f));
             }
         }
 
@@ -4300,6 +4391,60 @@ public partial class N918Level : Node2D
         internal static readonly float[] SandbagBaseX = { 980f, 2320f, 3640f, 4160f };
         internal static readonly float SandbagHalfWidth = 54f * 2.55f * 0.5f + 24f;
 
+        /// <summary>v3.64: 由关卡注入的可进入房屋门口 X（沙包必须避让）。</summary>
+        public float[] DoorXs = System.Array.Empty<float>();
+        /// <summary>v3.64: 可进入房屋占地，扁平存 [x,w,x,w,...]；远景废墟是背景层，不算。</summary>
+        public float[] HouseSpans = System.Array.Empty<float>();
+        /// <summary>v3.64: 避让后的实际落位，供铁丝网 InsideSandbag 使用。</summary>
+        internal static float[] ActualCenters = System.Array.Empty<float>();
+
+        /// <summary>
+        /// 沙包不得堵在房门口（会挡住 E 进屋与进出动线），也不得压在可进入房屋占地上。
+        /// 从基准点向两侧交替试探，优先靠基准最近的合法位置；不越桥头。
+        /// </summary>
+        private float SafeSandbagX(float want)
+        {
+            const float DoorClear = 96f;
+            const float MaxX = 4280f;
+            float need = SandbagHalfWidth + DoorClear;
+
+            // v3.64b: 注入数组可能是空快照（Godot 子节点 _Ready() 先于父节点，
+            // 对象初始化器求值时房屋还没建）。场景树才是唯一可信来源：
+            // _game.AddChild(_coverArt) 时房屋早已入树，实时读门口。
+            float[] doors = DoorXs;
+            var parentNode = GetParent();
+            if (parentNode != null)
+            {
+                var live = parentNode.GetChildren().OfType<EnterableHouse>()
+                                    .Select(h => h.DoorX).ToArray();
+                if (live.Length > 0) doors = live;
+            }
+
+            bool Blocked(float v)
+            {
+                if (v > MaxX || v < -100f) return true;
+                foreach (float d in doors)
+                    if (Mathf.Abs(v - d) < need) return true;
+                for (int i = 0; i + 1 < HouseSpans.Length; i += 2)
+                {
+                    float hx = HouseSpans[i], hw = HouseSpans[i + 1];
+                    if (v + SandbagHalfWidth * 0.6f > hx - 12f &&
+                        v - SandbagHalfWidth * 0.6f < hx + hw + 12f) return true;
+                }
+                return false;
+            }
+            if (!Blocked(want)) return want;
+            float step = need + 34f;
+            for (int k = 1; k <= 9; k++)
+            {
+                float right = want + step * k;
+                if (!Blocked(right)) return right;
+                float left = want - step * k;
+                if (!Blocked(left)) return left;
+            }
+            return want - step * 9f;
+        }
+
         internal const float FullHp = 100f;
 
         private StackSpec[] _stacks = System.Array.Empty<StackSpec>();
@@ -4449,7 +4594,14 @@ public partial class N918Level : Node2D
             return wrecked;
         }
 
-        public override void _Ready()
+        public override void _Ready() => RebuildLayout();
+
+        /// <summary>
+        /// v3.64b: 沙包落位可在注入门口/占地之后重算。实测 CoverArt._Ready()
+        /// 触发时 DoorXs/HouseSpans 仍是空数组（避让全失效、沙包全落基准点），
+        /// 所以关卡注入完成后再调一次，确保避让数据真正被用到。
+        /// </summary>
+        internal void RebuildLayout()
         {
             var rng = new RandomNumberGenerator();
             rng.Randomize();
@@ -4467,15 +4619,20 @@ public partial class N918Level : Node2D
                 // the wall has to come down with him or it reads as chest
                 // high cover.
                 float h = 47f + rng.RandfRange(-4f, 5f);
+                float wantX = bases[i] + rng.RandfRange(-24f, 24f);
+                float cx = SafeSandbagX(wantX);   // v3.64 避让房门口 + 房屋占地
                 list.Add(new StackSpec
                 {
-                    X = bases[i] + rng.RandfRange(-24f, 24f),
+                    X = cx,
                     BaseY = GroundY - 2f,
                     W = h * (2.55f + rng.RandfRange(-0.25f, 0.3f)),
                     H = h,
                 });
             }
             _stacks = list.ToArray();
+            ActualCenters = new float[list.Count];
+            for (int i = 0; i < list.Count; i++) ActualCenters[i] = list[i].X;
+            // 落位完成（ActualCenters 供铁丝网 InsideSandbag 使用）
             _sackTex = GD.Load<Texture2D>("res://assets/art/props/sandbags.png");
             // v3.55: the tidy wreck texture is retired - an explosion SCATTERS
             // the wall, it does not leave a neat mound. Each stack gets a
