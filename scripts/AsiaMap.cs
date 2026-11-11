@@ -194,7 +194,7 @@ public partial class AsiaMap : Control
         // 进入关卡的正式按钮（读完简报后出现）
         _enter = new Button
         {
-            Text = "进入关卡 · 嫩江江桥 1931.11.4  ›",
+            Text = "进入关卡 · 沈阳近郊 1931.9.18  ›",
             Visible = false,
             CustomMinimumSize = new Vector2(540, 52),
         };
@@ -210,7 +210,7 @@ public partial class AsiaMap : Control
         };
         _enter.AddThemeStyleboxOverride("normal", enterStyle);
         _enter.AddThemeColorOverride("font_color", new Color(0.94f, 0.89f, 0.77f));
-        _enter.Pressed += () => EnterJiangqiao();
+        _enter.Pressed += () => EnterN918();
         AddChild(_enter);
     }
 
@@ -387,16 +387,25 @@ public partial class AsiaMap : Control
         _note1931.Visible = RouteOn;
         _enter.Visible = RouteOn && BriefRead;
 
+        // 两阶段按钮文案：未见证九一八 → 进九一八；已见证 → 进江桥
+        if (GameState.I.S.N918Done)
+            _enter.Text = "进入下一章 · 嫩江江桥 1931.11.4  ›";
+        else
+            _enter.Text = "进入关卡 · 沈阳近郊 1931.9.18  ›";
+
         _status.Text =
             $"源头档案  {(KoreaRead ? 1 : 0) + (TaiwanRead ? 1 : 0)} / 2"
             + (RouteOn ? "      ·      路线已显影" : "")
+            + (GameState.I.S.N918Done ? "      ·      九一八已见证" : "")
             + (GameState.I.S.JiangqiaoDone ? "      ·      江桥已见证" : "");
 
         _hint.Text = !KoreaRead || !TaiwanRead
             ? "先读右侧两张纸条：1895 台湾，1910 大韩帝国。"
             : !BriefRead
-                ? "路线显影了：九一八之后，日军沿四洮、洮昂铁路北上。读作战简报，进入江桥阵地。"
-                : "阵地已在等待。点下方按钮，进入 1931 年 11 月 4 日。";
+                ? "路线显影了：九一八之后，日军沿南满、四洮、洮昂铁路北上。读作战简报，进入九一八。"
+                : (!GameState.I.S.N918Done
+                    ? "九一八已在等待。点下方按钮，进入 1931 年 9 月 18 日夜的沈阳近郊。"
+                    : "九一八已见证。点下方按钮，进入一个多月后的嫩江江桥。");
 
         if (RouteOn)
         {
@@ -516,31 +525,41 @@ public partial class AsiaMap : Control
     /// bridge battle; the popup shows only once per save, afterwards the
     /// enter button goes straight into the level.
     /// </summary>
-    private void EnterJiangqiao()
+    /// <summary>
+    /// 两阶段入口：先九一八（1931.9.18），见证完毕后再嫩江江桥（1931.11.4）。
+    /// 首次进入先弹「九一八档案」简报（每存档一次），之后直入九一八关卡；
+    /// N918Done 后本按钮改入江桥，保证江桥在九一八之后可达。
+    /// </summary>
+    private void EnterN918()
     {
-        if (GameState.I.S.MapNote918)
+        if (!GameState.I.S.MapNote918)
         {
-            _main.StartJiangqiao();
+            // 首次：九一八档案简报，读毕进入九一八关卡
+            var ui = new FieldNoteUi(
+                "档案 · 1931 年 9 月 18 日 夜",
+                "沈阳 · 九一八事变",
+                new[]
+                {
+                    "1931 年 9 月 18 日夜，日军自行炸毁沈阳北侧柳条湖段的南满铁路路轨，反诬中国军队所为，随即进攻北大营、占领沈阳。此后数月，辽宁、吉林相继沦陷。",
+                    "一个多月后，部队将在下方的嫩江江桥打响反击——这是九一八之后，中国军队第一次有组织的、大规模的抵抗。",
+                    "（读完这页档案，进入九一八关卡；见证完毕、把实情发出去之后，再前往嫩江江桥。）",
+                },
+                "依据：远东国际军事法庭判决书（九一八部分）；辽宁省档案馆公开史料。",
+                () =>
+                {
+                    GameState.I.S.MapNote918 = true;
+                    GameState.I.Save();
+                });
+            ui.Closed += () => _main.StartN918();
+            AddChild(ui);
             return;
         }
 
-        var ui = new FieldNoteUi(
-            "档案 · 1931 年 9 月 18 日 夜",
-            "沈阳 · 九一八事变",
-            new[]
-            {
-                "1931 年 9 月 18 日夜，日军自行炸毁沈阳北侧柳条湖段的南满铁路路轨，反诬中国军队所为，随即进攻北大营、占领沈阳。此后数月，辽宁、吉林相继沦陷。",
-                "抵抗并没有结束。一个多月后，部队就将在下方的嫩江江桥打响反击——这是九一八之后，中国军队第一次有组织的、大规模的抵抗。",
-                "（九一八是完整章节，正式关卡日后制作；此处先以档案带过，先行进入嫩江江桥。）",
-            },
-            "依据：远东国际军事法庭判决书（九一八部分）；辽宁省档案馆公开史料。",
-            () =>
-            {
-                GameState.I.S.MapNote918 = true;
-                GameState.I.Save();
-            });
-        ui.Closed += () => _main.StartJiangqiao();
-        AddChild(ui);
+        // 档案已读：未见证九一八则进入九一八；已见证则进入江桥
+        if (!GameState.I.S.N918Done)
+            _main.StartN918();
+        else
+            _main.StartJiangqiao();
     }
 
     // ================= 地图绘制（逐层） =================
@@ -1042,6 +1061,7 @@ public partial class AsiaMap : Control
 
         private void DrawPins()
         {
+            Pin(P(123.43f, 41.80f), GameState.I.S.N918Done, true);      // 沈阳 · 柳条湖（九一八）
             Pin(P(123.35f, 46.45f), GameState.I.S.JiangqiaoDone, true); // 嫩江 · 江桥（泰来）
             Pin(P(126.6f, 45.8f), false, false);                        // 哈尔滨 · 731
             Pin(P(118.8f, 32f), false, false);                          // 南京

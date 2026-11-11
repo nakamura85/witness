@@ -278,27 +278,52 @@ public partial class HouseInteriorUi : CanvasLayer
     public event Action<int> GotAmmo;
     public event Action<int> GotGrenade;
     public event Action<int> GotHeal;       // 1 = gauze, 99 = medkit (full)
+    public event Action<int> GotLetter;     // 拾得信（letter spot）→ 关卡累计信数 / 口信
     public Func<bool> CanHeal = () => true; // level asks the player; full hp wastes nothing
 
     private readonly string _houseId;
     private readonly string _houseTitle;
     private readonly RandomNumberGenerator _rng = new();
     private readonly HashSet<string> _looted;
+    private readonly Func<bool> _canTransmit;   // 发信机前置判定：信齐且通电才允许发报（通信据点屋专用）
+    private readonly Action _onTransmit;        // 发报完成回调：关卡据此标记 N918RadioSent 并通关
+    private readonly Action _onPower;           // 合闸通电完成回调：关卡据此置 N918Powered
     private readonly List<Spot> _spots = new();
     private Control _root;
     private Label _hint;
     private Spot _chestSpot;
     private float _pryT;
     private bool _prying;
+    private Spot _radioSpot;                 // 无线电发信机（通信据点屋）
+    private float _radioT;
+    private bool _transmitting;
+    private Spot _powerSpot;                 // 电闸 / 手摇发电机（通信据点屋供电小解谜）
+    private float _powerT;
+    private bool _powering;
     private bool _closed;
 
+    /// <summary>
+    /// 默认构造（江桥沿用）：loot 直接绑定江桥存档集合，无发信机。
+    /// 保持与江桥现有调用 `new HouseInteriorUi(id, title)` 完全兼容、零改动。
+    /// </summary>
     public HouseInteriorUi(string houseId, string houseTitle)
+        : this(houseId, houseTitle, GameState.I.S.JiangqiaoLoot) { }
+
+    /// <summary>
+    /// 注入式构造（九一八用）：loot 集合由关卡指定（N918Loot），
+    /// 并可传入发信机前置判定与发报完成回调（仅通信据点屋传入，普通屋传 null）。
+    /// </summary>
+    public HouseInteriorUi(string houseId, string houseTitle, HashSet<string> loot,
+        Func<bool> canTransmit = null, Action onTransmit = null, Action onPower = null)
     {
         _houseId = houseId;
         _houseTitle = houseTitle;
         Layer = 20;
         _rng.Seed = (ulong)(houseId.GetHashCode() & 0xffffff);
-        _looted = GameState.I.S.JiangqiaoLoot;
+        _looted = loot;
+        _canTransmit = canTransmit;
+        _onTransmit = onTransmit;
+        _onPower = onPower;
     }
 
     private partial class Spot : Button
@@ -390,6 +415,13 @@ public partial class HouseInteriorUi : CanvasLayer
         if (_rng.Randf() > 0.5f)
             AddSpot("clue1", "烧剩一半的文件", "clue", "");
         AddSpot("ash1", "烧塌的柜子", "ash", "柜子里只剩灰和烧变形的搪瓷缸。");
+
+        // 通信据点屋专用（_canTransmit 仅在该屋注入）：先合闸通电，再操作发信机发报
+        if (_canTransmit != null)
+        {
+            AddSpot("power1", "墙边的电闸与手摇发电机", "power", "");
+            AddSpot("radio1", "墙角的无线电发信机", "radio", "");
+        }
     }
 
     private void AddSpot(string spotId, string label, string kind, string result)
@@ -424,7 +456,9 @@ public partial class HouseInteriorUi : CanvasLayer
         s.Pressed += () => OnSpot(s);
         _spots.Add(s);
         if (kind == "chest") _chestSpot = s;
-        if (s.Done) s.Disabled = kind == "chest";
+        if (kind == "radio") _radioSpot = s;
+        if (kind == "power") _powerSpot = s;
+        if (s.Done) s.Disabled = kind == "chest" || kind == "radio" || kind == "power";
     }
 
     private void OnSpot(Spot s)
@@ -493,8 +527,9 @@ public partial class HouseInteriorUi : CanvasLayer
                         "“娘，这边冷得很，手里的枪比我的手还凉。等把桥守住了，我就回家帮您劈柴。”",
                         "“要是我回不去，别叫人把我的名字写错了。是永胜的胜，得胜的胜。”",
                     },
-                    "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵家书意象改写。");
+                    "注：人物为复合虚构，不对应单一在世者。东北军官兵家书意象改写。");
                 MarkDone(s);
+                GotLetter?.Invoke(1);   // 关卡据此累计「信」数 / 口信（N918Testimony / N918EnvelopeCount）
                 break;
             case "will":
                 OpenNote("叠得整整齐齐的遗书",
@@ -519,6 +554,20 @@ public partial class HouseInteriorUi : CanvasLayer
             case "chest":
                 if (!s.Done) StartPry(s);
                 break;
+            case "power":
+                // 通信据点供电小解谜：长按合闸 / 摇发电机；通电后才允许发报
+                if (!s.Done) StartPower(s);
+                break;
+            case "radio":
+                // 发信机提交点：前置不满足（信不足 / 没电）只提示不推进；满足则长按发报
+                if (_canTransmit != null && !_canTransmit())
+                {
+                    s.ResultText = "信件还没凑齐（或发信机没电），机器空转，什么也传不出去。";
+                    _hint.Text = s.ResultText;
+                    break;
+                }
+                if (!s.Done) StartTransmit(s);
+                break;
             case "ash":
                 MarkDone(s);
                 break;
@@ -531,6 +580,33 @@ public partial class HouseInteriorUi : CanvasLayer
         _prying = true;
         _pryT = 0f;
         s.Text = "用刺刀撬锁……";
+        s.Disabled = true;
+    }
+
+    /// <summary>
+    /// 通信据点供电小解谜：长按合闸 / 摇手摇发电机，约 1.2s 完成。
+    /// 完成后置 _powerSpot 为已搜并回调 _onPower（关卡据此标记 N918Powered）。
+    /// </summary>
+    private void StartPower(Spot s)
+    {
+        if (_powering) return;
+        _powering = true;
+        _powerT = 0f;
+        s.Text = "合闸供电……";
+        s.Disabled = true;
+    }
+
+    /// <summary>
+    /// 无线电发信机：前置（信齐且已通电）满足后长按发报，约 1.8s 完成。
+    /// 完成后置 _radioSpot 为已搜并回调 _onTransmit（关卡据此标记 N918RadioSent 并通关）。
+    /// 前置不满足时 OnSpot 已拦截，不会走到这里。
+    /// </summary>
+    private void StartTransmit(Spot s)
+    {
+        if (_transmitting) return;
+        _transmitting = true;
+        _radioT = 0f;
+        s.Text = "发报中……";
         s.Disabled = true;
     }
 
@@ -567,6 +643,38 @@ public partial class HouseInteriorUi : CanvasLayer
                     _chestSpot.ResultText = "锁芯冻死了，刺刀撬到弯也打不开。";
                     MarkDone(_chestSpot);
                 }
+            }
+        }
+        if (_powering && _powerSpot != null)
+        {
+            _powerT += (float)delta;
+            float t = Mathf.Min(1f, _powerT / 1.2f);
+            _powerSpot.Text = $"合闸供电…… {(int)(t * 100)}%";
+            _powerSpot.PryProgress = t;
+            if (t >= 1f)
+            {
+                _powering = false;
+                _powerSpot.ResultText = "发电机摇起来了，电闸合上，据点的灯亮了。";
+                MarkDone(_powerSpot);
+                _powerSpot.Disabled = false;
+                _powerSpot.Done = true;
+                _onPower?.Invoke();
+            }
+        }
+        if (_transmitting && _radioSpot != null)
+        {
+            _radioT += (float)delta;
+            float t = Mathf.Min(1f, _radioT / 1.8f);
+            _radioSpot.Text = $"发报中…… {(int)(t * 100)}%";
+            _radioSpot.PryProgress = t;
+            if (t >= 1f)
+            {
+                _transmitting = false;
+                _radioSpot.ResultText = "电键叩下去，电波穿过秋夜，把北大营的实情传了出去。";
+                MarkDone(_radioSpot);
+                _radioSpot.Disabled = false;
+                _radioSpot.Done = true;
+                _onTransmit?.Invoke();
             }
         }
     }

@@ -45,6 +45,17 @@ public class WitnessState
     public HashSet<string> JiangqiaoTestimony = new();        // 已记录的江桥证言 id
     public HashSet<string> JiangqiaoLoot = new();             // 已搜刮过的屋子/箱子（按 id 持久）
 
+    // ===== 九一八事变关（1931.9.18 沈阳 · 轻量兄弟版，沿用江桥简化模型） =====
+    public bool N918Done;                                     // 是否通关 1931 沈阳·九一八（替代原 MapNote918 的"带过"语义）
+    public HashSet<string> N918Testimony = new();             // 已收集的信 / 口信 / 阵亡者口述 id（通关硬门槛计数源）
+    public HashSet<string> N918Loot = new();                  // 已搜刮过的屋子/箱子（供 HouseInteriorUi 注入，与江桥隔离）
+    public int N918EnvelopeCount;                             // 带出的"信"数（屋内 letter + 阵亡者口信，闭卡文案用）
+    public bool N918RadioSent;                                // 是否已用无线电发信机把信发出（通关前置之一）
+    public int N918Resist;                                    // 不抵抗令抉择：0=未抉择 1=遵令 2=违令
+    public HashSet<string> N918Visited = new();              // 见证点（柳条湖爆破点等，纯叙事，不卡关）
+    public bool N918Powered;                                  // 通信据点是否通电（供电小解谜前置；默认无电需合闸）
+    public int N918Refugees;                                  // 帮助的难民数（可选支线，不计通关门槛）
+
     /// <summary>关卡内可收集的 6 件证据（对应史料卡 1-6）。</summary>
     public static readonly string[] EvidenceIds = { "film", "rabe", "vautrin", "roster", "medical", "letter" };
 

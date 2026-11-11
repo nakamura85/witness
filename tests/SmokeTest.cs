@@ -172,6 +172,28 @@ public partial class SmokeTest : SceneTree
         Check("存档往返：Prologue 字段",
             back2.PrologueDone && back2.PrologueCollected.Contains("1895a") && back2.ProloguePlaced.Contains("1910a"));
 
+        // 7.1 九一八字段序列化往返（与 GameState.JsonOpts 一致的选项）
+        s.N918Done = true;
+        s.N918Testimony.Add("t1"); s.N918Testimony.Add("t2");
+        s.N918Loot.Add("h1:letter1");
+        s.N918EnvelopeCount = 3;
+        s.N918RadioSent = true;
+        s.N918Powered = true;
+        s.N918Resist = 2;
+        s.N918Visited.Add("柳条湖");
+        s.N918Refugees = 1;
+        string jsonN = JsonSerializer.Serialize(s, opts);
+        var backN = JsonSerializer.Deserialize<WitnessState>(jsonN, opts);
+        Check("存档往返：N918Done", backN.N918Done);
+        Check("存档往返：N918Testimony", backN.N918Testimony.Count == 2 && backN.N918Testimony.Contains("t1"));
+        Check("存档往返：N918Loot", backN.N918Loot.Contains("h1:letter1"));
+        Check("存档往返：N918EnvelopeCount", backN.N918EnvelopeCount == 3);
+        Check("存档往返：N918RadioSent", backN.N918RadioSent);
+        Check("存档往返：N918Powered", backN.N918Powered);
+        Check("存档往返：N918Resist", backN.N918Resist == 2);
+        Check("存档往返：N918Visited", backN.N918Visited.Contains("柳条湖"));
+        Check("存档往返：N918Refugees", backN.N918Refugees == 1);
+
         GD.Print($"==== 完成：失败 {_failed} 项 ====");
         Quit(_failed == 0 ? 0 : 1);
     }
