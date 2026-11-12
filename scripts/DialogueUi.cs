@@ -14,6 +14,7 @@ public partial class DialogueUi : CanvasLayer
     private Label _name, _text;
     private HBoxContainer _buttons;
     private BurntPaperPanel _paper;
+    private DialogueOverlay _overlay;
 
     // 25 > HouseInteriorUi(20)，屋内点选项时这张纸盖在屋内画面之上（#4）
     public DialogueUi() { Layer = 25; }
@@ -31,14 +32,26 @@ public partial class DialogueUi : CanvasLayer
         _paper.CustomMinimumSize = new Vector2(940, 0);
         root.AddChild(_paper);
 
+        // 漫画风「命令印章」：叠在纸张右上角，强化「不抵抗令」这类正式文书感。
+        // 用全屏 Overlay 按纸张真实矩形坐标绘制，避免被 PanelContainer 布局覆盖。
+        _overlay = new DialogueOverlay(_paper);
+        _overlay.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        _overlay.MouseFilter = Control.MouseFilterEnum.Ignore;
+        root.AddChild(_overlay);
+
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 8);
         _paper.AddChild(box);
 
         _name = new Label();
-        _name.AddThemeFontSizeOverride("font_size", 15);
-        _name.AddThemeColorOverride("font_color", new Color(0.55f, 0.20f, 0.16f));
+        _name.AddThemeFontSizeOverride("font_size", 18);
+        _name.AddThemeColorOverride("font_color", new Color(0.45f, 0.14f, 0.12f));
         box.AddChild(_name);
+
+        // 标题下的手绘墨线分隔，像文书标题下的装饰线
+        var nameRule = new InkRule();
+        nameRule.CustomMinimumSize = new Vector2(0, 12);
+        box.AddChild(nameRule);
 
         _text = new Label();
         _text.AddThemeFontSizeOverride("font_size", 19);
@@ -85,5 +98,46 @@ public partial class DialogueUi : CanvasLayer
             };
             _buttons.AddChild(b);
         }
+    }
+}
+
+/// <summary>
+/// 漫画风「命令印章」叠加层：按纸张真实矩形在右上角画红印章（红底 + 粗红环 + 内圈 + 奶油五角星），
+/// 给「不抵抗令」这类正式文书增加命令感。纯坐标绘制，不影响抉择逻辑，也不改全局 BurntPaperPanel。
+/// </summary>
+public partial class DialogueOverlay : Control
+{
+    private readonly BurntPaperPanel _paper;
+
+    public DialogueOverlay(BurntPaperPanel paper)
+    {
+        _paper = paper;
+    }
+
+    private static Vector2[] StarPoints(Vector2 c, float ro, float ri, int n)
+    {
+        var pts = new Vector2[n * 2];
+        for (int i = 0; i < n * 2; i++)
+        {
+            float ang = -Mathf.Pi / 2f + i * Mathf.Pi / n;
+            float rad = (i % 2 == 0) ? ro : ri;
+            pts[i] = c + new Vector2(Mathf.Cos(ang) * rad, Mathf.Sin(ang) * rad);
+        }
+        return pts;
+    }
+
+    public override void _Draw()
+    {
+        var pr = _paper.GetRect();
+        if (pr.Size.X < 10f) return;
+        float s = 54f;
+        var c = new Vector2(pr.Position.X + pr.Size.X - s * 0.5f - 16f, pr.Position.Y + s * 0.5f + 10f);
+        float r = s * 0.42f;
+        // 红印章：实心红底 + 粗红环描边 + 内圈
+        DrawCircle(c, r, new Color(0.74f, 0.18f, 0.14f, 0.92f));
+        DrawCircle(c, r, new Color(0.74f, 0.18f, 0.14f, 0.92f), false, 3f);
+        DrawCircle(c, r * 0.78f, new Color(0.74f, 0.18f, 0.14f, 0.92f), false, 2f);
+        // 内部五角星（奶油色）
+        DrawColoredPolygon(StarPoints(c, r * 0.52f, r * 0.22f, 5), new Color(0.98f, 0.93f, 0.80f));
     }
 }

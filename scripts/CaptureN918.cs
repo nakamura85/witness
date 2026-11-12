@@ -130,9 +130,21 @@ public partial class CaptureN918 : Node
             Input.ActionRelease("interact");
             GD.Print("CAPTURE_N918 stage8 -> shot interior");
             SaveShot("n918_05_interior.png");
+            _frozeAt = _t;
+            _stage = 11;
+        }
+        // 11 (v3.77b): 直接弹出「不抵抗令」抉择对话框，核验漫画风命令印章 + 标题墨线
+        else if (_stage == 11 && _t > _frozeAt + 1.0f)
+        {
+            var dlg = new DialogueUi();
+            _lvl.AddChild(dlg);
+            dlg.ShowChoice("不抵抗令",
+                "1931年9月18日夜，关东军炸毁南满铁路柳条湖段，反诬中国军队，遂向北大营进攻。东北军奉「不抵抗令」撤出，还是违令还手？",
+                new[] { ("遵令撤退", true), ("违令抵抗", true) }, _ => { });
+            SaveShot("n918_09_resist_dialog.png");
             _stage = 9;
         }
-        else if (_stage == 9 && _t > 48f)
+        else if (_stage == 9 && _t > 52f)
         {
             GD.Print("CAPTURE_N918 done");
             GetTree().Quit();
