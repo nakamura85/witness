@@ -4202,6 +4202,15 @@ public partial class N918Level : Node2D
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
 
+                // v3.75: dark ground contact drawn AFTER the light snow drift
+                // (otherwise the drift washes it out) and just under the wall, so
+                // the stack reads as resting ON the ground, not floating.
+                float contactW = s.W * 0.74f;
+                DrawSetTransform(new Vector2(bx, GroundY + 3f), 0, new Vector2(contactW / 40f, 0.30f));
+                DrawTextureRect(N918SoftSnow.Blob(new Color(0.10f, 0.11f, 0.13f), 0.5f),
+                    new Rect2(-20f, -20f, 40f, 40f), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
                 // standing wall: per-stack tilt + horizontal shift + mirror
                 DrawSetTransform(new Vector2(bx, GroundY + 1f), tilt * (flip ? -1f : 1f),
                     new Vector2((flip ? -sc : sc), sc));

@@ -121,11 +121,63 @@ public partial class EnterableHouse : Node2D
         // contact shadow along the base
         // v2.8: this was a hard rimmed DrawCircle. Stretched over the full
         // house width the rim showed up as a pale slab lying on the snow, so
-        // it now uses the radial falloff sprite.
-        DrawSetTransform(new Vector2(_w * 0.5f, gl - 1f), 0, new Vector2(1.15f, 0.24f));
-        DrawTextureRect(SoftSnow.Blob(new Color(0.10f, 0.09f, 0.08f), 0.26f),
+        // it now uses the radial falloff sprite. Widened + darkened for v3.75.
+        DrawSetTransform(new Vector2(_w * 0.5f, gl - 1f), 0, new Vector2(1.28f, 0.30f));
+        DrawTextureRect(SoftSnow.Blob(new Color(0.10f, 0.09f, 0.08f), 0.34f),
             new Rect2(-20f, -20f, 40f, 40f), false);
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+        // v3.75: every house texture has a HARD-CUT bottom edge with no ground
+        // transition, so in the field each house reads as floating above the
+        // snow (user circled the base as "floating rubble / no ground
+        // transition"). Bury that cut edge under a soft swell plus a few
+        // scattered stones, so the wall base sits IN the ground. Autumn (N918)
+        // gets an earth swell, winter (Jiangqiao) a snow bank - matched to each
+        // level's ground colour.
+        bool autumn = _texName.EndsWith("_autumn");
+        var swellCol = autumn ? new Color(0.60f, 0.53f, 0.37f, 0.95f)
+                              : new Color(0.90f, 0.92f, 0.95f, 0.95f);
+        float swellW = _w * 0.70f;
+        DrawSetTransform(new Vector2(_w * 0.5f, gl + 1f), 0, new Vector2(swellW / 40f, 0.34f));
+        DrawTextureRect(SoftSnow.Blob(swellCol, 0.95f), new Rect2(-20f, -20f, 40f, 40f), false);
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+        // darker lip right at the cut line deepens the bury
+        var lipCol = autumn ? new Color(0.46f, 0.40f, 0.27f, 0.55f)
+                            : new Color(0.72f, 0.76f, 0.80f, 0.55f);
+        DrawSetTransform(new Vector2(_w * 0.5f, gl + 4f), 0, new Vector2(swellW / 40f, 0.18f));
+        DrawTextureRect(SoftSnow.Blob(lipCol, 0.9f), new Rect2(-20f, -20f, 40f, 40f), false);
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+        // wider, lower, more saturated bank - the unambiguous "this sits in the
+        // ground" cue. Stops short of the doorway so the entrance stays clear.
+        var bankCol = autumn ? new Color(0.52f, 0.45f, 0.30f, 0.92f)
+                             : new Color(0.83f, 0.86f, 0.90f, 0.92f);
+        DrawSetTransform(new Vector2(_w * 0.5f, gl + 9f), 0, new Vector2((_w * 0.84f) / 40f, 0.30f));
+        DrawTextureRect(SoftSnow.Blob(bankCol, 0.92f), new Rect2(-20f, -20f, 40f, 40f), false);
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+        // scattered stones / rubble at the base: deterministic per house id,
+        // kept clear of the doorway so the entrance still reads.
+        int seed = (_id.GetHashCode() & 0x7fffffff);
+        float H(int n) => (float)Math.Abs((Math.Sin(n * 12.9898 + seed * 0.013) * 43758.5453) % 1);
+        var stoneCols = autumn
+            ? new[] { new Color(0.40f, 0.36f, 0.30f), new Color(0.54f, 0.49f, 0.42f) }
+            : new[] { new Color(0.46f, 0.48f, 0.52f), new Color(0.64f, 0.66f, 0.69f) };
+        int nStones = 4 + (seed % 4);
+        float doorCx = _w * DoorFx;
+        for (int i = 0; i < nStones; i++)
+        {
+            float sx = H(i * 7 + 1) * _w;
+            if (Math.Abs(sx - doorCx) < _w * 0.13f) continue;   // keep the doorway clear
+            float sr = 2.5f + H(i * 13 + 2) * 4f;
+            float sy = gl + 3f + H(i * 17 + 3) * 6f;
+            DrawCircle(new Vector2(sx + 1f, sy + 2f), sr * 0.9f, new Color(0.07f, 0.06f, 0.05f, 0.26f));
+            DrawCircle(new Vector2(sx, sy), sr, stoneCols[i % 2]);
+            DrawCircle(new Vector2(sx - sr * 0.3f, sy - sr * 0.3f), sr * 0.34f,
+                new Color(Mathf.Min(1f, stoneCols[i % 2].R * 1.28f),
+                          Mathf.Min(1f, stoneCols[i % 2].G * 1.28f),
+                          Mathf.Min(1f, stoneCols[i % 2].B * 1.28f)));
+        }
 
         // v3.47: the burned / skeletal / posts / ruined textures are full of
         // see-through gaps, mostly in their lower half. Through them the
