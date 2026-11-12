@@ -332,30 +332,32 @@ public partial class N918Level : Node2D
         // 固定播种 19310918 保证错落可复现；房间 ID 保留以维持搜刮 / 发报流程。
         var hr = new RandomNumberGenerator();
         hr.Seed = 19310918;
-        AddHouse("f1", 460f + hr.RandfRange(-110f, 110f), "house_posts_autumn",
-            250f * hr.RandfRange(0.87f, 1.13f), false, 14f + hr.RandfRange(-6f, 9f), hr.RandfRange(-5f, 6f));
-        AddHouse("f2", 1294f + hr.RandfRange(-130f, 130f), "house_skeleton_near_autumn",
-            350f * hr.RandfRange(0.86f, 1.12f), false, 16f + hr.RandfRange(-7f, 8f), hr.RandfRange(-6f, 6f));
-        AddHouse("f4", 1680f + hr.RandfRange(-120f, 120f), "house_posts_autumn",
-            210f * hr.RandfRange(0.88f, 1.16f), false, 19f + hr.RandfRange(-8f, 7f), hr.RandfRange(-5f, 7f));
-        AddHouse("f3", 3910f + hr.RandfRange(-120f, 120f), "house_burned_near_autumn",
+        // v3.72：建筑物重新排布——拉开间距、收窄错落，不再贴脸挤成一排；
+        // 远景点(烧毁/烧坏/完整)与近景可进入点交错，留出街道与空地纵深。
+        // 中段 f3 落在 2280 的开阔旱地，铁路 StartX=2600 在其后进场，不从屋前穿过。
+        AddHouse("f1", 430f + hr.RandfRange(-45f, 45f), "house_posts_autumn",
+            250f * hr.RandfRange(0.90f, 1.10f), false, 14f + hr.RandfRange(-6f, 9f), hr.RandfRange(-5f, 6f));
+        AddHouse("h1", 820f + hr.RandfRange(-45f, 45f), "house_ruined_near_autumn",
+            HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f, hr.RandfRange(-4f, 4f));
+        AddHouse("f2", 1320f + hr.RandfRange(-50f, 50f), "house_skeleton_near_autumn",
+            350f * hr.RandfRange(0.90f, 1.10f), false, 16f + hr.RandfRange(-7f, 8f), hr.RandfRange(-6f, 6f));
+        AddHouse("f4", 1820f + hr.RandfRange(-50f, 50f), "house_posts_autumn",
+            210f * hr.RandfRange(0.90f, 1.10f), false, 19f + hr.RandfRange(-8f, 7f), hr.RandfRange(-5f, 7f));
+        AddHouse("f3", 2280f + hr.RandfRange(-50f, 50f), "house_burned_near_autumn",
             331f * hr.RandfRange(0.90f, 1.10f), false, 12f + hr.RandfRange(-5f, 9f), hr.RandfRange(-6f, 5f));
 
-        // 近景可进入：柳条湖巡道工小屋
-        AddHouse("h1", 690f + hr.RandfRange(-70f, 70f), "house_ruined_near_autumn",
-            HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f, hr.RandfRange(-4f, 4f));
-        // 北大营外民居（抉择点附近，只给小幅错落）
-        AddHouse("h2", 2360f + hr.RandfRange(-30f, 30f), "house_intact_near_autumn",
+        // 近景可进入：柳条湖巡道工小屋（h1 已在其前）与北大营外民居
+        AddHouse("h2", 2720f + hr.RandfRange(-28f, 28f), "house_intact_near_autumn",
             HouseWidthForWall("house_intact_near_autumn", WallH), true, 0f, hr.RandfRange(-3f, 3f));
         // 民居群：完整民居 + 屋顶坍塌院落
-        AddHouse("h3", 3320f + hr.RandfRange(-65f, 65f), "house_ruined_near_autumn",
+        AddHouse("h3", 3300f + hr.RandfRange(-45f, 45f), "house_ruined_near_autumn",
             HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f, hr.RandfRange(-4f, 4f));
-        AddHouse("h4", 3700f + hr.RandfRange(-55f, 55f), "house_posts_autumn",
+        AddHouse("h4", 3800f + hr.RandfRange(-45f, 45f), "house_posts_autumn",
             HouseWidthForWall("house_posts_autumn", WallH), false, 0f, hr.RandfRange(-4f, 4f));
-        // 通信据点（无线电发信机）：专属军事据点建筑 radio_station（本就无雪，沿用）
+        // 通信据点（无线电发信机）：铁路在其后由房屋遮挡，读成「村后铁轨」而非「屋前铁轨」
         // v3.67：通信据点落在断轨爆破点之前的旱地上；九一八现场无桥面无桥台，
         // 不再引用江桥的坐标说明。它是通关关键机位，只给 ±18 微错落。
-        AddHouse("comm", 4000f + hr.RandfRange(-18f, 18f), "radio_station",
+        AddHouse("comm", 4250f + hr.RandfRange(-18f, 18f), "radio_station",
             HouseWidthForWall("radio_station", WallH), true, 0f);
     }
 
@@ -3662,7 +3664,10 @@ public partial class N918Level : Node2D
         {
             var skip = new HashSet<int>(_railSkipIdx);
             float railY = GroundY - 1f;
-            const float StartX = 2400f;
+            // v3.72：铁路进场点从 2400 后移到 2600，越过村落后段(f3@2280)的
+            // 开阔旱地再进场，不再从房屋前脸穿过；房屋 z=-3/-6 在铁轨(GroundArt z=-10)之前，
+            // 铁轨读成「村后铁轨」而非「屋前铁轨」。
+            const float StartX = 2600f;
             float endX = WorldW + 40f;
             float breakL = LiutiaohuBreakX;
             float breakR = LiutiaohuBreakX + LiutiaohuBreakW;

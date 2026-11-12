@@ -347,30 +347,33 @@ public partial class JiangqiaoLevel : Node2D
         // 地基高度（宽度仍锁 WallH 人高红线，不动比例）。
         var hr = new RandomNumberGenerator();
         hr.Seed = 19311104;   // 江桥 1931.11.4，与草地/树林种子错开，可复现
-        AddHouse("f1", 460f + hr.RandfRange(-110f, 110f), "house_posts",
-            250f * hr.RandfRange(0.87f, 1.13f), false, 14f + hr.RandfRange(-6f, 9f), hr.RandfRange(-5f, 6f));
-        AddHouse("f2", 1294f + hr.RandfRange(-130f, 130f), "house_skeleton_near",
-            350f * hr.RandfRange(0.86f, 1.12f), false, 16f + hr.RandfRange(-7f, 8f), hr.RandfRange(-6f, 6f));
-        AddHouse("f4", 1680f + hr.RandfRange(-120f, 120f), "house_posts",
-            210f * hr.RandfRange(0.88f, 1.16f), false, 19f + hr.RandfRange(-8f, 7f), hr.RandfRange(-5f, 7f));
-        AddHouse("f3", 3910f + hr.RandfRange(-120f, 120f), "house_burned_near",
-            331f * hr.RandfRange(0.90f, 1.10f), false, 12f + hr.RandfRange(-5f, 9f), hr.RandfRange(-6f, 5f));
-
+        // v3.72：建筑物重新排布——拉开间距、收窄错落，不再贴脸挤成一排；
+        // 远景点(烧毁/烧坏/完整)与近景可进入点交错，留出街道与空地纵深。
+        // 村落后段留空地，铁路 StartX=3500 在开阔雪原进场，不从屋前穿过。
+        AddHouse("f1", 430f + hr.RandfRange(-45f, 45f), "house_posts",
+            250f * hr.RandfRange(0.90f, 1.10f), false, 14f + hr.RandfRange(-6f, 9f), hr.RandfRange(-5f, 6f));
+        AddHouse("h1", 845f + hr.RandfRange(-45f, 45f), "house_ruined_near",
+            HouseWidthForWall("house_ruined_near", WallH), true, 0f, hr.RandfRange(-4f, 4f));
+        AddHouse("f2", 1340f + hr.RandfRange(-50f, 50f), "house_skeleton_near",
+            350f * hr.RandfRange(0.90f, 1.10f), false, 16f + hr.RandfRange(-7f, 8f), hr.RandfRange(-6f, 6f));
+        AddHouse("f4", 1840f + hr.RandfRange(-50f, 50f), "house_posts",
+            210f * hr.RandfRange(0.90f, 1.10f), false, 19f + hr.RandfRange(-8f, 7f), hr.RandfRange(-5f, 7f));
         // near row: enterable loot spots, the intact one teaches players
         // "the house that still looks whole got the goods" lah.
         // h3 sits fixed (no jitter) so the gap after it stays open for the
         // crater + fallen soldier vignette next to it.
-        AddHouse("h1", 845f + hr.RandfRange(-70f, 70f), "house_ruined_near",
-            HouseWidthForWall("house_ruined_near", WallH), true, 0f, hr.RandfRange(-4f, 4f));
-        AddHouse("h3", 1925f + hr.RandfRange(-42f, 42f), "house_intact_near",
+        AddHouse("h3", 2320f + hr.RandfRange(-42f, 42f), "house_intact_near",
             HouseWidthForWall("house_intact_near", WallH), true, 0f, hr.RandfRange(-4f, 4f));
         // v3.39: h4 is the near roofless ruin (house_posts). The user set
         // "near non-burnt houses stand 1.5 man-heights", so lock it to WallH
         // like the intact houses instead of the old fixed 320px width.
-        AddHouse("h4", 3244f + hr.RandfRange(-60f, 60f), "house_posts",
+        AddHouse("h4", 3360f + hr.RandfRange(-50f, 50f), "house_posts",
             HouseWidthForWall("house_posts", WallH), false, 0f, hr.RandfRange(-4f, 4f));
-        AddHouse("h2", 2760f + hr.RandfRange(-35f, 35f), "house_burned_near", 450f, true, 0f,
+        AddHouse("h2", 2900f + hr.RandfRange(-35f, 35f), "house_burned_near", 450f, true, 0f,
             hr.RandfRange(-3f, 3f));
+        // 村落后段开阔雪原：烧毁民居落在铁路(StartX=3500)之后的远景，由房屋遮挡铁轨
+        AddHouse("f3", 4300f + hr.RandfRange(-50f, 50f), "house_burned_near",
+            331f * hr.RandfRange(0.90f, 1.10f), false, 12f + hr.RandfRange(-5f, 9f), hr.RandfRange(-6f, 5f));
     }
 
     /// <summary>
@@ -3604,7 +3607,7 @@ public partial class JiangqiaoLevel : Node2D
             bool OnRailCrater(float x)
             {
                 for (int i = 0; i < _craterX.Length; i++)
-                    if (_craterX[i] > 2380f && _craterX[i] < WorldW &&
+                    if (_craterX[i] > 3500f && _craterX[i] < WorldW &&
                         Mathf.Abs(x - _craterX[i]) < _craterR[i] * 0.82f)
                         return true;
                 return false;
@@ -3619,8 +3622,9 @@ public partial class JiangqiaoLevel : Node2D
 
             bool InGap(float x) => OnRailCrater(x) || NearRailDmg(x, 9f);
 
-            // v3.69：田野段整段换手绘漫画风贴图铁路，弹坑 / 弹着点精确收口。
-            MangaSceneArt.RailRun(this, 2380f, fieldEnd, railY, InGap);
+            // v3.72：田野段铁路进场点从 2380 后移到 3500，越过村落后段(h2@2900 / h4@3360)
+            // 的开阔雪原再进场，铁轨不再从屋前穿过；房屋 z=-3/-6 在铁轨(GroundArt z=-10)之前。
+            MangaSceneArt.RailRun(this, 3500f, fieldEnd, railY, InGap);
 
             // 桥面钢板（仅本关有桥，史实 1931.11 守军炸毁嫩江铁桥）：
             // 三档平涂 + 粗墨边 + 铆钉小圆点，保留不动。
@@ -3643,7 +3647,7 @@ public partial class JiangqiaoLevel : Node2D
             MangaPropArt.TornRailEnd(this, trackEnd, railY, 1f, 19311104u);
 
             // 道砟上的碎石：硬边实色小点
-            for (float gx = 2410; gx < fieldEnd; gx += 57f)
+            for (float gx = 3530; gx < fieldEnd; gx += 57f)
             {
                 if (InGap(gx)) continue;
                 float gy = railY + 8f + Mathf.Sin(gx * 0.13f) * 4f;
