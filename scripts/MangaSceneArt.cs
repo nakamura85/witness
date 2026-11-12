@@ -210,12 +210,27 @@ public static class MangaSceneArt
     {
         const float Probe = 6f;
         const float Step = RailTileW - 6f;
+        bool hasGap = isGap != null;
         float cursor = x0;
+        bool prevGap = false;
         while (cursor < x1)
         {
-            if (isGap != null && isGap(cursor)) { cursor += Probe; continue; }
+            if (hasGap && isGap(cursor)) { cursor += Probe; continue; }
             float start = cursor;
-            while (cursor < x1 && !(isGap != null && isGap(cursor))) cursor += Probe;
+            while (cursor < x1 && !(hasGap && isGap(cursor))) cursor += Probe;
+            bool gapLeft = prevGap;
+            bool gapRight = hasGap && cursor < x1 && isGap(cursor);
+
+            // 段两端的接地软阴影：消除「铁轨像浮在地面之上、底边一条硬直线」的观感
+            c.DrawRect(new Rect2(start, railY + RailTileH - 3f, cursor - start, 7f),
+                new Color(0.08f, 0.07f, 0.06f, 0.16f));
+
+            // 每一处缺口的两端都画炸断的轨头 + 翻起碎石（不是干净的贴图切口）。
+            // 这样柳条湖断口 / 弹坑 / 弹着点 / 桥面缺口的边界都读成「被炸断」，
+            // 而不会出现「铁轨毫无理由地断开、两端切得方正」(用户 2026-11-12 截图标红)。
+            if (gapLeft) MangaPropArt.TornRailEnd(c, start, railY, -1f, (uint)(start * 7 + 31));
+            if (gapRight) MangaPropArt.TornRailEnd(c, cursor, railY, 1f, (uint)(cursor * 7 + 37));
+
             float p = start;
             int idx = 0;
             while (p < cursor)
@@ -225,6 +240,7 @@ public static class MangaSceneArt
                 p += Step;
                 idx++;
             }
+            prevGap = gapRight;
         }
     }
 

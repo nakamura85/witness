@@ -4351,6 +4351,7 @@ public partial class JiangqiaoLevel : Node2D
                 bool destroyed = _hp[i] <= 0f;
                 bool damaged = !destroyed && _hp[i] < 60f;
 
+                // cast shadow stays (handles the dead-wall footprint too)
                 SnowShadow.Draw(this, new Vector2(cx, GroundY - 1f),
                     destroyed ? s.W * 0.8f : s.W * 0.55f, 0.30f);
 
@@ -4359,21 +4360,53 @@ public partial class JiangqiaoLevel : Node2D
                 {
                     // v3.55: the wall SCATTERED - a low chaotic pile of torn
                     // bags where it stood plus bags flung out into the snow,
-                    // half-buried, sand spilled between them. The old tidy
-                    // wreck texture read as "still a neat wall, just shorter".
+                    // half-buried, sand spilled between them.
                     DrawWreck(i);
                     continue;
                 }
 
-                if (flip)
+                // v3.74: per-stack seeded variation. The walls shared one texture
+                // at one size, so they read as clone-stamped copies (user:
+                // "太均匀像复制粘贴"). Each wall keeps its collision footprint
+                // but gets a stable scale / tilt / horizontal shift, an irregular
+                // snow drift at its base (no hard floating bottom line) and a
+                // broken, lopsided snow cap instead of a flat band.
+                var vrng = new RandomNumberGenerator();
+                vrng.Seed = 9001UL + (ulong)(s.X * 7);
+                float sc = vrng.RandfRange(0.93f, 1.08f);
+                float tilt = vrng.RandfRange(-0.045f, 0.045f);
+                float jx = vrng.RandfRange(-6f, 6f);
+                float drawW = s.W * sc;
+                float bx = cx + jx;
+
+                // base drift: 3~5 irregular low humps break the straight bottom
+                int drifts = vrng.RandiRange(3, 5);
+                for (int d = 0; d < drifts; d++)
                 {
-                    DrawSetTransform(new Vector2(cx, GroundY + 1f), 0, new Vector2(-1f, 1f));
-                    DrawTextureRect(_sackTex, new Rect2(-s.W * 0.5f, -s.H, s.W, s.H), false);
+                    float dx = bx + vrng.RandfRange(-s.W * 0.5f, s.W * 0.5f);
+                    float dr = vrng.RandfRange(s.W * 0.12f, s.W * 0.22f);
+                    DrawSetTransform(new Vector2(dx, GroundY - 2f), 0, new Vector2(1f, 0.40f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.92f, 0.94f, 0.95f), 0.5f),
+                        new Rect2(-dr, -dr, dr * 2f, dr * 2f), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
-                else
+
+                // standing wall: per-stack tilt + horizontal shift + mirror
+                DrawSetTransform(new Vector2(bx, GroundY + 1f), tilt * (flip ? -1f : 1f),
+                    new Vector2((flip ? -sc : sc), sc));
+                DrawTextureRect(_sackTex, new Rect2(-s.W * 0.5f, -s.H, s.W, s.H), false);
+                DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+                // lopsided snow cap: 2~4 blobs, random along the crown
+                int caps = vrng.RandiRange(2, 4);
+                for (int c = 0; c < caps; c++)
                 {
-                    DrawTextureRect(_sackTex, new Rect2(cx - s.W * 0.5f, GroundY + 1f - s.H, s.W, s.H), false);
+                    float cxp = bx + vrng.RandfRange(-s.W * 0.42f, s.W * 0.42f);
+                    float cr = vrng.RandfRange(7f, 13f);
+                    DrawSetTransform(new Vector2(cxp, GroundY + 1f - s.H + 3f), 0, Vector2.One);
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.95f, 0.96f, 0.97f), 0.8f),
+                        new Rect2(-cr, -cr * 0.5f, cr * 2f, cr), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
 
                 if (damaged)
@@ -4381,13 +4414,14 @@ public partial class JiangqiaoLevel : Node2D
                     // chipped wall: scorch blotch on the face + one bag knocked
                     // loose at the foot. Still usable, visibly worse for wear.
                     float side = flip ? -1f : 1f;
-                    DrawSetTransform(new Vector2(cx - side * s.W * 0.22f, GroundY - s.H * 0.55f), 0.10f * side,
+                    float fx = bx - side * drawW * 0.22f;
+                    DrawSetTransform(new Vector2(fx, GroundY - s.H * 0.55f), 0.10f * side,
                         new Vector2(1.4f, 1.1f));
                     DrawTextureRect(SoftSnow.Blob(new Color(0.14f, 0.12f, 0.09f), 0.5f),
                         new Rect2(-14f, -14f, 28f, 28f), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                     var sack = new Color(0.62f, 0.55f, 0.42f);
-                    float lx = cx + side * s.W * 0.62f;
+                    float lx = bx + side * drawW * 0.62f;
                     // v3.56: the knocked-loose bag is a real painted crop,
                     // not a code rectangle (style-mismatch report)
                     if (_bagSlices.Length > 0)

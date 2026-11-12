@@ -46,21 +46,32 @@ public static class MangaPropArt
     // ================= 铁轨 =================
 
     /// <summary>
-    /// 道砟带：一整块平涂 + 3px 粗墨边 + 上下两条硬边 shadow/highlight。
-    /// 取代旧版「半透明水彩罩染 + 柔和高光线」——那正是串味的写实细密观感来源。
+    /// 道砟带：沿 x 撒不规则碎石（上下边缘锯齿、大小高低不齐），不是一块
+    /// 平涂矩形 + 直边高光带。取代旧版「半透明水彩罩染 / 整齐矩形」的过规整观感。
     /// </summary>
     public static void Ballast(CanvasItem c, float x0, float x1, float y)
     {
         if (x1 - x0 < 12f) return;
-        InkStyle.PenStroke(c, new[]
+        var rng = new RandomNumberGenerator();
+        rng.Seed = (uint)(x0 * 13 + 7);
+        float step = 13f;
+        for (float x = x0; x < x1; x += step)
         {
-            new Vector2(x0, y + 2f), new Vector2(x1, y + 2f),
-            new Vector2(x1, y + 22f), new Vector2(x0, y + 22f),
-        }, BallastBase, InkStyle.InkColor, InkStyle.BoldStroke);
-        // 下缘硬边暗部
-        c.DrawRect(new Rect2(x0 + 2f, y + 15f, x1 - x0 - 4f, 6f), BallastShadow);
-        // 上缘硬边高光带
-        c.DrawRect(new Rect2(x0 + 2f, y + 3f, x1 - x0 - 4f, 3f), BallastHighlight);
+            float w = step * (0.55f + rng.RandfRange(0f, 0.9f));
+            float top = y + 1f + rng.RandfRange(-2f, 3f);
+            float h = 17f + rng.RandfRange(-5f, 8f);
+            InkStyle.PenStroke(c, new[]
+            {
+                new Vector2(x - w * 0.5f, top + h),
+                new Vector2(x + w * 0.5f, top + h),
+                new Vector2(x + w * 0.32f, top),
+                new Vector2(x - w * 0.30f, top + 2f),
+            }, rng.Randf() < 0.5f ? BallastBase : BallastShadow,
+                InkStyle.InkColor, InkStyle.Stroke);
+            // 散石小点
+            c.DrawCircle(new Vector2(x + rng.RandfRange(-w, w) * 0.5f, top + h * 0.62f),
+                1.4f + rng.RandfRange(0f, 2f), BallastShadow);
+        }
     }
 
     /// <summary>枕木：粗墨框 + base/shadow/highlight 三档平涂 + 一条卡通高光短线。</summary>
@@ -118,37 +129,52 @@ public static class MangaPropArt
     {
         var rng = new RandomNumberGenerator();
         rng.Seed = seed;
+        var ink = InkStyle.InkColor;
 
-        // 焦黑爆破痕：多块不规则实色块堆出炸点，不用整齐矩形
-        for (int i = 0; i < 6; i++)
+        // 散落碎石：缺口附近先撒一层不规则石粒，打破「干净一刀切」的边界
+        ScatterBallast(c, x - dir * 34f, x + dir * 20f, y, seed + 911u, 12);
+
+        // 焦黑爆破痕：多块大小/高低都不齐的不规则实色块堆出炸点
+        // （宽度随机、上下偏移随机、用 DrawColoredPolygon 而非整齐矩形）
+        for (int i = 0; i < 9; i++)
         {
-            float cx = x - dir * (2f + i * 6f + rng.RandfRange(-3f, 3f));
-            float cw = 12f + rng.RandfRange(0f, 16f);
-            float ch = 4f + rng.RandfRange(0f, 6f);
-            c.DrawRect(new Rect2(cx - cw * 0.5f, y + 15f + rng.RandfRange(-4f, 8f), cw, ch),
-                i % 2 == 0 ? CharredWood : InkStyle.InkColor);
+            float cx = x - dir * (2f + i * 5f + rng.RandfRange(-4f, 4f));
+            float cw = 9f + rng.RandfRange(0f, 18f);
+            float ch = 3f + rng.RandfRange(0f, 8f);
+            float cy = y + 14f + rng.RandfRange(-5f, 9f);
+            float skew = rng.RandfRange(-3f, 3f);
+            c.DrawColoredPolygon(new[]
+            {
+                new Vector2(cx - cw * 0.5f, cy + ch * 0.5f),
+                new Vector2(cx - cw * 0.2f + skew, cy - ch * 0.5f),
+                new Vector2(cx + cw * 0.5f, cy + ch * 0.2f),
+                new Vector2(cx + cw * 0.15f - skew, cy + ch * 0.6f),
+            }, i % 2 == 0 ? CharredWood : ink);
         }
 
-        // 翻起道砟：4~5 块硬边多边形，高低错落、不排成整齐一条
-        for (int i = 0; i < 5; i++)
+        // 翻起道砟：6~8 块硬边多边形，高低错落、前后散开，绝不排成整齐一条
+        for (int i = 0; i < 7; i++)
         {
-            float w = 7f + rng.RandfRange(0f, 13f);
-            float px = x + dir * (1f + i * 8f + rng.RandfRange(-4f, 4f));
-            float lift = 3f + rng.RandfRange(0f, 14f);
+            float w = 6f + rng.RandfRange(0f, 15f);
+            float px = x + dir * (1f + i * 7f + rng.RandfRange(-5f, 5f));
+            float py = y + 15f + rng.RandfRange(-3f, 4f);
+            float lift = 4f + rng.RandfRange(0f, 17f);
+            float back = rng.RandfRange(-3f, 4f);
             InkStyle.PenStroke(c, new[]
             {
-                new Vector2(px - w * 0.5f, y + 16f),
-                new Vector2(px + w * 0.5f, y + 16f),
-                new Vector2(px + w * 0.35f, y + 16f - lift),
-                new Vector2(px - w * 0.25f, y + 16f - lift * 0.6f),
-            }, i % 2 == 0 ? BallastBase : BallastShadow, InkStyle.InkColor, InkStyle.Stroke);
+                new Vector2(px - w * 0.5f, py + back),
+                new Vector2(px + w * 0.5f, py - back),
+                new Vector2(px + w * 0.32f, py - lift),
+                new Vector2(px - w * 0.30f, py - lift * 0.55f),
+            }, i % 2 == 0 ? BallastBase : BallastShadow, ink, InkStyle.Stroke);
         }
 
-        // 上翘 / 扭曲的轨头：用多段折线画出弯折翻卷，不是直挺挺一截
+        // 上翘 / 扭曲的轨头：多段折线画出弯折翻卷，不是直挺挺一截；
+        // 再加一截「飞脱的弯轨」斜插出去，强调爆炸把钢轨掀翻的力道
         foreach (float ry in new[] { y, y + 13f })
         {
-            int segs = 3;
-            float total = 15f + rng.RandfRange(0f, 10f);
+            int segs = 4 + (int)rng.RandfRange(0f, 2f);
+            float total = 18f + rng.RandfRange(0f, 14f);
             float a = 0.5f + rng.RandfRange(-0.15f, 0.5f);
             Vector2[] inkPts = new Vector2[segs + 1];
             inkPts[0] = new Vector2(x, ry);
@@ -156,17 +182,27 @@ public static class MangaPropArt
             for (int s = 0; s < segs; s++)
             {
                 float segLen = total / segs * (0.7f + rng.RandfRange(0f, 0.7f));
-                a += rng.RandfRange(-0.55f, 0.65f);
+                a += rng.RandfRange(-0.6f, 0.7f);
                 lx += dir * segLen * Mathf.Cos(a);
                 ly -= segLen * Mathf.Sin(a);
                 inkPts[s + 1] = new Vector2(lx, ly);
             }
-            c.DrawPolyline(inkPts, InkStyle.InkColor, 5f, true);
+            c.DrawPolyline(inkPts, ink, 5f, true);
             Vector2[] steelPts = new Vector2[segs + 1];
             for (int k = 0; k <= segs; k++) steelPts[k] = inkPts[k] + new Vector2(0f, -1.5f);
             c.DrawPolyline(steelPts, SteelBase, 2.6f, true);
             InkStyle.KawaiiHighlight(c, inkPts[segs], 1.8f, SteelHighlight);
         }
+
+        // 一截飞脱的弯轨：从炸点斜抛出，落点随机，强化「钢轨被掀翻」而非整齐切断
+        float fl = rng.RandfRange(14f, 26f);
+        float fa = (0.9f + rng.RandfRange(-0.2f, 0.4f)) * (rng.Randf() < 0.5f ? 1f : -1f);
+        var fp0 = new Vector2(x, y + 6f);
+        var fp1 = fp0 + new Vector2(dir * fl * Mathf.Cos(fa), -fl * Mathf.Sin(fa) - 6f);
+        var fp2 = fp1 + new Vector2(dir * fl * 0.5f * Mathf.Cos(fa + 0.5f), -fl * 0.4f * Mathf.Sin(fa + 0.5f));
+        c.DrawPolyline(new[] { fp0, fp1, fp2 }, ink, 4.4f, true);
+        c.DrawPolyline(new[] { fp0 + new Vector2(0, -1.4f), fp1 + new Vector2(0, -1.4f), fp2 + new Vector2(0, -1.4f) },
+            SteelBase, 2.2f, true);
     }
 
     /// <summary>在一段区间内撒散落道砟碎片 + 零星焦痕，用于断口 / 弹坑内，避免出现「干净一刀切」的缺口。</summary>

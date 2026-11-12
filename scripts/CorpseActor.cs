@@ -149,7 +149,8 @@ public partial class CorpseActor : Node2D
 
     private void DrawContactShadow(float len)
     {
-        SnowShadow.Draw(this, new Vector2(HeadSign() * len * 0.12f, 1f), len * 0.34f, 0.22f);
+        // 加重接地软阴影，避免尸体像「贴」在雪面上 / 与铁轨穿插时读成漂浮
+        SnowShadow.Draw(this, new Vector2(HeadSign() * len * 0.12f, 2f), len * 0.42f, 0.30f);
     }
 
     private float HeadSign() => _headRight ? 1f : -1f;
