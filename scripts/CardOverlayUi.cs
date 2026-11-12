@@ -26,16 +26,9 @@ public partial class CardOverlayUi : CanvasLayer
         center.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(center);
 
-        var panel = new PanelContainer();
-        var style = new StyleBoxFlat
-        {
-            BgColor = new Color(0.91f, 0.87f, 0.77f),
-            BorderColor = new Color(0.16f, 0.14f, 0.12f),
-            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
-            ContentMarginLeft = 26, ContentMarginRight = 26, ContentMarginTop = 22, ContentMarginBottom = 22,
-        };
-        panel.AddThemeStyleboxOverride("panel", style);
-        panel.CustomMinimumSize = new Vector2(960, 520);
+        // v3.68：史料卡也是一张烧焦边的纸，seed 随卡号变化，每张不一样
+        var panel = new BurntPaperPanel(BurntPaperArt.StableHash("card-" + _num), 0.5f)
+        { CustomMinimumSize = new Vector2(960, 520) };
         center.AddChild(panel);
 
         var box = new VBoxContainer();

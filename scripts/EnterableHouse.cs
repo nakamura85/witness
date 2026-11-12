@@ -301,7 +301,16 @@ public partial class HouseInteriorUi : CanvasLayer
         => InteriorRoom.Create(type, variant, seed, title);
 
     /// <summary>v3.67：只画墙 / 地 / 家具的背景层，供 InteriorRoom 垫底。</summary>
+    /// <summary>
+    /// v3.68：室内背景改用与关卡同源的手绘上色漫画风贴图，
+    /// 不再用纯 _Draw() 平涂几何（用户 2026-11-12 判定「跟外面两回事」）。
+    /// 贴图见 assets/art/interior/；RoomBg 保留为无贴图时的兜底。
+    /// </summary>
     public static Control CreateRoomBackground(RoomType type, int variant, int seed)
+        => new InteriorBackdrop(type, variant, seed);
+
+    /// <summary>贴图未导入时的兜底：v3.65 程序化漫画风房间（不含任何 UI 标签）。</summary>
+    public static Control CreateFallbackRoomBackground(RoomType type, int variant, int seed)
         => new RoomBg(type, variant, seed);
 
     public event Action Closed;
@@ -323,7 +332,8 @@ public partial class HouseInteriorUi : CanvasLayer
     private readonly RoomType _roomType;      // 屋内格局类型（住家 / 机房 / 焚毁仓库）
     private readonly int _roomVariant;        // 同类型的轻微变体（如住家左右镜像），让每间屋不完全一样
     // 信/遗书落款：默认江桥（东北军官兵家书改为江桥抗战官兵），九一八屋（roomLayout）用东北军落款
-    private string _noteSource = "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵家书意象改写。";
+    private string _noteSource = "出处：见各张纸页。文本为据公开史料整理的档案摘录，非烈士本人遗书或原话。";
+    private bool _n918Chapter;   // v3.68：屋内档案按关卡取不同的真实通电 / 名录
     private Control _root;
     private Label _hint;
     private InteriorRoom _explore;   // v3.67 可探索房间
@@ -366,7 +376,7 @@ public partial class HouseInteriorUi : CanvasLayer
         _onTransmit = onTransmit;
         _onPower = onPower;
         _roomLayout = roomLayout;
-        if (roomLayout) _noteSource = "注：人物为复合虚构，不对应单一在世者。东北军官兵家书意象改写。";
+        _n918Chapter = roomLayout;
     }
 
     private partial class Spot : Button
@@ -526,36 +536,28 @@ public partial class HouseInteriorUi : CanvasLayer
                 break;
             }
             case "letter":
-                OpenNote("灶台砖下压着的一封信",
-                    new[]
-                    {
-                        "“娘，这边冷得很，手里的枪比我的手还凉。等把桥守住了，我就回家帮您劈柴。”",
-                        "“要是我回不去，别叫人把我的名字写错了。是永胜的胜，得胜的胜。”",
-                    },
-                    _noteSource);
+            {
+                // v3.68：不再给真实烈士编造家书，改为档案体的阵亡通报抄件
+                var rec = MartyrArchive.NoticeFragment(_n918Chapter);
+                OpenNote(rec.Title, rec.Lines, rec.Source);
                 MarkDone(s);
                 GotLetter?.Invoke(1);   // 关卡据此累计「信」数 / 口信（N918Testimony / N918EnvelopeCount）
                 break;
+            }
             case "will":
-                OpenNote("叠得整整齐齐的遗书",
-                    new[]
-                    {
-                        "“若我阵亡，勿念。此身许国，不得许家。”",
-                        "“口袋里余钱四十枚，托同乡带回，给妹妹缴学费。她若问起我，就说我在北边教书的。”",
-                    },
-                    _noteSource);
+            {
+                var rec = MartyrArchive.RosterFragment(_n918Chapter);
+                OpenNote(rec.Title, rec.Lines, rec.Source);
                 MarkDone(s);
                 break;
+            }
             case "clue":
-                OpenNote("烧剩一半的文件",
-                    new[]
-                    {
-                        "纸只剩半页，字迹被火燎过：「……军列午后过江桥，皮坎子……车头挂斗三十……」",
-                        "后半截烧成了黑灰。落款只看得到一个「熙」字。",
-                    },
-                    "线索：指向日军军列过桥的时刻表。与铁路工人孙德山的口述互相印证。");
+            {
+                var rec = MartyrArchive.BurntDocument(_n918Chapter);
+                OpenNote(rec.Title, rec.Lines, rec.Source);
                 MarkDone(s);
                 break;
+            }
             case "chest":
                 if (!s.Done) StartPry(s);
                 break;
@@ -754,13 +756,15 @@ public partial class HouseInteriorUi : CanvasLayer
         dim.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(dim);
 
+        // v3.68：去掉米黄 UI 卡片框，只留一层深墨棕底 + 硬投影；
+        // 漫画分格框由 InteriorBackdrop 自己画，避免「贴图 + UI 框」套两层。
         var panel = new PanelContainer { CustomMinimumSize = new Vector2(1000, 640) };
         panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
-            BgColor = new Color(0.14f, 0.10f, 0.08f),
-            BorderColor = new Color(0.92f, 0.85f, 0.68f),
-            BorderWidthLeft = 4, BorderWidthRight = 4, BorderWidthTop = 4, BorderWidthBottom = 4,
-            ContentMarginLeft = 24, ContentMarginRight = 24, ContentMarginTop = 24, ContentMarginBottom = 24,
+            BgColor = InkStyle.InkColor,
+            BorderColor = InkStyle.InkColor,
+            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+            ContentMarginLeft = 14, ContentMarginRight = 14, ContentMarginTop = 14, ContentMarginBottom = 14,
             ShadowColor = new Color(0.04f, 0.03f, 0.02f, 0.6f), ShadowSize = 10, ShadowOffset = new Vector2(8, 8),
         });
 

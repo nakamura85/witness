@@ -1056,29 +1056,12 @@ public partial class JiangqiaoLevel : Node2D
 
     private void BuildTestimonies()
     {
-        AddTestimony("t1", new Vector2(720, GroundY), "口述 01 · 机枪手 赵永生（化名，时年 24 岁）",
-            new[]
-            {
-                "“十一月四日天没亮，江面冻得能走车。他们的炮先打，冰炸开了，马车过不去。我们连的机枪架在土坎后头，打到第三箱子弹，枪管红了，就用雪捂。”",
-                "“后来记不清了。只记得有人在雪里喊我的名字，我说我在这儿。声音传出去，就没再回来。”",
-            },
-            "依据：江桥抗战公开口述史料改写；人物为复合虚构，不对应单一在世者。");
-
-        AddTestimony("t2", new Vector2(2100, GroundY), "口述 02 · 卫生员 李桂兰（化名，时年 19 岁）",
-            new[]
-            {
-                "“担架不够，棉被撕成条。最冷的时候零下二十几度，血一落地就冻住，要用热水化开才能包扎。”",
-                "“有个孩子兵一直问我，我们什么时候能回家。我说等打完这一仗。他说那打完这一仗，家还在吗。”",
-            },
-            "依据：江桥抗战、东北抗战医疗口述史料改写；人物为复合虚构。");
-
-        AddTestimony("t3", new Vector2(3480, GroundY), "口述 03 · 铁路工人 孙德山（化名，时年 31 岁）",
-            new[]
-            {
-                "“江桥的钢梁是俄国人修的，铆钉一颗一颗敲进去。我们夜里拆掉一段铁轨，想让他们的车过不来。”",
-                "“天一亮，他们的飞机来了。铁路没了可以再修，人没了就没了。”",
-            },
-            "依据：《黑龙江省志·铁路志》与江桥抗战口述史料改写；人物为复合虚构。");
+        // v3.68：江桥抗战阵亡通报，只列该役实际殉国且史料可考者。
+        foreach (var rec in MartyrArchive.Jiangqiao)
+        {
+            var pos = new Vector2(rec.Pos.X, GroundY);
+            AddTestimony(rec.Id, pos, rec.Title, rec.Lines, rec.Source);
+        }
     }
 
     private void AddTestimony(string id, Vector2 pos, string title, string[] lines, string source)
@@ -5567,15 +5550,9 @@ public partial class LevelEndUi : CanvasLayer
         center.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(center);
 
-        var panel = new PanelContainer { CustomMinimumSize = new Vector2(900, 0) };
-        panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
-        {
-            BgColor = new Color(0.905f, 0.855f, 0.735f),
-            BorderColor = new Color(0.24f, 0.20f, 0.16f),
-            BorderWidthLeft = 2, BorderWidthRight = 2, BorderWidthTop = 2, BorderWidthBottom = 2,
-            ContentMarginLeft = 36, ContentMarginRight = 36, ContentMarginTop = 26, ContentMarginBottom = 26,
-            ShadowColor = new Color(0, 0, 0, 0.5f), ShadowSize = 16, ShadowOffset = new Vector2(6, 8),
-        });
+        // v3.68：结算记录也落在「少许烧毁」的纸张上，不再是对话格子
+        var panel = new BurntPaperPanel(BurntPaperArt.StableHash("jiangqiao-end"), 0.5f)
+        { CustomMinimumSize = new Vector2(900, 0) };
         center.AddChild(panel);
 
         var box = new VBoxContainer();
@@ -5601,7 +5578,7 @@ public partial class LevelEndUi : CanvasLayer
         });
         box.AddChild(L("江桥抗战从 11 月 4 日打到 11 月 19 日。马占山部在装备、补给、空军全部劣势下坚持了十六天，最终撤退。这是九一八之后，中国军队第一次有组织的大规模抵抗；也是此后十四年抗战的开端。", 16, new Color(0.22f, 0.19f, 0.16f)));
         box.AddChild(L("你带出的三份口述没有改变战局。它们只证明：在那片雪地上，确实有人说过那些话。", 16, new Color(0.22f, 0.19f, 0.16f)));
-        box.AddChild(L("依据：马占山《江桥抗战经过》；《黑龙江省志·军事志》；江桥抗战公开口述史料。人物为复合虚构，不对应单一在世者。", 13, new Color(0.45f, 0.40f, 0.33f)));
+        box.AddChild(L("依据：《沈阳文史资料》第七辑《江桥之役和马占山抗战》（邢介兴回忆）；新华网《江桥抗战遗址寻访》（2022-09-16）；「东北讲武堂研究」英烈谱。阵亡通报人物与出处逐条见各张纸页。", 13, new Color(0.45f, 0.40f, 0.33f)));
         box.AddChild(L("后续章节（待制作）：1937 南京 · 1942 马来亚知知港 · 731 部队", 14, new Color(0.42f, 0.38f, 0.31f)));
 
         var row = new HBoxContainer();

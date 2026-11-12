@@ -543,7 +543,7 @@ public partial class AsiaMap : Control
                         "通关之后才会回到这张东亚地图；行军标记届时从沈阳沿铁路北上，指向 1931 年 11 月的嫩江江桥，才进入下一关。（江桥章节现在不会提前显示。）",
                         "操作：A / D 移动 · 空格 跳跃 · S 蹲下 · Ctrl 匍匐 · E 记录/互动 · 鼠标左键 射击 · Esc 返回地图",
                     },
-                    "依据：远东国际军事法庭判决书（九一八部分）；辽宁省档案馆公开史料；柳条湖事件与北大营相关公开档案。本关人物为复合虚构，口述内容依据公开口述史改写。",
+                    "依据：远东国际军事法庭判决书（九一八部分）；辽宁省档案馆公开史料；中共黑龙江省委史志研究室《国耻警钟 抗争开端》。本关档案人物与阵亡通报均取可考史料，出处见各张纸页。",
                     () =>
                     {
                         _briefOpened = true;
@@ -1269,8 +1269,11 @@ public partial class AsiaMap : Control
 }
 
 /// <summary>
-/// 纸条档案浮层：旧纸面板 + 条约/殖民动机/代价 + 出处。
-/// 读完后关闭，回到地图时由回调刷新状态。
+/// <summary>
+/// v3.68 档案纸浮层：一张「少许烧毁」的手绘上色漫画风真实纸张。
+/// 取代 v3.67 及以前的 PanelContainer + StyleBoxFlat「对话格子」。
+/// 每张纸按 date + title 稳定哈希生成 seed，焦边位置 / 缺口 / 烧洞 /
+/// 卷角 / 折痕 / 纸色 / 摆放角度都不同，不会张张一个样。
 /// </summary>
 public partial class FieldNoteUi : CanvasLayer
 {
@@ -1281,6 +1284,7 @@ public partial class FieldNoteUi : CanvasLayer
     private readonly string[] _paragraphs;
     private readonly string _source;
     private readonly Action _onClose;
+    private readonly int _seed;
 
     public FieldNoteUi(string date, string title, string[] paragraphs, string source, Action onClose)
     {
@@ -1289,14 +1293,14 @@ public partial class FieldNoteUi : CanvasLayer
         _paragraphs = paragraphs;
         _source = source;
         _onClose = onClose;
-        // 30 > DialogueUi(25) / HouseInteriorUi(20)：笔记常被 AddChild 进屋内面板，
-        // CanvasLayer 按自身 Layer 跨整棵树排序，同 Layer 会被父层盖住 → 笔记盖在最上层（#4）
+        _seed = BurntPaperArt.StableHash((date ?? "") + "|" + (title ?? ""));
+        // 30 > DialogueUi(25) / HouseInteriorUi(20)：笔记常被 AddChild 进屋内面板
         Layer = 30;
     }
 
     public override void _Ready()
     {
-        var dim = new ColorRect { Color = new Color(0.04f, 0.035f, 0.03f, 0.72f) };
+        var dim = new ColorRect { Color = new Color(0.04f, 0.035f, 0.03f, 0.74f) };
         dim.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(dim);
 
@@ -1304,65 +1308,51 @@ public partial class FieldNoteUi : CanvasLayer
         center.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(center);
 
-        var panel = new PanelContainer { CustomMinimumSize = new Vector2(940, 0) };
-        var style = new StyleBoxFlat
-        {
-            BgColor = new Color(0.905f, 0.855f, 0.735f),
-            BorderColor = new Color(0.24f, 0.20f, 0.16f),
-            BorderWidthLeft = 2, BorderWidthRight = 2, BorderWidthTop = 2, BorderWidthBottom = 2,
-            ContentMarginLeft = 34, ContentMarginRight = 34, ContentMarginTop = 26, ContentMarginBottom = 24,
-            ShadowColor = new Color(0, 0, 0, 0.45f), ShadowSize = 14, ShadowOffset = new Vector2(6, 8),
-        };
-        panel.AddThemeStyleboxOverride("panel", style);
-        panel.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
-        panel.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
-        center.AddChild(panel);
+        var paper = new BurntPaperPanel(_seed, 0.55f) { CustomMinimumSize = new Vector2(940, 0) };
+        paper.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
+        paper.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
+        center.AddChild(paper);
 
         var box = new VBoxContainer();
-        box.AddThemeConstantOverride("separation", 14);
-        panel.AddChild(box);
+        box.AddThemeConstantOverride("separation", 13);
+        paper.AddChild(box);
 
         var date = new Label { Text = _date };
         date.AddThemeFontSizeOverride("font_size", 14);
-        date.AddThemeColorOverride("font_color", new Color(0.48f, 0.43f, 0.35f));
+        date.AddThemeColorOverride("font_color", new Color(0.44f, 0.36f, 0.27f));
         box.AddChild(date);
 
         var title = new Label { Text = _title };
         title.AddThemeFontSizeOverride("font_size", 25);
-        title.AddThemeColorOverride("font_color", new Color(0.16f, 0.14f, 0.12f));
+        title.AddThemeColorOverride("font_color", InkStyle.InkColor);
         title.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        title.CustomMinimumSize = new Vector2(860, 0);
+        title.CustomMinimumSize = new Vector2(820, 0);
         box.AddChild(title);
 
-        var rule = new ColorRect
-        {
-            Color = new Color(0.55f, 0.20f, 0.16f, 0.75f),
-            CustomMinimumSize = new Vector2(0, 2),
-        };
-        box.AddChild(rule);
+        box.AddChild(new InkRule { CustomMinimumSize = new Vector2(820, 9) });
 
-        foreach (var p in _paragraphs)
+        foreach (var para in _paragraphs)
         {
-            var l = new Label { Text = p };
+            var l = new Label { Text = para };
             l.AddThemeFontSizeOverride("font_size", 16);
-            l.AddThemeColorOverride("font_color", new Color(0.22f, 0.19f, 0.16f));
+            l.AddThemeColorOverride("font_color", new Color(0.20f, 0.16f, 0.13f));
             l.AddThemeConstantOverride("line_spacing", 4);
             l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-            l.CustomMinimumSize = new Vector2(860, 0);
+            l.CustomMinimumSize = new Vector2(820, 0);
             box.AddChild(l);
         }
 
         var source = new Label { Text = _source };
         source.AddThemeFontSizeOverride("font_size", 13);
-        source.AddThemeColorOverride("font_color", new Color(0.45f, 0.40f, 0.33f));
+        source.AddThemeColorOverride("font_color", new Color(0.42f, 0.35f, 0.28f));
         source.AddThemeConstantOverride("line_spacing", 3);
         source.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        source.CustomMinimumSize = new Vector2(860, 0);
+        source.CustomMinimumSize = new Vector2(820, 0);
         box.AddChild(source);
 
+        // 保留「收起纸条」文字：CaptureMap 靠这个文字定位按钮
         var close = new Button { Text = "收起纸条" };
-        close.AddThemeFontSizeOverride("font_size", 16);
-        close.CustomMinimumSize = new Vector2(170, 38);
+        PaperButtonStyle.Apply(close);
         close.SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd;
         close.Pressed += Close;
         box.AddChild(close);

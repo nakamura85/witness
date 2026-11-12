@@ -52,13 +52,13 @@ public partial class CaptureRoom : Node
         _holder.AddChild(dim);
 
         var panel = new PanelContainer { CustomMinimumSize = new Vector2(1000, 640) };
-        // v3.65: 与真实 HouseInteriorUi 同一套漫画分格框
+        // v3.68: 与真实 HouseInteriorUi 一致 —— 深墨棕底，不再套米黄 UI 卡片框
         panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
-            BgColor = new Color(0.14f, 0.10f, 0.08f),
-            BorderColor = new Color(0.92f, 0.85f, 0.68f),
-            BorderWidthLeft = 4, BorderWidthRight = 4, BorderWidthTop = 4, BorderWidthBottom = 4,
-            ContentMarginLeft = 24, ContentMarginRight = 24, ContentMarginTop = 24, ContentMarginBottom = 24,
+            BgColor = InkStyle.InkColor,
+            BorderColor = InkStyle.InkColor,
+            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+            ContentMarginLeft = 14, ContentMarginRight = 14, ContentMarginTop = 14, ContentMarginBottom = 14,
         });
         var center = new CenterContainer();
         center.SetAnchorsPreset(Control.LayoutPreset.FullRect);

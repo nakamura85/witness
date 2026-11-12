@@ -20,6 +20,95 @@ public sealed class RoomItem
 }
 
 /// <summary>
+/// v3.68 室内背景：与关卡同源的「手绘上色漫画风」插画贴图。
+///
+/// 用户 2026-11-12 判定：v3.67 那套纯 _Draw() 平涂几何墙 + 米黄 UI 标签牌，
+/// 跟室外 AI 手绘插画贴图「根本是两回事」。所以背景层改用同一批手绘上色漫画风
+/// 贴图（assets/art/interior/），只在外面罩一层 InkStyle 的 3px 深墨棕漫画分格框，
+/// 保证进屋之后和屋外仍是同一个世界、同一套笔触与色调。
+///
+/// 三张贴图分别对应住家 / 通信据点 / 焚毁仓库；住家 variant 1 左右镜像，
+/// 让两间民居不完全一样。贴图缺失时退回到 v3.65 的 RoomBg 平涂，不至于黑屏。
+/// </summary>
+public partial class InteriorBackdrop : Control
+{
+    private readonly RoomType _type;
+    private readonly int _variant;
+    private readonly int _seed;
+    private Texture2D _tex;
+    private TextureRect _view;
+    private Control _frame;
+
+    public InteriorBackdrop(RoomType type, int variant, int seed)
+    {
+        _type = type;
+        _variant = variant;
+        _seed = seed;
+        MouseFilter = Control.MouseFilterEnum.Ignore;
+    }
+
+    private static string PathFor(RoomType type) => type switch
+    {
+        RoomType.CommOutpost => "res://assets/art/interior/comm_outpost.png",
+        RoomType.BurntWarehouse => "res://assets/art/interior/burnt_warehouse.png",
+        _ => "res://assets/art/interior/residence.png",
+    };
+
+    public override void _Ready()
+    {
+        ClipContents = true;
+        _tex = GD.Load<Texture2D>(PathFor(_type));
+
+        if (_tex != null)
+        {
+            _view = new TextureRect
+            {
+                Texture = _tex,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                FlipH = (_type == RoomType.Residence && _variant != 0),
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+            };
+            _view.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+            AddChild(_view);
+        }
+        else
+        {
+            // 兜底：贴图没导入时用旧的程序化房间，只是不再叠 UI 标签
+            var bg = HouseInteriorUi.CreateFallbackRoomBackground(_type, _variant, _seed);
+            bg.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+            AddChild(bg);
+        }
+
+        // 漫画分格：3px 深墨棕粗框 + 四角卡通高光短线，与关卡、纸张同一套语言
+        _frame = new InteriorInkFrame { MouseFilter = Control.MouseFilterEnum.Ignore };
+        _frame.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        AddChild(_frame);
+    }
+}
+
+/// <summary>室内贴图外罩的漫画分格框（3px 深墨棕 + 四角高光，不用圆角 UI 卡片）。</summary>
+public partial class InteriorInkFrame : Control
+{
+    public override void _Draw()
+    {
+        float W = Size.X, H = Size.Y;
+        if (W < 10f || H < 10f) return;
+        // 上下各一条硬边压暗带，把插画「压」进漫画分格里
+        DrawRect(new Rect2(0, 0, W, 10f), new Color(0.14f, 0.10f, 0.08f, 0.55f));
+        DrawRect(new Rect2(0, H - 12f, W, 12f), new Color(0.14f, 0.10f, 0.08f, 0.48f));
+        DrawRect(new Rect2(2, 2, W - 4, H - 4), InkStyle.InkColor, false, 3f);
+        var lit = new Color(0.99f, 0.94f, 0.80f);
+        foreach (var p in new[]
+        {
+            new Vector2(14, 14), new Vector2(W - 14, 14),
+            new Vector2(14, H - 14), new Vector2(W - 14, H - 14),
+        })
+            DrawLine(p, p + new Vector2(10, 10), lit, 2f, true);
+    }
+}
+
+/// <summary>
 /// v3.67 手绘上色漫画风的「可进入、可走动、可寻找」屋内空间。
 ///
 /// 取代 v3.64–v3.66 的 HouseInteriorUi.BuildRoom()：那一版只是
@@ -619,13 +708,13 @@ public partial class InteriorForeground : Control
             return;
         }
 
-        float pw = Mathf.Clamp(text.Length * 15f + 24f, 130f, 260f);
-        Box(new Rect2(pos.X, pos.Y, pw, 30f), Paper, Ink, 3f);
-        // 硬投影
-        DrawRect(new Rect2(pos.X + 4f, pos.Y + 30f, pw, 4f), new Color(0.10f, 0.08f, 0.06f, 0.55f));
+        float pw = Mathf.Clamp(text.Length * 15f + 30f, 150f, 280f);
+        // v3.68：米黄矩形 UI 标签牌 -> 一张撕边 + 局部焦角的纸条
+        PaperSlip.Draw(this, new Rect2(pos.X, pos.Y, pw, 32f),
+            BurntPaperArt.StableHash(text) + _room.Seed);
         _prompt.Text = text;
-        _prompt.Position = new Vector2(pos.X, pos.Y + 5f);
-        _prompt.Size = new Vector2(pw, 24f);
+        _prompt.Position = new Vector2(pos.X + 8f, pos.Y + 5f);
+        _prompt.Size = new Vector2(pw - 16f, 24f);
         _prompt.HorizontalAlignment = HorizontalAlignment.Center;
     }
 
@@ -636,13 +725,14 @@ public partial class InteriorForeground : Control
             _result.Text = "";
             return;
         }
-        float y = H - 108f;
-        float x = 108f, w = W - 216f;
-        Box(new Rect2(x, y, w, 52f), PaperLit, Ink, 3f);
-        DrawRect(new Rect2(x + 4f, y + 52f, w, 4f), new Color(0.10f, 0.08f, 0.06f, 0.50f));
+        float y = H - 112f;
+        float x = 96f, w = W - 192f;
+        // v3.68：结果条同样换成纸条，不再是对话格子
+        PaperSlip.Draw(this, new Rect2(x, y, w, 56f),
+            BurntPaperArt.StableHash(_room.ResultText) + _room.Seed);
         _result.Text = _room.ResultText;
-        _result.Position = new Vector2(x + 14f, y + 8f);
-        _result.Size = new Vector2(w - 28f, 38f);
+        _result.Position = new Vector2(x + 18f, y + 9f);
+        _result.Size = new Vector2(w - 36f, 40f);
     }
 
     // ---------- 漫画风绘制原语 ----------

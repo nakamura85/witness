@@ -1024,45 +1024,13 @@ public partial class N918Level : Node2D
 
     private void BuildTestimonies()
     {
-        AddTestimony("t1", new Vector2(720, GroundY), "口述 01 · 南满铁路巡道工 王福顺（化名，时年 52 岁）",
-            new[]
-            {
-                "“那夜里静得出奇，连虫都不叫。我巡到柳条湖这一段，刚蹲下紧一道鱼尾板，后头‘轰’一声——铁轨翘上天，枕木飞出十几丈。”",
-                "“可那趟南下的客货混合列车， timetable 上明明还得一个时辰才到。火车还没来，地就先炸了。这账，怎么算？”",
-            },
-            "依据：1931.9.18 柳条湖段南满铁路被炸、关东军反诬中国军队所为的史实；人物为复合虚构，不对应单一在世者。");
-
-        AddTestimony("t2", new Vector2(2000, GroundY), "口述 02 · 东北军独立第七旅士兵 李大山（化名，时年 21 岁）",
-            new[]
-            {
-                "“营里电话响了一夜。上头一句话传下来：‘不准抵抗，挺着死，为国牺牲。’我们趴在工事里，看着北大营的墙被人翻进来。”",
-                "“我班长把枪栓拉开了又合上，合上了又拉开。最后没敢扣。那一夜，我们丢了整座营房，没放几枪。”",
-            },
-            "依据：九一八当夜东北军奉「不抵抗令」、北大营万余人撤出、营房被占的史实；人物为复合虚构。");
-
-        AddTestimony("t3", new Vector2(3000, GroundY), "口述 03 · 沟帮子一带农户 张王氏（化名，时年 38 岁）",
-            new[]
-            {
-                "“天没亮，前村的狗叫成一片。我家男人说‘怕是要变天’，把门槛外的石磨都搬进屋。天一亮，门口站了端枪的人。”",
-                "“他们翻了柜，抱走了鸡。我没拦。我拦得住什么。我只把孩子的名儿记在袄里子上，怕哪天走散了，他别忘了自己叫什么。”",
-            },
-            "依据：九一八后日军迅速占领沈阳及周边、民众仓促逃难的史实；人物为复合虚构。");
-
-        AddTestimony("t4", new Vector2(3520, GroundY), "口述 04 · 逃难母亲 秀兰（化名，时年 29 岁）",
-            new[]
-            {
-                "“我背着小女儿走了两天。她问我‘娘，咱们去哪’。我说‘去有灯的地方’。她又问‘那咱家的灯呢’。我说‘娘就是你的灯。’”",
-                "“路上有兵，也有兵给咱们让过道。我不知道哪边是对的。我只知道，孩子得活。”",
-            },
-            "依据：九一八后东北民众大规模流亡关内的史实；人物为复合虚构。");
-
-        AddTestimony("t5", new Vector2(4320, GroundY), "口述 05 · 邮电局线务员 小赵（化名，时年 25 岁）",
-            new[]
-            {
-                "“天亮前，局里命令把通往奉天和长春的长途线先掐了——说是怕消息传出去乱。可掐了线，外头更不知道里头出了什么事。”",
-                "“你们这台发信机，要是还能摇起电、把北大营实情发出去，就发出去。纸面上的‘平安’，顶不了一个活人的嘴。”",
-            },
-            "依据：九一八当夜东北地方通信与电报系统被控制、消息封锁的史实；人物为复合虚构。");
+        // v3.68：化名口述全部换成可考的真实烈士 / 史料档案，集中放在 MartyrArchive。
+        // 每张纸的署名为在该役实际殉国者，或如实标注「姓名未详」，不代拟化名。
+        foreach (var rec in MartyrArchive.N918)
+        {
+            var pos = new Vector2(rec.Pos.X, GroundY);
+            AddTestimony(rec.Id, pos, rec.Title, rec.Lines, rec.Source);
+        }
     }
 
     private void AddTestimony(string id, Vector2 pos, string title, string[] lines, string source)
@@ -5104,15 +5072,9 @@ public partial class N918LevelEndUi : CanvasLayer
         center.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(center);
 
-        var panel = new PanelContainer { CustomMinimumSize = new Vector2(900, 0) };
-        panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
-        {
-            BgColor = new Color(0.905f, 0.855f, 0.735f),
-            BorderColor = new Color(0.24f, 0.20f, 0.16f),
-            BorderWidthLeft = 2, BorderWidthRight = 2, BorderWidthTop = 2, BorderWidthBottom = 2,
-            ContentMarginLeft = 36, ContentMarginRight = 36, ContentMarginTop = 26, ContentMarginBottom = 26,
-            ShadowColor = new Color(0, 0, 0, 0.5f), ShadowSize = 16, ShadowOffset = new Vector2(6, 8),
-        });
+        // v3.68：结算记录也落在「少许烧毁」的纸张上，不再是对话格子
+        var panel = new BurntPaperPanel(BurntPaperArt.StableHash("n918-end"), 0.5f)
+        { CustomMinimumSize = new Vector2(900, 0) };
         center.AddChild(panel);
 
         var box = new VBoxContainer();
@@ -5149,7 +5111,7 @@ public partial class N918LevelEndUi : CanvasLayer
         else
             box.AddChild(L("那一夜，你选择了遵令。北大营一夜未还手，整座营房被人走进来。历史记住的，正是这道没被扣下的扳机。", 16, new Color(0.22f, 0.19f, 0.16f)));
 
-        box.AddChild(L("依据：九一八事变史实（柳条湖事件、北大营、不抵抗令、东北沦陷）；口述为复合虚构，不对应单一在世者。", 13, new Color(0.45f, 0.40f, 0.33f)));
+        box.AddChild(L("依据：远东国际军事法庭判决书（九一八部分）；中共黑龙江省委史志研究室《国耻警钟 抗争开端》；人民政协网《一纸密档存铁证》；中国新闻网《抗日英雄张占元追思会举行》。档案人物与出处逐条见各张纸页。", 13, new Color(0.45f, 0.40f, 0.33f)));
         box.AddChild(L("后续章节（待制作）：1937 南京 · 1942 马来亚知知港 · 731 部队", 14, new Color(0.42f, 0.38f, 0.31f)));
 
         var row = new HBoxContainer();

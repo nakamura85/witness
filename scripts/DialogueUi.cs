@@ -4,15 +4,18 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// 底部对话面板：单行文本或 1-2 个选择按钮。
-/// 纸色卡片 + 炭墨描边，贴合档案拼贴基调。
+/// v3.68 底部剧情文字：一张「少许烧毁」的手绘上色漫画风纸张。
+/// 取代 v3.67 及以前的纸色 PanelContainer + 边框矩形「对话格子」。
+/// 每段对白按文本哈希换 seed，纸张焦边 / 缺口 / 卷角都不同，不会张张一样。
+/// 选择按钮改成漫画风纸签，保持原本的抉择交互与回调序号不变。
 /// </summary>
 public partial class DialogueUi : CanvasLayer
 {
     private Label _name, _text;
     private HBoxContainer _buttons;
+    private BurntPaperPanel _paper;
 
-    // 25 > HouseInteriorUi(20)，屋内点选项时对话面板盖在屋内面板之上（#4）
+    // 25 > HouseInteriorUi(20)，屋内点选项时这张纸盖在屋内画面之上（#4）
     public DialogueUi() { Layer = 25; }
 
     public override void _Ready()
@@ -22,29 +25,15 @@ public partial class DialogueUi : CanvasLayer
         root.MouseFilter = Control.MouseFilterEnum.Stop;
         AddChild(root);
 
-        var panel = new PanelContainer();
-        panel.SetAnchorsPreset(Control.LayoutPreset.CenterBottom);
-        panel.Position = new Vector2(-470, -190);
-        panel.CustomMinimumSize = new Vector2(940, 0);
-        var style = new StyleBoxFlat
-        {
-            BgColor = new Color(0.90f, 0.85f, 0.74f),
-            BorderColor = new Color(0.16f, 0.14f, 0.12f),
-            BorderWidthLeft = 2, BorderWidthRight = 2, BorderWidthTop = 2, BorderWidthBottom = 2,
-            CornerRadiusTopLeft = 2, CornerRadiusTopRight = 2, CornerRadiusBottomLeft = 2, CornerRadiusBottomRight = 2,
-            ContentMarginLeft = 20, ContentMarginRight = 20, ContentMarginTop = 14, ContentMarginBottom = 16,
-        };
-        panel.AddThemeStyleboxOverride("panel", style);
-        root.AddChild(panel);
-
-        var margin = new MarginContainer();
-        margin.AddThemeConstantOverride("margin_left", 4);
-        margin.AddThemeConstantOverride("margin_right", 4);
-        panel.AddChild(margin);
+        _paper = new BurntPaperPanel(BurntPaperArt.StableHash("dialogue"), 0.42f);
+        _paper.SetAnchorsPreset(Control.LayoutPreset.CenterBottom);
+        _paper.Position = new Vector2(-470, -190);
+        _paper.CustomMinimumSize = new Vector2(940, 0);
+        root.AddChild(_paper);
 
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 8);
-        margin.AddChild(box);
+        _paper.AddChild(box);
 
         _name = new Label();
         _name.AddThemeFontSizeOverride("font_size", 15);
@@ -53,9 +42,9 @@ public partial class DialogueUi : CanvasLayer
 
         _text = new Label();
         _text.AddThemeFontSizeOverride("font_size", 19);
-        _text.AddThemeColorOverride("font_color", new Color(0.16f, 0.14f, 0.12f));
+        _text.AddThemeColorOverride("font_color", InkStyle.InkColor);
         _text.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        _text.CustomMinimumSize = new Vector2(880, 0);
+        _text.CustomMinimumSize = new Vector2(820, 0);
         box.AddChild(_text);
 
         _buttons = new HBoxContainer();
@@ -76,6 +65,8 @@ public partial class DialogueUi : CanvasLayer
     public void ShowChoice(string name, string text, (string label, bool enabled)[] opts, Action<int> onPick)
     {
         Visible = true;
+        // 每段对白换一张纸：seed 随文本变化，烧痕位置 / 缺口 / 卷角都不一样
+        _paper?.SetSeed(BurntPaperArt.StableHash((name ?? "") + "|" + (text ?? "")));
         _name.Text = name;
         _name.Visible = name != "";
         _text.Text = text;
@@ -85,6 +76,7 @@ public partial class DialogueUi : CanvasLayer
         {
             int idx = i; // 闭包捕获副本
             var b = new Button { Text = opts[i].label, Disabled = !opts[i].enabled };
+            PaperButtonStyle.Apply(b);
             b.AddThemeFontSizeOverride("font_size", 17);
             b.Pressed += () =>
             {
