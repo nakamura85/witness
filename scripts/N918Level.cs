@@ -327,8 +327,9 @@ public partial class N918Level : Node2D
     /// </summary>
     private void BuildHouses()
     {
-        // v3.64: 固定播种错落布置（九一八 1931.9.18），与江桥不同相。
-        // 远景废墟连位置/尺寸/沉入深度都拉开，近景只动位置与地基高度。
+        // v3.67: 九一八按史实动线布置——柳条湖巡道工小屋 → 北大营外民居 →
+        // 半塌农户 → 通信据点；不再沿用江桥关卡的房屋坐标与排列节奏。
+        // 固定播种 19310918 保证错落可复现；房间 ID 保留以维持搜刮 / 发报流程。
         var hr = new RandomNumberGenerator();
         hr.Seed = 19310918;
         AddHouse("f1", 460f + hr.RandfRange(-110f, 110f), "house_posts_autumn",
@@ -341,19 +342,19 @@ public partial class N918Level : Node2D
             331f * hr.RandfRange(0.90f, 1.10f), false, 12f + hr.RandfRange(-5f, 9f), hr.RandfRange(-6f, 5f));
 
         // 近景可进入：柳条湖巡道工小屋
-        AddHouse("h1", 845f + hr.RandfRange(-70f, 70f), "house_ruined_near_autumn",
+        AddHouse("h1", 690f + hr.RandfRange(-70f, 70f), "house_ruined_near_autumn",
             HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f, hr.RandfRange(-4f, 4f));
         // 北大营外民居（抉择点附近，只给小幅错落）
-        AddHouse("h2", 2080f + hr.RandfRange(-30f, 30f), "house_intact_near_autumn",
+        AddHouse("h2", 2360f + hr.RandfRange(-30f, 30f), "house_intact_near_autumn",
             HouseWidthForWall("house_intact_near_autumn", WallH), true, 0f, hr.RandfRange(-3f, 3f));
         // 民居群：完整民居 + 屋顶坍塌院落
-        AddHouse("h3", 3120f + hr.RandfRange(-65f, 65f), "house_ruined_near_autumn",
+        AddHouse("h3", 3320f + hr.RandfRange(-65f, 65f), "house_ruined_near_autumn",
             HouseWidthForWall("house_ruined_near_autumn", WallH), true, 0f, hr.RandfRange(-4f, 4f));
         AddHouse("h4", 3700f + hr.RandfRange(-55f, 55f), "house_posts_autumn",
             HouseWidthForWall("house_posts_autumn", WallH), false, 0f, hr.RandfRange(-4f, 4f));
         // 通信据点（无线电发信机）：专属军事据点建筑 radio_station（本就无雪，沿用）
-        // v_next: 原先落在 x4620（正好压在江桥桥面 4457-4902 上）→ 移到 4000，落在桥台之前的地面、不压桥面/铁轨结构
-        // 通信据点是通关关键机位，只给 ±18 的微错落，避免破坏发报流程
+        // v3.67：通信据点落在断轨爆破点之前的旱地上；九一八现场无桥面无桥台，
+        // 不再引用江桥的坐标说明。它是通关关键机位，只给 ±18 微错落。
         AddHouse("comm", 4000f + hr.RandfRange(-18f, 18f), "radio_station",
             HouseWidthForWall("radio_station", WallH), true, 0f);
     }
@@ -2663,33 +2664,71 @@ public partial class N918Level : Node2D
                         20f + i * 9f, new Color(0.30f, 0.29f, 0.28f, 0.055f));
         }
 
-        /// <summary>九一八专属地标：远处一座木瞭望塔，点出“驻军营盘”的轮廓（与江桥的土垒旗杆区分）。</summary>
+        /// <summary>
+        /// v3.67 九一八专属中景地标：北大营营盘。
+        /// 史实：1931.9.18 夜日军以柳条湖路轨被炸为借口进攻北大营
+        /// （东北军第七旅驻地，成排营房 + 营门 + 土围墙）。
+        /// 江桥关卡的中景地标是守军土垒 + 暗红旗杆，两关不再同款。
+        /// </summary>
         private void DrawMidLandmark()
         {
-            float bx = 1500f;
+            float bx = 1420f;
             float baseY = VillageBaseY;
-            float topY = baseY - 150f;
-            Color timber = new Color(0.32f, 0.29f, 0.26f, 0.95f);
-            // 接触阴影，让塔站在雪上而不是飘着
-            DrawSetTransform(new Vector2(bx, baseY - 1f), 0, new Vector2(0.42f, 0.16f));
-            DrawTextureRect(SoftBlob(new Color(0.42f, 0.47f, 0.52f), 0.22f),
-                new Rect2(-20f, -20f, 40f, 40f), false);
-            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-            // 斜撑（剪刀撑）+ 主柱
-            DrawLine(new Vector2(bx - 10f, baseY), new Vector2(bx, topY + 26f), timber, 3f, true);
-            DrawLine(new Vector2(bx + 10f, baseY), new Vector2(bx, topY + 26f), timber, 3f, true);
-            DrawLine(new Vector2(bx - 6f, baseY - 30f), new Vector2(bx + 6f, baseY - 30f), timber, 2f, true);
-            DrawLine(new Vector2(bx - 5f, baseY - 60f), new Vector2(bx + 5f, baseY - 60f), timber, 2f, true);
-            DrawLine(new Vector2(bx, baseY), new Vector2(bx, topY + 22f), timber, 3.4f, true);
-            // 顶部瞭望小屋 + 屋顶
-            DrawRect(new Rect2(bx - 16f, topY - 2f, 32f, 24f), new Color(0.40f, 0.36f, 0.31f, 0.96f));
+            var ink = new Color(0.14f, 0.10f, 0.08f, 0.92f);
+            var wall = new Color(0.66f, 0.60f, 0.48f, 0.95f);
+            var wallShade = new Color(0.46f, 0.41f, 0.32f, 0.95f);
+            var roof = new Color(0.34f, 0.30f, 0.26f, 0.96f);
+            var glow = new Color(0.88f, 0.70f, 0.40f, 0.88f);
+
+            // 三栋成排营房：等距平房 + 硬边双坡屋顶 + 一排窗
+            for (int i = 0; i < 3; i++)
+            {
+                float w = 186f - i * 22f;
+                float h = 88f - i * 10f;
+                float x = bx + i * 218f;
+                float y = baseY - h - 6f;
+                DrawRect(new Rect2(x, y, w, h), wall);
+                DrawRect(new Rect2(x, y + h * 0.64f, w, h * 0.36f), wallShade);
+                DrawRect(new Rect2(x, y, w, h), ink, false, 3f);
+                DrawColoredPolygon(new[]
+                {
+                    new Vector2(x - 12f, y), new Vector2(x + w * 0.5f, y - 28f),
+                    new Vector2(x + w + 12f, y),
+                }, roof);
+                DrawLine(new Vector2(x - 12f, y), new Vector2(x + w * 0.5f, y - 28f), ink, 3f, false);
+                DrawLine(new Vector2(x + w * 0.5f, y - 28f), new Vector2(x + w + 12f, y), ink, 3f, false);
+                for (int k = 0; k < 4; k++)
+                {
+                    float wx = x + 18f + k * (w - 36f) / 4f;
+                    DrawRect(new Rect2(wx, y + 22f, 20f, 24f), glow);
+                    DrawRect(new Rect2(wx, y + 22f, 20f, 24f), ink, false, 2f);
+                    DrawLine(new Vector2(wx + 10f, y + 22f), new Vector2(wx + 10f, y + 46f), ink, 1.6f, false);
+                }
+                // 硬边压扁椭圆接触阴影
+                DrawColoredPolygon(new[]
+                {
+                    new Vector2(x - 10f, baseY), new Vector2(x + w * 0.25f, baseY - 5f),
+                    new Vector2(x + w * 0.75f, baseY - 5f), new Vector2(x + w + 10f, baseY),
+                }, new Color(0.10f, 0.08f, 0.06f, 0.28f));
+            }
+
+            // 营门：两根门柱 + 横匾 + 旗杆
+            float gx = bx - 96f;
+            DrawRect(new Rect2(gx, baseY - 74f, 16f, 74f), wallShade);
+            DrawRect(new Rect2(gx, baseY - 74f, 16f, 74f), ink, false, 3f);
+            DrawRect(new Rect2(gx + 76f, baseY - 74f, 16f, 74f), wallShade);
+            DrawRect(new Rect2(gx + 76f, baseY - 74f, 16f, 74f), ink, false, 3f);
+            DrawRect(new Rect2(gx - 6f, baseY - 92f, 104f, 22f), woodDark());
+            DrawRect(new Rect2(gx - 6f, baseY - 92f, 104f, 22f), ink, false, 3f);
+            DrawLine(new Vector2(gx + 46f, baseY - 92f), new Vector2(gx + 46f, baseY - 168f), ink, 3f, false);
             DrawColoredPolygon(new[]
             {
-                new Vector2(bx - 20f, topY - 2f),
-                new Vector2(bx + 20f, topY - 2f),
-                new Vector2(bx, topY - 20f),
-            }, new Color(0.30f, 0.27f, 0.24f, 0.96f));
+                new Vector2(gx + 46f, baseY - 166f), new Vector2(gx + 82f, baseY - 158f),
+                new Vector2(gx + 46f, baseY - 148f),
+            }, new Color(0.42f, 0.40f, 0.36f, 0.95f));
         }
+
+        private static Color woodDark() => new Color(0.40f, 0.28f, 0.16f, 0.96f);
 
         // —— 近景：枯树带、灌木柳丛、雪坎、铁丝网、废车（一律低于人物腰部，绝不遮脸）——
         private void DrawNear()
@@ -3306,13 +3345,9 @@ public partial class N918Level : Node2D
             // 草地细节：枯草丛 / 小石块 / 泥土斑 / 野草，破掉“一片纯色无生机”的枯燥感
             DrawGroundDetailing();
 
-            // 冰面裂缝与车辙
-            for (int i = 0; i < 26; i++)
-            {
-                float x = 60 + i * 190;
-                float y = GroundY + 26 + (i % 3) * 12;
-                DrawLine(new Vector2(x, y), new Vector2(x + 70, y + 8), new Color(0.72f, 0.78f, 0.82f, 0.35f), 1.4f, true);
-            }
+            // v3.67 史实修正：初秋柳条湖是旱地 / 草坡，没有冰封江面。
+            // 旧版从江桥关卡整份复制，连「冰面裂缝与车辙」一起搬了过来；
+            // 冰封江面只属于 1931.11 的嫩江江桥关卡，此处移除。
 
             // v3.66 · 史实修正：九一八事变现场（沈阳柳条湖—北大营—通信据点）
             // 历史上没有嫩江江桥、没有桥墩桥台、也没有冰封江面。
@@ -3326,7 +3361,8 @@ public partial class N918Level : Node2D
 
             DrawCraters();
             DrawRailBlastDamage();
-            DrawTrenchLines();
+            // v3.67：柳条湖现场是南满铁路路基与旱地，不复制江桥的雪原战壕阵地。
+            DrawRailEmbankment();
         }
 
         /// <summary>
@@ -3803,6 +3839,53 @@ public partial class N918Level : Node2D
         // v3.66 · 整段桥绘制（DrawBridge / Truss / bridge_autumn.png 贴图 /
         // 桥墩破冰棱 / 桥面烧焦 / 桥头积雪）已删除：九一八现场史实上没有桥。
         // 唯一保留桥的地方是 JiangqiaoLevel（1931.11 嫩江江桥抗战）。
+
+        /// <summary>
+        /// v3.67 九一八专属地面标记：南满铁路里程碑 + 柳条湖爆破点地名木牌。
+        /// 史料边界：1931.9.18 柳条湖事件是南满铁路沈阳以北一段路轨被炸，
+        /// 现场为铁路路基与旱地，无冰封江面、无铁桥、无江桥式雪原战壕。
+        /// 江桥关卡继续使用 DrawTrenchLines（雪原战壕）与冰封江面，两关不再同款。
+        /// 风格走 InkStyle / MangaPropArt 的粗墨描边 + 三档硬边平涂。
+        /// </summary>
+        private void DrawRailEmbankment()
+        {
+            var ink = new Color(0.14f, 0.10f, 0.08f, 0.92f);
+            var stone = new Color(0.84f, 0.81f, 0.73f, 0.96f);
+            var stoneShade = new Color(0.58f, 0.55f, 0.48f, 0.96f);
+            var wood = new Color(0.62f, 0.44f, 0.24f, 0.96f);
+
+            // 路基护坡：铁轨下方一道硬边斜切土带（不是雪坎）
+            for (float x = -200f; x < WorldW + 400f; x += 260f)
+            {
+                DrawColoredPolygon(new[]
+                {
+                    new Vector2(x, GroundY + 42f), new Vector2(x + 260f, GroundY + 42f),
+                    new Vector2(x + 226f, GroundY + 66f), new Vector2(x + 34f, GroundY + 66f),
+                }, new Color(0.44f, 0.39f, 0.29f, 0.55f));
+                DrawLine(new Vector2(x, GroundY + 42f), new Vector2(x + 260f, GroundY + 42f),
+                    ink, 2.4f, false);
+            }
+
+            // 南满铁路里程碑：白石碑 + 深墨刻度 + 硬边暗部
+            for (float x = 520f; x < WorldW; x += 620f)
+            {
+                DrawRect(new Rect2(x, GroundY + 12f, 24f, 46f), stone);
+                DrawRect(new Rect2(x, GroundY + 44f, 24f, 14f), stoneShade);
+                DrawRect(new Rect2(x, GroundY + 12f, 24f, 46f), ink, false, 3f);
+                for (int k = 0; k < 3; k++)
+                    DrawLine(new Vector2(x + 6f, GroundY + 22f + k * 8f),
+                        new Vector2(x + 18f, GroundY + 22f + k * 8f), ink, 2f, false);
+            }
+
+            // 柳条湖爆破点地名木牌：立在断轨缺口旁，点出事件地点
+            float bx = LiutiaohuBreakX + LiutiaohuBreakW + 42f;
+            DrawLine(new Vector2(bx, GroundY + 4f), new Vector2(bx, GroundY - 54f), wood, 5f, false);
+            DrawRect(new Rect2(bx - 46f, GroundY - 82f, 92f, 32f), wood);
+            DrawRect(new Rect2(bx - 46f, GroundY - 82f, 92f, 32f), ink, false, 3f);
+            DrawRect(new Rect2(bx - 40f, GroundY - 58f, 80f, 5f), new Color(0.40f, 0.26f, 0.14f));
+            DrawLine(new Vector2(bx - 34f, GroundY - 72f), new Vector2(bx + 18f, GroundY - 72f),
+                new Color(0.94f, 0.88f, 0.72f), 2.4f, false);
+        }
 
         private void DrawTrenchLines()
         {

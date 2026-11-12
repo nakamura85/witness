@@ -296,7 +296,12 @@ public partial class HouseInteriorUi : CanvasLayer
     /// 截图/预览用：造一间屋内水彩背景（不依赖存档、关卡或 CanvasLayer）。
     /// scenes/CaptureRoom.tscn 用它渲染真实帧，验证室内画风。
     /// </summary>
-    public static Control CreateRoomPreview(RoomType type, int variant, int seed)
+    /// <summary>v3.67：截图 / 预览直接拿到完整的可探索房间（含玩家小人与实体物件）。</summary>
+    public static Control CreateRoomPreview(RoomType type, int variant, int seed, string title = "屋内")
+        => InteriorRoom.Create(type, variant, seed, title);
+
+    /// <summary>v3.67：只画墙 / 地 / 家具的背景层，供 InteriorRoom 垫底。</summary>
+    public static Control CreateRoomBackground(RoomType type, int variant, int seed)
         => new RoomBg(type, variant, seed);
 
     public event Action Closed;
@@ -321,6 +326,8 @@ public partial class HouseInteriorUi : CanvasLayer
     private string _noteSource = "注：人物为复合虚构，不对应单一在世者。江桥抗战官兵家书意象改写。";
     private Control _root;
     private Label _hint;
+    private InteriorRoom _explore;   // v3.67 可探索房间
+    private bool _noteOpen;          // 读信 / 看纸条时暂停走动
     private Spot _chestSpot;
     private float _pryT;
     private bool _prying;
@@ -373,64 +380,11 @@ public partial class HouseInteriorUi : CanvasLayer
 
     public override void _Ready()
     {
-        if (_roomLayout) { BuildRoom(); return; }
-        var dim = new ColorRect { Color = new Color(0.04f, 0.035f, 0.03f, 0.80f) };
-        dim.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        AddChild(dim);
-
-        _root = new CenterContainer();
-        _root.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        AddChild(_root);
-
-        var panel = new PanelContainer { CustomMinimumSize = new Vector2(880, 560) };
-        var style = new StyleBoxFlat
-        {
-            BgColor = new Color(0.13f, 0.11f, 0.09f),
-            BorderColor = new Color(0.24f, 0.20f, 0.16f),
-            BorderWidthLeft = 2, BorderWidthRight = 2, BorderWidthTop = 2, BorderWidthBottom = 2,
-            ContentMarginLeft = 26, ContentMarginRight = 26, ContentMarginTop = 20, ContentMarginBottom = 18,
-            ShadowColor = new Color(0, 0, 0, 0.5f), ShadowSize = 16, ShadowOffset = new Vector2(6, 8),
-        };
-        panel.AddThemeStyleboxOverride("panel", style);
-        _root.AddChild(panel);
-
-        var box = new VBoxContainer { };
-        box.AddThemeConstantOverride("separation", 12);
-        panel.AddChild(box);
-
-        var title = new Label { Text = $"{_houseTitle} · 屋内" };
-        title.AddThemeFontSizeOverride("font_size", 22);
-        title.AddThemeColorOverride("font_color", new Color(0.86f, 0.82f, 0.72f));
-        box.AddChild(title);
-
-        var rule = new ColorRect { Color = new Color(0.55f, 0.20f, 0.16f, 0.75f), CustomMinimumSize = new Vector2(0, 2) };
-        box.AddChild(rule);
-
-        // interior floor: item chips laid out in a wrap flow, feels like rummaging shelves
-        var flow = new HFlowContainer { };
-        flow.AddThemeConstantOverride("h_separation", 14);
-        flow.AddThemeConstantOverride("v_separation", 14);
-        flow.CustomMinimumSize = new Vector2(820, 330);
-        box.AddChild(flow);
-
-        BuildSpots();
-        foreach (var s in _spots) flow.AddChild(s);
-
-        _hint = new Label { Text = "翻找屋内的东西。按 E 离开。" };
-        _hint.AddThemeFontSizeOverride("font_size", 14);
-        _hint.AddThemeColorOverride("font_color", new Color(0.60f, 0.55f, 0.46f));
-        box.AddChild(_hint);
-
-        var leave = new Button { Text = "离开屋子 (E)" };
-        leave.Pressed += Close;
-        var lb = new StyleBoxFlat
-        {
-            BgColor = new Color(0.24f, 0.20f, 0.16f),
-            ContentMarginLeft = 18, ContentMarginRight = 18, ContentMarginTop = 8, ContentMarginBottom = 8,
-        };
-        leave.AddThemeStyleboxOverride("normal", lb);
-        leave.AddThemeColorOverride("font_color", new Color(0.88f, 0.84f, 0.74f));
-        box.AddChild(leave);
+        // v3.67：两关统一走「可进入、可走动、可寻找」的手绘上色漫画风房间。
+        // 旧版只是 RoomBg 背景 + 一排 Spot : Button 文字标签，玩家角色根本没进屋；
+        // 现在 BuildRoom() 改用 InteriorRoom（门 + 实体物件 + 玩家小人），
+        // Spot 退化成纯数据载体，搜刮 / 存档 / 解谜逻辑全部沿用。
+        BuildRoom();
     }
 
     private void BuildSpots()
@@ -614,7 +568,7 @@ public partial class HouseInteriorUi : CanvasLayer
                 if (_canTransmit != null && !_canTransmit())
                 {
                     s.ResultText = "信件还没凑齐（或发信机没电），机器空转，什么也传不出去。";
-                    _hint.Text = s.ResultText;
+                    SetResult(s.ResultText);
                     break;
                 }
                 if (!s.Done) StartTransmit(s);
@@ -664,12 +618,31 @@ public partial class HouseInteriorUi : CanvasLayer
     public override void _Process(double delta)
     {
         if (_closed) return;
+
+        // v3.67：屋内走动 + 靠近调查 + 门口离开。读信时暂停，避免误触。
+        if (_explore != null && !_noteOpen)
+        {
+            float dir = 0f;
+            if (Input.IsActionPressed("move_left")) dir -= 1f;
+            if (Input.IsActionPressed("move_right")) dir += 1f;
+            _explore.Step((float)delta, dir);
+
+            if (Input.IsActionJustPressed("interact"))
+            {
+                if (_explore.AtDoor) { Close(); return; }
+                if (_explore.NearIndex >= 0 && _explore.NearIndex < _spots.Count)
+                    OnSpot(_spots[_explore.NearIndex]);
+            }
+            if (Input.IsActionJustPressed("pause")) { Close(); return; }
+        }
+
         if (_prying && _chestSpot != null)
         {
             _pryT += (float)delta;
             float t = Mathf.Min(1f, _pryT / 1.4f);
             _chestSpot.Text = $"用刺刀撬锁…… {(int)(t * 100)}%";
             _chestSpot.PryProgress = t;
+            _explore?.SetProgress(_chestSpot.SpotId, t);
             if (t >= 1f)
             {
                 _prying = false;
@@ -702,6 +675,7 @@ public partial class HouseInteriorUi : CanvasLayer
             float t = Mathf.Min(1f, _powerT / 1.2f);
             _powerSpot.Text = $"合闸供电…… {(int)(t * 100)}%";
             _powerSpot.PryProgress = t;
+            _explore?.SetProgress(_powerSpot.SpotId, t);
             if (t >= 1f)
             {
                 _powering = false;
@@ -718,6 +692,7 @@ public partial class HouseInteriorUi : CanvasLayer
             float t = Mathf.Min(1f, _radioT / 1.8f);
             _radioSpot.Text = $"发报中…… {(int)(t * 100)}%";
             _radioSpot.PryProgress = t;
+            _explore?.SetProgress(_radioSpot.SpotId, t);
             if (t >= 1f)
             {
                 _transmitting = false;
@@ -737,12 +712,21 @@ public partial class HouseInteriorUi : CanvasLayer
         s.Disabled = true;
         _looted.Add(s.SpotId);
         GameState.I.Save();
-        _hint.Text = s.ResultText;
+        SetResult(s.ResultText);
+        _explore?.MarkDone(s.SpotId, s.ResultText);
+    }
+
+    /// <summary>结果文字同时给旧提示 Label（若存在）与新房间的结果条。</summary>
+    private void SetResult(string text)
+    {
+        if (_hint != null) _hint.Text = text;
+        if (_explore != null) _explore.ResultText = text;
     }
 
     private void OpenNote(string title, string[] paragraphs, string source)
     {
-        var note = new FieldNoteUi(_houseTitle, title, paragraphs, source, () => { });
+        _noteOpen = true;
+        var note = new FieldNoteUi(_houseTitle, title, paragraphs, source, () => _noteOpen = false);
         AddChild(note);
     }
 
@@ -759,6 +743,11 @@ public partial class HouseInteriorUi : CanvasLayer
     /// 摆进房间（灶台/货架/桌子/柜子/发电机/发信机旁），玩家像在屋里翻找一样逐个搜寻。
     /// 搜索逻辑（OnSpot / MarkDone / 撬箱 / 发报 / 供电）完全复用，只换呈现层。
     /// </summary>
+    /// <summary>
+    /// v3.67 可探索屋内：漫画风房间（墙 / 地 / 家具）+ 一扇门 + 散落在家具上的
+    /// 实体物件 + 一个能用 A/D 走动的玩家小人。玩家走进去找东西，靠近按 E 查看。
+    /// 搜刮逻辑（OnSpot / MarkDone / 撬箱 / 发报 / 供电）完全复用，只换呈现层。
+    /// </summary>
     private void BuildRoom()
     {
         var dim = new ColorRect { Color = new Color(0.04f, 0.035f, 0.03f, 0.82f) };
@@ -766,101 +755,53 @@ public partial class HouseInteriorUi : CanvasLayer
         AddChild(dim);
 
         var panel = new PanelContainer { CustomMinimumSize = new Vector2(1000, 640) };
-        var style = new StyleBoxFlat
+        panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
-            // v3.65 漫画分格：深墨棕实边粗框（不是纸本淡彩框）
             BgColor = new Color(0.14f, 0.10f, 0.08f),
             BorderColor = new Color(0.92f, 0.85f, 0.68f),
             BorderWidthLeft = 4, BorderWidthRight = 4, BorderWidthTop = 4, BorderWidthBottom = 4,
             ContentMarginLeft = 24, ContentMarginRight = 24, ContentMarginTop = 24, ContentMarginBottom = 24,
             ShadowColor = new Color(0.04f, 0.03f, 0.02f, 0.6f), ShadowSize = 10, ShadowOffset = new Vector2(8, 8),
-        };
-        panel.AddThemeStyleboxOverride("panel", style);
+        });
 
         var center = new CenterContainer();
         center.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(center);
         center.AddChild(panel);
 
-        // PanelContainer only lays out a single child cleanly — wrap everything in one Content node
-        // (same pattern as the chip-mode box), otherwise extra children render blank.
         var content = new Control();
         content.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         panel.AddChild(content);
 
-        // v3.65: 手绘上色漫画风室内；houseId 播种让每间屋的排线/摆设细节不同
-        var room = new RoomBg(_roomType, _roomVariant, _houseId.GetHashCode() & 0xffff);
-        room.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        content.AddChild(room);
-        room.QueueRedraw();
+        // loot 数据：Spot 仍承载 id / kind / Done / 事件接线，但不再 AddChild 当按钮。
+        BuildSpots();
+        var items = new List<RoomItem>();
+        foreach (var s in _spots)
+            items.Add(new RoomItem { SpotId = s.SpotId, Kind = s.Kind, Label = s.Text, Done = s.Done });
 
-        var spotsLayer = new Control();
-        spotsLayer.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        content.AddChild(spotsLayer);
+        _explore = InteriorRoom.Create(_roomType, _roomVariant,
+            _houseId.GetHashCode() & 0xffff, _houseTitle, items);
+        _explore.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        content.AddChild(_explore);
 
-        // title / hint / leave are anchored children of the single Content node
-        // (PanelContainer only manages its first child; extra direct children render blank)
-        var title = new Label { Text = $"{_houseTitle} · 屋内" };
-        // v3.65: 室内改成暖土平涂底，标题/提示用深墨棕才够漫画感；
-        // 焚毁仓库是深焦墙，必须反过来用亮字，否则标题看不见。
-        bool darkRoom = _roomType == RoomType.BurntWarehouse;
-        title.AddThemeFontSizeOverride("font_size", 24);
-        title.AddThemeColorOverride("font_color", darkRoom
-            ? new Color(0.94f, 0.88f, 0.76f) : new Color(0.14f, 0.10f, 0.08f));
-        title.SetAnchorsPreset(Control.LayoutPreset.TopWide);
-        title.OffsetTop = 6;
-        title.HorizontalAlignment = HorizontalAlignment.Center;
-        content.AddChild(title);
-
-        _hint = new Label { Text = "在屋子里翻找能用的东西，点一下就能查看。按 E 离开。" };
-        _hint.AddThemeFontSizeOverride("font_size", 14);
-        _hint.AddThemeColorOverride("font_color", darkRoom
-            ? new Color(0.86f, 0.80f, 0.68f) : new Color(0.30f, 0.24f, 0.18f));
-        _hint.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
-        _hint.OffsetBottom = -48;
-        _hint.HorizontalAlignment = HorizontalAlignment.Center;
-        content.AddChild(_hint);
-
-        var leave = new Button { Text = "离开屋子 (E)" };
+        // 备用退出（右上角小按钮，不挡走动）；主退出方式是走到左边门口按 E
+        var leave = new Button { Text = "离开 (E)" };
         leave.Pressed += Close;
         var lb = new StyleBoxFlat
         {
             BgColor = new Color(0.20f, 0.15f, 0.11f),
             BorderColor = new Color(0.92f, 0.85f, 0.68f),
             BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
-            ShadowColor = new Color(0.08f, 0.06f, 0.05f, 0.55f), ShadowSize = 3, ShadowOffset = new Vector2(4, 4),
-            ContentMarginLeft = 18, ContentMarginRight = 18, ContentMarginTop = 8, ContentMarginBottom = 8,
+            ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 5, ContentMarginBottom = 5,
         };
         leave.AddThemeStyleboxOverride("normal", lb);
         leave.AddThemeColorOverride("font_color", new Color(0.98f, 0.91f, 0.75f));
-        leave.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
-        leave.OffsetBottom = -10;
-        leave.Alignment = HorizontalAlignment.Center;
+        leave.AddThemeFontSizeOverride("font_size", 13);
+        leave.SetAnchorsPreset(Control.LayoutPreset.TopRight);
+        leave.OffsetRight = -12f;
+        leave.OffsetTop = 8f;
+        leave.OffsetBottom = 40f;
         content.AddChild(leave);
-
-        BuildSpots();
-        var posByKind = GetRoomSpotPositions();
-        int fb = 0;
-        foreach (var s in _spots)
-        {
-            Vector2 p;
-            if (!posByKind.TryGetValue(s.Kind, out p))
-            {
-                p = new Vector2(40 + (fb % 4) * 220, 506);
-                fb++;
-            }
-            // v3.62: 物件落点按 houseId 播种随机抖动——同一间屋每次进都一致
-            //（记忆点不乱跳），但不同的屋落点各不相同，不再千篇一律。
-            p += new Vector2(_rng.RandfRange(-18f, 18f), _rng.RandfRange(-12f, 12f));
-            float w = (s.Kind == "radio" || s.Kind == "power") ? 224f : 188f;
-            s.Position = p;
-            s.Size = new Vector2(w, 42);
-            s.CustomMinimumSize = new Vector2(w, 42);
-            // v3.65: 漫画风描边标签，只留极轻微的手绘倾斜（不再歪成小纸签）
-            s.PivotOffset = s.Size * 0.5f;
-            s.Rotation = Mathf.DegToRad(_rng.RandfRange(-1.2f, 1.2f));
-            spotsLayer.AddChild(s);
-        }
     }
 
     /// <summary>

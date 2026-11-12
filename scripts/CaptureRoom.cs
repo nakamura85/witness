@@ -5,9 +5,9 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// 室内布局实机截图（v3.64）。CanvasLayer 的 HouseInteriorUi 在 SubViewport
-/// 里合成不出来，所以这个场景直接把 RoomBg（普通 Control）+ 纸签装进
-/// SubViewport，读 GetTexture() 出真图，用来核对水彩画风与史实布局。
+/// 可探索屋内实机截图（v3.67）。CanvasLayer 的 HouseInteriorUi 在 SubViewport
+/// 里合成不出来，所以直接把 InteriorRoom（普通 Control：漫画风房间 + 实体物件
+/// + 玩家小人）装进 SubViewport，读 GetTexture() 出真图，用来核对格局与画风。
 /// 运行：Godot --path . --rendering-driver opengl3 --resolution 1280x720 scenes/CaptureRoom.tscn
 /// 产物：res://_shots/room_*.png
 /// </summary>
@@ -15,6 +15,7 @@ public partial class CaptureRoom : Node
 {
     private SubViewport _sub;
     private Control _holder;
+    private InteriorRoom _room;   // v3.67 让小人在预览里走动，展示可探索
     private float _t;
     private int _stage;
     private static string Dir => ProjectSettings.GlobalizePath("res://_shots");
@@ -68,73 +69,22 @@ public partial class CaptureRoom : Node
         content.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         panel.AddChild(content);
 
-        var bg = HouseInteriorUi.CreateRoomPreview(type, variant, seed);
-        bg.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        content.AddChild(bg);
-        bg.QueueRedraw();
+        // v3.67：CreateRoomPreview 现在返回 InteriorRoom（背景 + 实体物件 + 玩家小人），
+        // 不再由本脚本手画一排假标签按钮冒充室内 UI。
+        _room = (InteriorRoom)HouseInteriorUi.CreateRoomPreview(type, variant, seed, titleText);
+        _room.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        content.AddChild(_room);
+        _room.QueueRedraw();
 
-        var title = new Label { Text = titleText, HorizontalAlignment = HorizontalAlignment.Center };
-        title.AddThemeFontSizeOverride("font_size", 24);
-        title.AddThemeColorOverride("font_color", type == RoomType.BurntWarehouse
-            ? new Color(0.94f, 0.88f, 0.76f) : new Color(0.14f, 0.10f, 0.08f));
-        title.SetAnchorsPreset(Control.LayoutPreset.TopWide);
-        title.OffsetTop = 6;
-        content.AddChild(title);
+        // v3.67b：标题由 InteriorForeground 统一绘制，这里不再重复叠一层。
 
-        // 模拟漫画风描边标签，核对标签与室内平涂背景的对比
-        string[] labels = type == RoomType.CommOutpost
-            ? new[] { "墙边的电闸与手摇发电机", "墙角的无线电发信机", "桌上的信封", "上锁的弹药箱", "烧剩一半的文件" }
-            : type == RoomType.BurntWarehouse
-                ? new[] { "残墙下压着的信", "一摊烧焦的灰烬", "上锁的弹药箱", "烧剩一半的文件" }
-                : new[] { "压在灶台下的信", "叠得整整齐齐的遗书", "上锁的弹药箱", "半卷干净的纱布", "烧塌的柜子" };
-        Vector2[] spots = type == RoomType.CommOutpost
-            ? new[] { new Vector2(24, 272), new Vector2(690, 154), new Vector2(430, 360), new Vector2(250, 360), new Vector2(250, 200) }
-            : type == RoomType.BurntWarehouse
-                ? new[] { new Vector2(200, 360), new Vector2(470, 470), new Vector2(620, 400), new Vector2(430, 200) }
-                : new[] { new Vector2(796, 426), new Vector2(120, 320), new Vector2(430, 360), new Vector2(640, 300), new Vector2(856, 470) };
-        for (int i = 0; i < labels.Length; i++)
-        {
-            var b = new Button
-            {
-                Text = labels[i],
-                Position = spots[i],
-                Size = new Vector2(labels[i].Length > 10 ? 224f : 188f, 42f),
-                PivotOffset = new Vector2(94f, 21f),
-                Rotation = Mathf.DegToRad((i % 2 == 0 ? 1f : -1f) * (0.8f + i * 0.4f)),
-            };
-            // v3.65: 与 AddSpot() 同款漫画风标签（米黄土实色 + 3px 深墨棕粗框 + 硬投影）
-            b.AddThemeStyleboxOverride("normal", new StyleBoxFlat
-            {
-                BgColor = new Color(0.92f, 0.85f, 0.68f),
-                BorderColor = new Color(0.14f, 0.10f, 0.08f),
-                BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
-                ShadowColor = new Color(0.10f, 0.08f, 0.06f, 0.55f), ShadowSize = 3,
-                ShadowOffset = new Vector2(4, 4),
-                ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 6, ContentMarginBottom = 6,
-            });
-            b.AddThemeColorOverride("font_color", new Color(0.14f, 0.10f, 0.08f));
-            b.AddThemeFontSizeOverride("font_size", 15);
-            content.AddChild(b);
-        }
-
-        var leave = new Button { Text = "离开屋子 (E)", Alignment = HorizontalAlignment.Center };
-        leave.AddThemeStyleboxOverride("normal", new StyleBoxFlat
-        {
-            BgColor = new Color(0.20f, 0.15f, 0.11f),
-            BorderColor = new Color(0.92f, 0.85f, 0.68f),
-            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
-            ShadowColor = new Color(0.08f, 0.06f, 0.05f, 0.55f), ShadowSize = 3, ShadowOffset = new Vector2(4, 4),
-            ContentMarginLeft = 18, ContentMarginRight = 18, ContentMarginTop = 8, ContentMarginBottom = 8,
-        });
-        leave.AddThemeColorOverride("font_color", new Color(0.98f, 0.91f, 0.75f));
-        leave.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
-        leave.OffsetBottom = -10;
-        content.AddChild(leave);
     }
 
     public override void _Process(double delta)
     {
         _t += (float)delta;
+        // 让小人在房间里走动，截出来的帧能看到「靠近物件 → 出现 E 提示牌」
+        _room?.Step((float)delta, 1f);
         switch (_stage)
         {
             case 0 when _t > 1.0f:

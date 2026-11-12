@@ -71,7 +71,11 @@ public partial class CaptureN918 : Node
         {
             GD.Print("CAPTURE_N918 stage3 -> shot liutiaohu scene");
             SaveShot("n918_02_scene.png");
-            FreezeAt(2080f);          // 北大营外民居（h2）
+            // v3.67：h2 位置按史实动线改过，机位从房屋实取，别再写死坐标
+            float h2x = 2360f;
+            var h2 = _lvl._houses.FirstOrDefault(h => h.Id == "h2");
+            if (h2 != null) h2x = h2.DoorX;
+            FreezeAt(h2x);            // 北大营外民居（h2）
             _frozeAt = _t;
             _stage = 4;
         }
