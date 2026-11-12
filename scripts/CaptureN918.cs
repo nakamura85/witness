@@ -101,6 +101,15 @@ public partial class CaptureN918 : Node
         {
             GD.Print("CAPTURE_N918 stage6 -> shot liutiaohu rail break");
             SaveShot("n918_06_liutiaohu_rail_break.png");
+            FreezeAt(3600f);          // v3.69: 北大营营盘（中景 factor 0.24，此机位整组居中）
+            _frozeAt = _t;
+            _stage = 10;
+        }
+        // 10 (v3.69 新增): 手绘漫画风北大营营盘实机帧
+        else if (_stage == 10 && _t > _frozeAt + 2.5f)
+        {
+            GD.Print("CAPTURE_N918 stage10 -> shot beidaying barracks");
+            SaveShot("n918_08_barracks.png");
             _frozeAt = _t;
             _stage = 7;
         }

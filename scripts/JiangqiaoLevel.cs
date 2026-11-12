@@ -1090,6 +1090,9 @@ public partial class JiangqiaoLevel : Node2D
         _ammoBar = new AmmoBar { Position = new Vector2(920, 38) };
         _ammoBar.Bind(_player);
         layer.AddChild(_ammoBar);
+
+        // v3.69：摆上守军友军 NPC，敌我相遇会真的交火 / 拼刺刀
+        InitSkirmish();
     }
 
     private void BuildScreenFx()
@@ -3614,21 +3617,11 @@ public partial class JiangqiaoLevel : Node2D
 
             bool InGap(float x) => OnRailCrater(x) || NearRailDmg(x, 9f);
 
-            // 田野段道砟：硬边平涂三档 + 3px 粗墨边
-            MangaPropArt.Ballast(this, 2380f, fieldEnd, railY);
+            // v3.69：田野段整段换手绘漫画风贴图铁路，弹坑 / 弹着点精确收口。
+            MangaSceneArt.RailRun(this, 2380f, fieldEnd, railY, InGap);
 
-            // 田野段枕木
-            int k = 0;
-            for (float x = 2400; x < fieldEnd; x += 34, k++)
-            {
-                if ((skip.Contains(k) && x < fieldEnd - 150f) || OnRailCrater(x + 11f)) continue;
-                float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
-                bool charred = NearRailDmg(x + 11f, 30f);
-                MangaPropArt.Sleeper(this, new Rect2(x, railY + 3 + jy, 22, 13),
-                    charred, Mathf.Sin(k * 7.31f) > -0.2f);
-            }
-
-            // 桥面钢板（仅本关有桥）：三档平涂 + 粗墨边 + 铆钉小圆点
+            // 桥面钢板（仅本关有桥，史实 1931.11 守军炸毁嫩江铁桥）：
+            // 三档平涂 + 粗墨边 + 铆钉小圆点，保留不动。
             const float plateH = 13f;
             MangaPropArt.DeckPlate(this, fieldEnd - 8f, trackEnd, railY + 1f, plateH);
             // 田野道砟斜着收口接上钢板
@@ -3640,33 +3633,9 @@ public partial class JiangqiaoLevel : Node2D
                 new Vector2(fieldEnd - 104f, railY + 22f),
             }, MangaPropArt.BallastBase, InkStyle.InkColor, InkStyle.Stroke);
 
-            // 桥面枕木：与田野同一套画法，只是薄一点
-            for (float x = fieldEnd; x < trackEnd; x += 34f)
-            {
-                int tk = Mathf.RoundToInt((x - 2400f) / 34f);
-                float jy = Mathf.Sin(tk * 12.9898f) * 2.2f;
-                bool charred = NearRailDmg(x + 11f, 30f);
-                MangaPropArt.Sleeper(this, new Rect2(x, railY + 3f + jy, 22f, 10f),
-                    charred, Mathf.Sin(tk * 7.31f) > -0.2f);
-            }
-
-            // 两条钢轨：分段避开弹坑，漫画风粗墨边 + 平涂 + 卡通高光雪帽
-            foreach (float ry in new[] { railY, railY + 12f })
-            {
-                float segStart = -1f;
-                for (float x = 2400f; x <= trackEnd; x += 10f)
-                {
-                    bool gap = InGap(x);
-                    if (!gap && segStart < 0f) segStart = x;
-                    if ((gap || x + 10f > trackEnd) && segStart >= 0f)
-                    {
-                        bool onSpan = segStart >= fieldEnd;
-                        MangaPropArt.RailSegment(this, segStart, gap ? x : trackEnd, ry,
-                            !onSpan && Mathf.Sin(segStart * 0.07f) > 0.2f);
-                        segStart = -1f;
-                    }
-                }
-            }
+            // v3.69：桥面段只铺「钢轨 + 枕木」（deckOnly 裁掉道砟），
+            // 不让碎石盖住钢板铆钉；与田野段同一张贴图的同一支笔。
+            MangaSceneArt.RailRun(this, fieldEnd, trackEnd, railY, null, true);
 
             // 断桥处扭曲的轨头
             MangaPropArt.TornRailEnd(this, trackEnd, railY, 1f, 19311104u);
@@ -5048,7 +5017,7 @@ public partial class JiangqiaoLevel : Node2D
 /// <summary>关东军尖兵：从右侧雪梁后出现，向玩家推进并射击；
 /// 中弹会立刻警觉反击（枪声还会惊动附近同伴），身中两枪阵亡，
 /// 原地留下一具雪地尸体（CorpseActor）与掉落的步枪 —— 没有透明消失。</summary>
-public partial class EnemySoldier : Node2D
+public partial class EnemySoldier : Node2D, ISkirmishFoe
 {
     private readonly JiangqiaoLevel _level;
     public SpriteActor _fig;
@@ -5067,6 +5036,10 @@ public partial class EnemySoldier : Node2D
     private float _retreatT;          // v3.61 负伤后撤剩余时间
     private float _proneT;            // v3.61 负伤卧倒隐蔽剩余时间
     private float _curV;              // v3.61 当前水平速度（启停平滑用）
+    // v3.69 敌我 NPC 交战：NPC 互殴专用 HP / 牵制冷却 / 支援只叫一次
+    private float _skirmishHp = SkirmishRules.NpcHp;
+    private float _distractCd;
+    private bool _supportCalled;
 
     public bool Gone { get; private set; }
     public bool Alerted => _alertT > 0f;
@@ -5099,6 +5072,11 @@ public partial class EnemySoldier : Node2D
         _alertT = 8f;
         _aimHold = Mathf.Max(_aimHold, 0.5f);
         _fireCd = Mathf.Min(_fireCd, 0.5f + (float)GD.RandRange(0f, 0.3f));
+        if (!_supportCalled)
+        {
+            _supportCalled = true;
+            _level.RequestEnemyReinforcement(Position.X);
+        }
     }
 
     public override void _Process(double delta)
@@ -5140,6 +5118,35 @@ public partial class EnemySoldier : Node2D
         }
         _fig.Prone = false;
 
+        // v3.69 敌我 NPC 交战：附近有东北军友军就不再当它不存在。
+        // 进入 74px 站定拼刺刀（绝不擦肩而过），稍远则分心还击；
+        // 对玩家的推进与射击原逻辑不动，主角体验不被 NPC 抢走。
+        _distractCd -= f;
+        var allyNode = _level.NearestAlly(Position.X, SkirmishRules.EnemyDistractRange);
+        bool meleeLocked = false;
+        if (allyNode != null && allyNode is ISkirmishAlly ally && !ally.IsDown)
+        {
+            float ad = Mathf.Abs(allyNode.Position.X - Position.X);
+            if (ad <= SkirmishRules.MeleeRange)
+            {
+                meleeLocked = true;
+                if (_distractCd <= 0f)
+                {
+                    _distractCd = SkirmishRules.MeleeInterval;
+                    ally.ApplySkirmishDamage(SkirmishRules.MeleeDamage, true);
+                    _level.BattleClash(Position + new Vector2(-18f, -52f));
+                }
+            }
+            else if (_distractCd <= 0f)
+            {
+                _distractCd = SkirmishRules.EnemyDistractInterval;
+                _level.BattleShot(Position + new Vector2(-30f, -66f),
+                    allyNode.Position + new Vector2(0f, -60f), false);
+                if (GD.Randf() < SkirmishRules.EnemyHitChance)
+                    ally.ApplySkirmishDamage(SkirmishRules.RifleDamage, false);
+            }
+        }
+
         float px = _level.PlayerX;
         float dist = Position.X - px;
 
@@ -5151,8 +5158,10 @@ public partial class EnemySoldier : Node2D
         float stopX = Mathf.Max(_holdX + _lane, _level.PlayerX + targetDist);
         float runSpeed = engaged ? 96f : 64f;
         // v3.61: 启停加速度平滑——不再瞬间起步/急停（走路生硬的根因）
-        float want = Position.X > stopX + 16f ? -runSpeed
-                   : (dist < 220f - _lane && _level.PlayerAlive && Position.X < _holdX + 96f ? 38f : 0f);
+        float want = meleeLocked ? 0f
+            : (Position.X > stopX + 16f ? -runSpeed
+            : (dist < 220f - _lane && _level.PlayerAlive && Position.X < _holdX + 96f ? 38f : 0f));
+        if (meleeLocked) _fig.Aim = Mathf.MoveToward(_fig.Aim, 0.35f, f * 8f);
         _curV = Mathf.MoveToward(_curV, want, 280f * f);
         if (Mathf.Abs(_curV) > 3f)
         {
@@ -5205,6 +5214,26 @@ public partial class EnemySoldier : Node2D
             _aimHold = 1.1f;
             _windup = 0.32f;
         }
+    }
+
+    // —— v3.69 ISkirmishFoe：NPC 互殴走 HP 制，玩家的两枪击杀完全不动 ——
+    public bool IsDown => Gone;
+    public float SkirmishHp => _skirmishHp;
+    public void SkirmishAlert() => Alert();
+
+    public void ApplySkirmishDamage(float damage, bool melee)
+    {
+        if (Gone) return;
+        _skirmishHp -= damage;
+        _fig.HurtFlash = 1f;
+        Position += new Vector2(melee ? 8f : 5f, 0);
+        if (_skirmishHp <= 0f)
+        {
+            Gone = true;
+            _level.EnemyDied(this);
+            QueueFree();
+        }
+        else Alert();
     }
 
     /// <summary>中弹：第一枪立刻反击；第二枪阵亡，原地留下尸体。</summary>

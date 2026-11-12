@@ -1087,6 +1087,9 @@ public partial class N918Level : Node2D
         _blackout.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         _blackout.MouseFilter = Control.MouseFilterEnum.Ignore;
         blackLayer.AddChild(_blackout);
+
+        // v3.69：摆上东北军友军 NPC，敌我相遇会真的交火 / 拼刺刀
+        InitSkirmish();
     }
 
     // ================= 主循环 =================
@@ -2640,60 +2643,17 @@ public partial class N918Level : Node2D
         /// </summary>
         private void DrawMidLandmark()
         {
-            float bx = 1420f;
-            float baseY = VillageBaseY;
-            var ink = new Color(0.14f, 0.10f, 0.08f, 0.92f);
-            var wall = new Color(0.66f, 0.60f, 0.48f, 0.95f);
-            var wallShade = new Color(0.46f, 0.41f, 0.32f, 0.95f);
-            var roof = new Color(0.34f, 0.30f, 0.26f, 0.96f);
-            var glow = new Color(0.88f, 0.70f, 0.40f, 0.88f);
-
-            // 三栋成排营房：等距平房 + 硬边双坡屋顶 + 一排窗
-            for (int i = 0; i < 3; i++)
-            {
-                float w = 186f - i * 22f;
-                float h = 88f - i * 10f;
-                float x = bx + i * 218f;
-                float y = baseY - h - 6f;
-                DrawRect(new Rect2(x, y, w, h), wall);
-                DrawRect(new Rect2(x, y + h * 0.64f, w, h * 0.36f), wallShade);
-                DrawRect(new Rect2(x, y, w, h), ink, false, 3f);
-                DrawColoredPolygon(new[]
-                {
-                    new Vector2(x - 12f, y), new Vector2(x + w * 0.5f, y - 28f),
-                    new Vector2(x + w + 12f, y),
-                }, roof);
-                DrawLine(new Vector2(x - 12f, y), new Vector2(x + w * 0.5f, y - 28f), ink, 3f, false);
-                DrawLine(new Vector2(x + w * 0.5f, y - 28f), new Vector2(x + w + 12f, y), ink, 3f, false);
-                for (int k = 0; k < 4; k++)
-                {
-                    float wx = x + 18f + k * (w - 36f) / 4f;
-                    DrawRect(new Rect2(wx, y + 22f, 20f, 24f), glow);
-                    DrawRect(new Rect2(wx, y + 22f, 20f, 24f), ink, false, 2f);
-                    DrawLine(new Vector2(wx + 10f, y + 22f), new Vector2(wx + 10f, y + 46f), ink, 1.6f, false);
-                }
-                // 硬边压扁椭圆接触阴影
-                DrawColoredPolygon(new[]
-                {
-                    new Vector2(x - 10f, baseY), new Vector2(x + w * 0.25f, baseY - 5f),
-                    new Vector2(x + w * 0.75f, baseY - 5f), new Vector2(x + w + 10f, baseY),
-                }, new Color(0.10f, 0.08f, 0.06f, 0.28f));
-            }
-
-            // 营门：两根门柱 + 横匾 + 旗杆
-            float gx = bx - 96f;
-            DrawRect(new Rect2(gx, baseY - 74f, 16f, 74f), wallShade);
-            DrawRect(new Rect2(gx, baseY - 74f, 16f, 74f), ink, false, 3f);
-            DrawRect(new Rect2(gx + 76f, baseY - 74f, 16f, 74f), wallShade);
-            DrawRect(new Rect2(gx + 76f, baseY - 74f, 16f, 74f), ink, false, 3f);
-            DrawRect(new Rect2(gx - 6f, baseY - 92f, 104f, 22f), woodDark());
-            DrawRect(new Rect2(gx - 6f, baseY - 92f, 104f, 22f), ink, false, 3f);
-            DrawLine(new Vector2(gx + 46f, baseY - 92f), new Vector2(gx + 46f, baseY - 168f), ink, 3f, false);
-            DrawColoredPolygon(new[]
-            {
-                new Vector2(gx + 46f, baseY - 166f), new Vector2(gx + 82f, baseY - 158f),
-                new Vector2(gx + 46f, baseY - 148f),
-            }, new Color(0.42f, 0.40f, 0.36f, 0.95f));
+            // v3.69：v3.67 那版是 DrawRect 矩形墙 + 三角屋顶 + 四个等距方窗，
+            // 用户指出「四四方方、小孩子的画风」，跟场上手绘木屋 / 雪山不是
+            // 一支笔。现在整组营盘（三栋成排营房 + 营门 + 旗杆）走
+            // MangaSceneArt 的同源手绘漫画风贴图；贴图未导入时由该类的
+            // FallbackBarracks 兜底，也不再回退到方块画。
+            // 底边坐在 VillageBaseY，宽高按贴图原始比例，不拉伸。
+            // 中景层 factor=0.24，绘制 x 经视差换算后落在屏幕的位置是
+            // (x - 0.24*camX + 640)。旧版 x=1720 只在关卡最右端才勉强露出
+            // 一角，v3.69 前移到 980，玩家在中段（camX 2000~4500）就能完整
+            // 看到整组营盘；中景装饰不参与交互，不改动史实动线。
+            MangaSceneArt.Barracks(this, 980f, VillageBaseY, MangaSceneArt.BarracksH);
         }
 
         private static Color woodDark() => new Color(0.40f, 0.28f, 0.16f, 0.96f);
@@ -3725,38 +3685,11 @@ public partial class N918Level : Node2D
 
             bool InGap(float x) => InBreak(x) || OnRailCrater(x) || NearRailDmg(x, 9f);
 
-            // 道砟：断口左右两段，硬边平涂三档 + 3px 粗墨边
-            MangaPropArt.Ballast(this, StartX, breakL, railY);
-            MangaPropArt.Ballast(this, breakR, endX, railY);
-
-            // 枕木：粗墨框 + 三档平涂 + 卡通高光短线
-            int k = 0;
-            for (float x = StartX; x < endX; x += 34f, k++)
-            {
-                if (InBreak(x + 11f) || OnRailCrater(x + 11f)) continue;
-                if (skip.Contains(k) && Mathf.Abs(x - breakL) > 120f) continue;
-                float jy = Mathf.Sin(k * 12.9898f) * 2.2f;
-                bool charred = NearRailDmg(x + 11f, 30f);
-                MangaPropArt.Sleeper(this, new Rect2(x, railY + 3f + jy, 22f, 13f),
-                    charred, Mathf.Sin(k * 7.31f) > -0.2f);
-            }
-
-            // 两条钢轨：按弹坑 / 炸断口切成连续段，每段都是漫画风粗墨边 + 平涂
-            foreach (float ry in new[] { railY, railY + 12f })
-            {
-                float segStart = -1f;
-                for (float x = StartX; x <= endX; x += 10f)
-                {
-                    bool gap = InGap(x);
-                    if (!gap && segStart < 0f) segStart = x;
-                    if ((gap || x + 10f > endX) && segStart >= 0f)
-                    {
-                        MangaPropArt.RailSegment(this, segStart, gap ? x : endX, ry,
-                            Mathf.Sin(segStart * 0.07f) > 0.2f);
-                        segStart = -1f;
-                    }
-                }
-            }
+            // v3.69：整段铁路换成手绘漫画风贴图平铺（道砟碎石 + 木纹枕木 +
+            // 钢色轨条都是画出来的，不再是等距小矩形 + 笔直 DrawLine）。
+            // 断口 / 弹坑 / 弹着点由 InGap 精确收口，两端仍用 TornRailEnd
+            // 画上翘的焦黑轨头。贴图缺失时自动走带笔触的程序化兜底。
+            MangaSceneArt.RailRun(this, StartX, endX, railY, InGap);
 
             // 炸断口两端：翻起道砟 + 上翘轨头 + 焦黑爆破痕
             MangaPropArt.TornRailEnd(this, breakL, railY, -1f, 19310918u);
@@ -4662,7 +4595,7 @@ public partial class N918Level : Node2D
 /// <summary>关东军尖兵：从右侧雪梁后出现，向玩家推进并射击；
 /// 中弹会立刻警觉反击（枪声还会惊动附近同伴），身中两枪阵亡，
 /// 原地留下一具雪地尸体（CorpseActor）与掉落的步枪 —— 没有透明消失。</summary>
-public partial class N918EnemySoldier : Node2D
+public partial class N918EnemySoldier : Node2D, ISkirmishFoe
 {
     private readonly N918Level _level;
     public SpriteActor _fig;
@@ -4675,6 +4608,10 @@ public partial class N918EnemySoldier : Node2D
     /// <summary>同一波里的站位错位：两人不能停在同一条 x 上，否则轮廓会叠成一团。</summary>
     private readonly float _lane;
     private float _alertT;            // 警觉剩余时间：被击中或听到枪声后进入战斗状态
+    // v3.69 敌我 NPC 交战：NPC 互殴专用 HP / 牵制冷却 / 支援只叫一次
+    private float _skirmishHp = SkirmishRules.NpcHp;
+    private float _distractCd;
+    private bool _supportCalled;
 
     public bool Gone { get; private set; }
     public bool Alerted => _alertT > 0f;
@@ -4707,6 +4644,12 @@ public partial class N918EnemySoldier : Node2D
         _alertT = 8f;
         _aimHold = Mathf.Max(_aimHold, 0.5f);
         _fireCd = Mathf.Min(_fireCd, 0.5f + (float)GD.RandRange(0f, 0.3f));
+        // v3.69 呼叫支援：折扣概率 + 本关上限都在关卡里判，这里只提一次申请
+        if (!_supportCalled)
+        {
+            _supportCalled = true;
+            _level.RequestEnemyReinforcement(Position.X);
+        }
     }
 
     public override void _Process(double delta)
@@ -4715,6 +4658,35 @@ public partial class N918EnemySoldier : Node2D
         float f = (float)delta;
         if (_alertT > 0f) _alertT -= f;
         bool engaged = _alertT > 0f;
+
+        // v3.69 敌我 NPC 交战：附近有东北军友军就不再当它不存在。
+        // 进入 74px 站定拼刺刀（绝不擦肩而过），稍远则分心还击；
+        // 对玩家的推进与射击原逻辑不动，主角体验不被 NPC 抢走。
+        _distractCd -= f;
+        var allyNode = _level.NearestAlly(Position.X, SkirmishRules.EnemyDistractRange);
+        bool meleeLocked = false;
+        if (allyNode != null && allyNode is ISkirmishAlly ally && !ally.IsDown)
+        {
+            float ad = Mathf.Abs(allyNode.Position.X - Position.X);
+            if (ad <= SkirmishRules.MeleeRange)
+            {
+                meleeLocked = true;
+                if (_distractCd <= 0f)
+                {
+                    _distractCd = SkirmishRules.MeleeInterval;
+                    ally.ApplySkirmishDamage(SkirmishRules.MeleeDamage, true);
+                    _level.BattleClash(Position + new Vector2(-18f, -52f));
+                }
+            }
+            else if (_distractCd <= 0f)
+            {
+                _distractCd = SkirmishRules.EnemyDistractInterval;
+                _level.BattleShot(Position + new Vector2(-30f, -66f),
+                    allyNode.Position + new Vector2(0f, -60f), false);
+                if (GD.Randf() < SkirmishRules.EnemyHitChance)
+                    ally.ApplySkirmishDamage(SkirmishRules.RifleDamage, false);
+            }
+        }
 
         float px = _level.PlayerX;
         float dist = Position.X - px;
@@ -4726,7 +4698,14 @@ public partial class N918EnemySoldier : Node2D
         if (_level.PlayerInCover()) targetDist -= 95f;
         float stopX = Mathf.Max(_holdX + _lane, _level.PlayerX + targetDist);
         float runSpeed = engaged ? 96f : 64f;
-        if (Position.X > stopX + 16f)
+        if (meleeLocked)
+        {
+            // 拼刺刀时站定：不再继续往前穿过己方 NPC
+            _fig.Speed = 0f;
+            _fig.Phase = Mathf.Lerp(_fig.Phase, 0f, f * 6f);
+            _fig.Aim = Mathf.MoveToward(_fig.Aim, 0.35f, f * 8f);
+        }
+        else if (Position.X > stopX + 16f)
         {
             Position -= new Vector2(runSpeed * f, 0);
             _fig.Speed = runSpeed;
@@ -4763,6 +4742,26 @@ public partial class N918EnemySoldier : Node2D
             _fig.Recoil = 1f;
             _level.EnemyFire(this);
         }
+    }
+
+    // —— v3.69 ISkirmishFoe：NPC 互殴走 HP 制，玩家的两枪击杀完全不动 ——
+    public bool IsDown => Gone;
+    public float SkirmishHp => _skirmishHp;
+    public void SkirmishAlert() => Alert();
+
+    public void ApplySkirmishDamage(float damage, bool melee)
+    {
+        if (Gone) return;
+        _skirmishHp -= damage;
+        _fig.HurtFlash = 1f;
+        Position += new Vector2(melee ? 8f : 5f, 0);
+        if (_skirmishHp <= 0f)
+        {
+            Gone = true;
+            _level.EnemyDied(this);   // 复用原有尸体 / 掉枪 / 血雾
+            QueueFree();
+        }
+        else Alert();
     }
 
     /// <summary>中弹：第一枪立刻反击；第二枪阵亡，原地留下尸体。</summary>
