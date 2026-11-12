@@ -1438,6 +1438,8 @@ public partial class JiangqiaoLevel : Node2D
 
     private void OpenHouse(EnterableHouse h)
     {
+        // v3.71 用户诉求③：江桥抗战发生在白昼，进屋窗光为日光（WorldClock.Day）
+        WorldClock.Time = WorldClock.Phase.Day;
         string title = h.Id switch
         {
             "h1" => "江边村舍（半毁）",

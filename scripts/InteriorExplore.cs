@@ -8,7 +8,12 @@ namespace Witness;
 /// v3.67 可探索屋内的一件实体物件（纯数据，不继承任何 UI 节点）。
 /// 旧版是 Spot : Button 的「文字标签」；现在改成房间里画出来的实物，
 /// 玩家小人走过去按 E 才查看。label 只用于靠近时的小提示牌。
+///
+/// v3.71 新增：陈列模式（Surface 台面可见 / Container 藏家具内 / FloorDrop 实时掉落）、
+/// 关键物微光标记、掉落物理态。
 /// </summary>
+public enum RoomItemMode { Surface, Container, FloorDrop }
+
 public sealed class RoomItem
 {
     public string SpotId;
@@ -17,6 +22,56 @@ public sealed class RoomItem
     public bool Done;
     public Vector2 Pos;      // 房间画布坐标（物件中心）
     public float Progress;   // 0..1，撬箱 / 合闸 / 发报的长按进度
+
+    // v3.71：陈列模式
+    public RoomItemMode Mode = RoomItemMode.Surface;
+    public string ContainerId;   // Container 模式：指向藏匿它的家具 Id
+    public bool Key;             // 关键物：未搜前画一抹不刺眼的微光（仅真实烈士姓名信/遗书）
+    // v3.71：掉落物理态（仅 FloorDrop 用）
+    public Vector2 Vel = Vector2.Zero;
+    public bool Settled;
+    public float DropDelay;      // 入场后延迟多少秒才开始下落（错落感）
+}
+
+/// <summary>v3.71 室内家具：提供纵深与藏匿点。物件可摆在台面(Surface)、藏入内部(Container)、或掉在地上(FloorDrop)。</summary>
+public enum FurnitureType { Desk, Cabinet, Stove, PictureFrame }
+
+public sealed class Furniture
+{
+    public string Id;
+    public FurnitureType Type;
+    public Vector2 Center;          // 房间画布坐标（家具中心）
+    public string ContainsSpotId;   // 藏匿的物件 SpotId（Container 模式）；无则 null
+    public float OpenT;             // 0 关 .. 1 开（开启动画）
+    public bool Opened;             // 已掀开（锁存）
+    public int Seed;
+
+    public float HalfW() => Type switch
+    {
+        FurnitureType.Desk => 66f,
+        FurnitureType.Cabinet => 34f,
+        FurnitureType.Stove => 40f,
+        FurnitureType.PictureFrame => 44f,
+        _ => 40f,
+    };
+    /// <summary>台面 y（Surface 物件摆放高度）。</summary>
+    public float TopY() => Type switch
+    {
+        FurnitureType.PictureFrame => Center.Y,          // 挂画：凹洞在画后
+        FurnitureType.Desk => Center.Y - 30f,
+        FurnitureType.Cabinet => Center.Y - 44f,
+        FurnitureType.Stove => Center.Y - 18f,
+        _ => Center.Y - 30f,
+    };
+    /// <summary>藏匿物在家具开启后露出的凹洞位置。</summary>
+    public Vector2 RecessPos() => Type switch
+    {
+        FurnitureType.Desk => Center + new Vector2(0f, 10f),
+        FurnitureType.Cabinet => Center + new Vector2(0f, 8f),
+        FurnitureType.Stove => Center + new Vector2(0f, 8f),
+        FurnitureType.PictureFrame => Center,
+        _ => Center,
+    };
 }
 
 /// <summary>
@@ -132,10 +187,18 @@ public partial class InteriorRoom : Control
     public string Title = "屋内";
     public string ResultText = "";
     public readonly List<RoomItem> Items = new();
+    /// <summary>v3.71 家具清单（提供纵深与藏匿点）。</summary>
+    public readonly List<Furniture> Furniture = new();
+    /// <summary>v3.71 全局时辰（进屋时从 WorldClock 读取，驱动窗光）。</summary>
+    public WorldClock.Phase WorldTime = WorldClock.Phase.Day;
+    /// <summary>v3.71 地板静止线（房间画布 y），掉落物最终落在此。</summary>
+    public const float FloorY = 506f;
 
     /// <summary>玩家小人在房间画布上的 x（脚底落在地板行走带）。</summary>
     public float PlayerX = 132f;
     public int NearIndex = -1;
+    /// <summary>v3.71 最近的可翻找家具（关闭且含藏匿物）。</summary>
+    public int NearFurniture = -1;
     public bool AtDoor => PlayerX <= 82f;
     /// <summary>v3.70：进入室内自动切换第一视角（隐藏走动小人，改画准星扫视）。默认开启。</summary>
     public bool FirstPerson = true;
@@ -156,81 +219,36 @@ public partial class InteriorRoom : Control
             Title = string.IsNullOrEmpty(title) ? "屋内" : title,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        if (items != null) r.Items.AddRange(items);
-        else r.Items.AddRange(PreviewItems(type, seed));
+        BuildContents(r, type, variant, seed);
+        if (items != null)
+            foreach (var it in items) { it.Mode = RoomItemMode.Surface; r.Items.Add(it); }
         r.Layout();
         return r;
     }
 
-    /// <summary>按房间格局把物件摆到对应家具上，而不是均匀排队。</summary>
+    /// <summary>
+    /// v3.71：Surface/Container 位置已在 BuildContents 定好；此处仅把 FloorDrop 复位到
+    /// 抬高起点，交由 PhysicsStep 实时下落。Container 物件保持凹洞位，Surface 保持台面/地面位。
+    /// </summary>
     public void Layout()
     {
-        var rng = new RandomNumberGenerator();
-        rng.Seed = (ulong)(Seed & 0xffffff) + 7919u;
-
-        // 每类房间一组「家具锚点」：信压桌上、弹药盒靠箱、电台在角落……
-        // 坐标基于约 952×592 的屋内画布，地板行走带 y≈430..510。
-        Vector2[] anchors = Type switch
+        foreach (var it in Items)
         {
-            RoomType.CommOutpost => new[]
+            if (it.Mode == RoomItemMode.FloorDrop)
             {
-                new Vector2(170f, 452f),  // 左墙电闸 / 手摇发电机旁
-                new Vector2(300f, 468f),  // 木箱
-                new Vector2(430f, 440f),  // 电台桌面
-                new Vector2(548f, 462f),  // 桌前地面
-                new Vector2(672f, 442f),  // 地图桌
-                new Vector2(800f, 458f),  // 右墙发信机下
-                new Vector2(360f, 486f),  // 地面散落
-                new Vector2(620f, 488f),
-                new Vector2(740f, 486f),
-                new Vector2(230f, 486f),
-                new Vector2(500f, 490f),
-            },
-            RoomType.BurntWarehouse => new[]
-            {
-                new Vector2(190f, 460f),  // 残墙下
-                new Vector2(320f, 478f),  // 灰烬堆
-                new Vector2(470f, 462f),  // 半塌的桌
-                new Vector2(620f, 470f),  // 木箱
-                new Vector2(760f, 458f),  // 焦梁下
-                new Vector2(390f, 490f),
-                new Vector2(560f, 490f),
-                new Vector2(690f, 490f),
-                new Vector2(260f, 490f),
-                new Vector2(830f, 486f),
-                new Vector2(500f, 490f),
-            },
-            _ => new[]
-            {
-                new Vector2(190f, 452f),  // 炕（左）/ 右（variant 1 镜像）
-                new Vector2(320f, 470f),  // 屋中地
-                new Vector2(455f, 446f),  // 方桌
-                new Vector2(590f, 472f),  // 柜子前
-                new Vector2(720f, 458f),  // 灶台
-                new Vector2(835f, 480f),  // 墙角
-                new Vector2(260f, 490f),
-                new Vector2(400f, 490f),
-                new Vector2(540f, 490f),
-                new Vector2(660f, 490f),
-                new Vector2(780f, 490f),
-            },
-        };
-
-        for (int i = 0; i < Items.Count; i++)
-        {
-            Vector2 a = anchors[i % anchors.Length];
-            if (Type == RoomType.Residence && Variant != 0)
-                a.X = 952f - a.X;   // 另一间民居左右镜像，格局不完全一样
-            a += new Vector2(rng.RandfRange(-14f, 14f), rng.RandfRange(-9f, 9f));
-            a.X = Mathf.Clamp(a.X, 118f, 872f);
-            // v3.67b：上移到地板上半带，避免被进屋帧底部剧情对白框挡住。
-            a.Y = Mathf.Clamp(a.Y - 58f, 392f, 458f);
-            Items[i].Pos = a;
+                float x = it.Pos.X;
+                it.Pos = new Vector2(x, FloorY - 150f);
+                it.Vel = Vector2.Zero;
+                it.Settled = false;
+            }
         }
     }
 
     public override void _Ready()
     {
+        // v3.71：进屋时读取关卡全局时辰，驱动窗光 / 窗外晕染 / 房间光晕
+        WorldTime = WorldClock.Time;
+
         // 背景层：沿用 v3.65 起的手绘上色漫画风墙 / 地 / 家具
         var bg = HouseInteriorUi.CreateRoomBackground(Type, Variant, Seed);
         bg.SetAnchorsPreset(Control.LayoutPreset.FullRect);
@@ -244,7 +262,7 @@ public partial class InteriorRoom : Control
         AddChild(_fg);
     }
 
-    /// <summary>由 HouseInteriorUi._Process 驱动：走动、靠近判定、重绘。</summary>
+    /// <summary>由 HouseInteriorUi._Process 驱动：走动、靠近判定、掉落物理、重绘。</summary>
     public void Step(float dt, float dir)
     {
         if (_fg == null) return;
@@ -256,18 +274,83 @@ public partial class InteriorRoom : Control
             _facing = dir > 0f ? 1f : -1f;
         }
 
-        // 找最近的、还没搜过的物件；全搜完时仍允许靠近已搜过的（会提示「已翻过」）
+        // 家具开启动画（翻开后抽屉滑出 / 门摆开）
+        foreach (var f in Furniture)
+            if (f.Opened && f.OpenT < 1f) f.OpenT = Mathf.Min(1f, f.OpenT + dt * 3.2f);
+
+        // 掉落物理（实时下落 / 回弹 / 静止）
+        PhysicsStep(dt);
+
+        // 最近可搜查物件：Container 物件需家具已开才能搜；FloorDrop 需已静止；已 Done 跳过
         NearIndex = -1;
-        float best = 52f;
+        float best = 56f;
         for (int i = 0; i < Items.Count; i++)
         {
-            if (Items[i].Done) continue;
-            float d = Mathf.Abs(Items[i].Pos.X - PlayerX);
+            var it = Items[i];
+            if (it.Done) continue;
+            if (it.Mode == RoomItemMode.Container)
+            {
+                var f = Furniture.Find(x => x.Id == it.ContainerId);
+                if (f == null || !f.Opened) continue;
+            }
+            if (it.Mode == RoomItemMode.FloorDrop && !it.Settled) continue;
+            float d = Mathf.Abs(it.Pos.X - PlayerX);
             if (d < best) { best = d; NearIndex = i; }
         }
+
+        // 最近可翻找家具（关闭且含藏匿物）
+        NearFurniture = -1;
+        float bestF = 74f;
+        for (int i = 0; i < Furniture.Count; i++)
+        {
+            var f = Furniture[i];
+            if (f.ContainsSpotId == null || f.Opened) continue;
+            float d = Mathf.Abs(f.Center.X - PlayerX);
+            if (d < bestF) { bestF = d; NearFurniture = i; }
+        }
+
         _fg.WalkPhase = _walkT;
         _fg.Facing = _facing;
         _fg.QueueRedraw();
+    }
+
+    /// <summary>v3.71 实时掉落积分：重力 + 地板/家具顶碰撞 + 回弹衰减，落到合理处并静止。</summary>
+    private void PhysicsStep(float dt)
+    {
+        foreach (var it in Items)
+        {
+            if (it.Mode != RoomItemMode.FloorDrop || it.Settled) continue;
+            if (it.DropDelay > 0f) { it.DropDelay -= dt; continue; }
+            it.Vel = new Vector2(it.Vel.X, it.Vel.Y + 1500f * dt);
+            it.Pos = new Vector2(it.Pos.X, it.Pos.Y + it.Vel.Y * dt);
+            // 家具顶碰撞：落到某家具台面上
+            foreach (var f in Furniture)
+            {
+                float top = f.TopY();
+                float hw = f.HalfW();
+                if (it.Pos.X > f.Center.X - hw && it.Pos.X < f.Center.X + hw
+                    && it.Pos.Y >= top - 2f && it.Pos.Y <= top + 30f)
+                {
+                    it.Pos = new Vector2(it.Pos.X, top);
+                    it.Vel = Vector2.Zero; it.Settled = true; break;
+                }
+            }
+            if (it.Settled) continue;
+            // 地板碰撞
+            if (it.Pos.Y >= FloorY)
+            {
+                it.Pos = new Vector2(it.Pos.X, FloorY);
+                if (Mathf.Abs(it.Vel.Y) < 70f) { it.Vel = Vector2.Zero; it.Settled = true; }
+                else it.Vel = new Vector2(it.Vel.X, -it.Vel.Y * 0.32f);
+            }
+        }
+    }
+
+    /// <summary>v3.71 翻找最近的可开家具（E 键入口，由 HouseInteriorUi 调用）。</summary>
+    public void OpenNearbyFurniture()
+    {
+        if (NearFurniture >= 0 && NearFurniture < Furniture.Count)
+            Furniture[NearFurniture].Opened = true;
     }
 
     /// <summary>搜刮完成后同步状态，避免物件仍亮着「可查看」。</summary>
@@ -293,49 +376,152 @@ public partial class InteriorRoom : Control
         _fg?.QueueRedraw();
     }
 
-    /// <summary>预览场景用：按房间类型造一组有代表性的可调查物件。</summary>
-    private static List<RoomItem> PreviewItems(RoomType type, int seed)
+    /// <summary>
+    /// v3.71 按房间类型造家具 + 物件，并分配陈列模式：
+    /// Surface 台面/地面可见、Container 藏家具内（点击翻开才露出）、FloorDrop 实时掉落。
+    /// 关键物 = 真实烈士姓名的信/遗书（letter/will），标 Key=true 画不刺眼的微光；其余不亮。
+    /// </summary>
+    private static void BuildContents(InteriorRoom r, RoomType type, int variant, int seed)
     {
-        string[] kinds = type == RoomType.CommOutpost
-            ? new[] { "power", "chest", "letter", "ammo", "will", "radio", "grenade", "gauze", "clue", "ash", "medkit" }
-            : type == RoomType.BurntWarehouse
-                ? new[] { "letter", "ash", "chest", "clue", "ammo", "grenade", "gauze", "will", "medkit" }
-                : new[] { "letter", "will", "chest", "ammo", "grenade", "gauze", "clue", "ash", "medkit" };
-        string[] labels =
+        bool mirror = (type == RoomType.Residence && variant != 0);
+        float MX(float x) => mirror ? 952f - x : x;
+
+        // 家具规格：(id, 类型, x, y)
+        var furn = type switch
         {
-            "弹药盒", "压在灶台下的信", "叠得整整齐齐的遗书", "木柄手榴弹", "半卷干净的纱布",
-            "军医留下的医药包", "上锁的弹药箱", "烧剩一半的文件", "一摊烧焦的灰烬",
-            "墙边的电闸与手摇发电机", "墙角的无线电发信机",
+            RoomType.CommOutpost => new (string, FurnitureType, float, float)[]
+            {
+                ("desk", FurnitureType.Desk, 672f, 446f),
+                ("cab",  FurnitureType.Cabinet, 800f, 462f),
+            },
+            RoomType.BurntWarehouse => new (string, FurnitureType, float, float)[]
+            {
+                ("desk",  FurnitureType.Desk, 470f, 462f),
+                ("cab",   FurnitureType.Cabinet, 620f, 472f),
+                ("stove", FurnitureType.Stove, 322f, 478f),
+            },
+            _ => new (string, FurnitureType, float, float)[]
+            {
+                ("desk",  FurnitureType.Desk, 455f, 452f),
+                ("stove", FurnitureType.Stove, 720f, 470f),
+                ("cab",   FurnitureType.Cabinet, 590f, 486f),
+                ("pic",   FurnitureType.PictureFrame, 250f, 372f),
+            },
         };
-        var list = new List<RoomItem>();
-        var rng = new RandomNumberGenerator();
-        rng.Seed = (ulong)(seed & 0xffffff);
-        for (int i = 0; i < kinds.Length; i++)
+        // 藏匿规格：(家具id, 物件kind, 标签)
+        var hides = type switch
         {
-            string k = kinds[i];
-            string lb = k switch
+            RoomType.CommOutpost => new (string, string, string)[]
             {
-                "power" => "墙边的电闸与手摇发电机",
-                "radio" => "墙角的无线电发信机",
-                "chest" => "上锁的弹药箱",
-                "letter" => type == RoomType.CommOutpost ? "桌上的信封"
-                          : type == RoomType.BurntWarehouse ? "残墙下压着的信" : "压在灶台下的信",
-                "ash" => type == RoomType.BurntWarehouse ? "一摊烧焦的灰烬" : "烧塌的柜子",
-                _ => labels[k switch
-                {
-                    "ammo" => 0, "will" => 2, "grenade" => 3, "gauze" => 4,
-                    "medkit" => 5, "clue" => 7, _ => 1,
-                }],
+                ("desk", "letter", "地图桌抽屉里的作战图"),
+                ("cab",  "radio",  "发报密电"),
+            },
+            RoomType.BurntWarehouse => new (string, string, string)[]
+            {
+                ("desk",  "letter", "半塌桌抽屉里的残信"),
+                ("cab",   "medkit", "焦柜里的医药包"),
+                ("stove", "will",   "残灶里没烧尽的遗书"),
+            },
+            _ => new (string, string, string)[]
+            {
+                ("desk", "letter", "抽屉里的家信"),
+                ("stove","will",   "灶台里叠好的遗书"),
+                ("cab",  "medkit", "柜中的医药包"),
+                ("pic",  "clue",   "挂画后墙洞里的文件"),
+            },
+        };
+
+        var rng = new RandomNumberGenerator(); rng.Seed = (ulong)(seed & 0xffffff) + 7919u;
+
+        // 1) 建家具，并填上藏匿物 SpotId
+        var furnById = new Dictionary<string, Furniture>();
+        foreach (var fs in furn)
+        {
+            var c = System.Array.Find(hides, h => h.Item1 == fs.Item1);
+            string spot = (c.Item2 != null) ? $"{type}:{c.Item2}" : null;
+            var f = new Furniture
+            {
+                Id = fs.Item1,
+                Type = fs.Item2,
+                Center = new Vector2(MX(fs.Item3), fs.Item4),
+                ContainsSpotId = spot,
+                Seed = (int)(rng.Randi() % 99991),
             };
-            list.Add(new RoomItem
+            r.Furniture.Add(f);
+            furnById[fs.Item1] = f;
+        }
+
+        // 2) 藏匿物（Container 模式）：藏在家具凹洞，翻开才露
+        foreach (var h in hides)
+        {
+            var f = furnById[h.Item1];
+            bool key = (h.Item2 == "letter" || h.Item2 == "will");
+            r.Items.Add(new RoomItem
             {
-                SpotId = $"preview:{type}:{i}",
-                Kind = k,
-                Label = lb,
+                SpotId = $"{type}:{h.Item2}",
+                Kind = h.Item2,
+                Label = h.Item3,
+                Mode = RoomItemMode.Container,
+                ContainerId = f.Id,
+                Key = key,
                 Done = false,
+                Pos = f.RecessPos(),
             });
         }
-        return list;
+
+        // 3) 台面 / 掉落物件：(kind, label, mode, x, y) —— FloorDrop 的 y 由物理决定，这里只给落点 x
+        var extras = type switch
+        {
+            RoomType.CommOutpost => new (string, string, RoomItemMode, float, float)[]
+            {
+                ("power",  "墙边的电闸与手摇发电机", RoomItemMode.Surface, 170f, 452f),
+                ("ammo",   "没藏好的弹药盒",         RoomItemMode.FloorDrop, 360f, 0f),
+                ("grenade","来不及收的木柄手榴弹",   RoomItemMode.FloorDrop, 660f, 0f),
+                ("chest",  "屋角上锁的木箱",         RoomItemMode.Surface, 540f, 492f),
+                ("gauze",  "半卷纱布",               RoomItemMode.Surface, 430f, 492f),
+                ("ash",    "烧焦的灰烬",             RoomItemMode.Surface, 250f, 496f),
+                ("clue",   "桌上的便条",             RoomItemMode.Surface, 760f, 492f),
+            },
+            RoomType.BurntWarehouse => new (string, string, RoomItemMode, float, float)[]
+            {
+                ("ammo",   "没藏好的弹药盒",         RoomItemMode.FloorDrop, 410f, 0f),
+                ("grenade","来不及收的木柄手榴弹",   RoomItemMode.FloorDrop, 720f, 0f),
+                ("chest",  "焦黑的木箱",             RoomItemMode.Surface, 760f, 492f),
+                ("gauze",  "半卷纱布",               RoomItemMode.Surface, 540f, 492f),
+                ("ash",    "一摊烧焦的灰烬",         RoomItemMode.Surface, 470f, 498f),
+            },
+            _ => new (string, string, RoomItemMode, float, float)[]
+            {
+                ("ammo",   "没藏好的弹药盒",         RoomItemMode.FloorDrop, 360f, 0f),
+                ("grenade","来不及收的木柄手榴弹",   RoomItemMode.FloorDrop, 660f, 0f),
+                ("chest",  "屋角上锁的木箱",         RoomItemMode.Surface, 835f, 492f),
+                ("gauze",  "炕上半卷纱布",           RoomItemMode.Surface, 190f, 492f),
+                ("ash",    "灶边烧焦的灰",           RoomItemMode.Surface, 820f, 496f),
+            },
+        };
+        int di = 0;
+        foreach (var e in extras)
+        {
+            var it = new RoomItem
+            {
+                SpotId = $"{type}:extra:{di}",
+                Kind = e.Item1,
+                Label = e.Item2,
+                Mode = e.Item3,
+                Done = false,
+            };
+            if (e.Item3 == RoomItemMode.FloorDrop)
+            {
+                it.Pos = new Vector2(MX(e.Item4), FloorY - 150f);
+                it.DropDelay = (di * 0.14f) % 0.5f;   // 错落下落
+                di++;
+            }
+            else
+            {
+                it.Pos = new Vector2(MX(e.Item4), e.Item5);
+            }
+            r.Items.Add(it);
+        }
     }
 }
 
@@ -429,11 +615,34 @@ public partial class InteriorForeground : Control
         float W = Size.X, H = Size.Y;
         if (W < 10f || H < 10f) return;
 
+        // 0) 窗光 + 窗外晕染（最底层，背景之上、家具之下）
+        DrawWindowLight(W, H, _room.WorldTime);
+        // 1) 门
         DrawDoor(W, H);
 
-        // 物件：先全部画，再画小人，小人站最前
-        for (int i = 0; i < _room.Items.Count; i++)
-            DrawItem(_room.Items[i], i == _room.NearIndex);
+        // 2) 逐家具分层：先画被它遮挡的地落物 → 家具主体（含凹洞）→ 已开容器的露出物 → 家具前脸（盖住未开藏匿物）
+        foreach (var f in _room.Furniture)
+        {
+            foreach (var it in _room.Items)
+                if (it.Mode == RoomItemMode.FloorDrop && OccludedBy(f, it))
+                    DrawDropItem(it);
+            DrawFurnitureBody(f, _room.WorldTime);
+            var hidden = _room.Items.Find(it => it.ContainerId == f.Id);
+            if (hidden != null && f.OpenT > 0.05f)
+                DrawItem(hidden, f.RecessPos(),
+                    _room.NearIndex >= 0 && _room.Items[_room.NearIndex] == hidden, f.OpenT);
+            DrawFurnitureFront(f, _room.WorldTime);
+        }
+
+        // 3) 不被遮挡的地落物（画在最前）
+        foreach (var it in _room.Items)
+            if (it.Mode == RoomItemMode.FloorDrop && !OccludedAny(it))
+                DrawDropItem(it);
+
+        // 4) 台面 / 地面 Surface 物件
+        foreach (var it in _room.Items)
+            if (it.Mode == RoomItemMode.Surface)
+                DrawItem(it, it.Pos, _room.NearIndex >= 0 && _room.Items[_room.NearIndex] == it);
 
         // v3.70：进入室内自动切换第一视角 —— 隐藏走动小人，改画「准星扫视」
         if (_room.FirstPerson) DrawReticle(W, H);
@@ -491,13 +700,218 @@ public partial class InteriorForeground : Control
         }, new Color(0.10f, 0.08f, 0.06f, 0.42f * a));
     }
 
-    private void DrawItem(RoomItem it, bool near)
+    // =====================================================================
+    // v3.71 窗光 / 家具 / 掉落 绘制子系统（对应五大诉求）
+    // =====================================================================
+
+    /// <summary>
+    /// v3.71 用户诉求③：窗光随时辰 —— 夜=月光、晨=日光、黄昏=余晖。
+    /// 画在背景之上、家具之下：窗外晕染（天空/地面/月或日）+ 房间光晕 + 地面光束（+夜：月与星）。
+    /// 取色全部来自 WorldClock.For(t)，与关卡全局时辰联动。
+    /// </summary>
+    private void DrawWindowLight(float W, float H, WorldClock.Phase t)
     {
-        Vector2 p = it.Pos;
-        float a = it.Done ? 0.55f : 1f;
+        var pal = WorldClock.For(t);
+        float wx = W * 0.66f, wy = 54f, ww = 150f, wh = 118f;
+
+        // 窗框（粗墨线，先于玻璃，保证玻璃在框内）
+        Box(new Rect2(wx - 4f, wy - 4f, ww + 8f, wh + 8f), InkStyle.InkSoft, Ink, 4f);
+        // 玻璃 = 窗外天空（夜：深蓝；晨：浅蓝；黄昏：橙红）
+        DrawRect(new Rect2(wx, wy, ww, wh), pal.WindowSky);
+        // 窗外地平线 / 地面带
+        DrawRect(new Rect2(wx, wy + wh * 0.70f, ww, wh * 0.30f), pal.WindowGround);
+        // 窗格十字
+        Line(new Vector2(wx + ww / 2f, wy), new Vector2(wx + ww / 2f, wy + wh), 2f, Ink);
+        Line(new Vector2(wx, wy + wh / 2f), new Vector2(wx + ww, wy + wh / 2f), 2f, Ink);
+        if (pal.HasMoon)
+        {
+            // 夜：月亮 + 确定性星点（不闪）
+            Disk(new Vector2(wx + ww * 0.70f, wy + wh * 0.30f), 13f, Ink, new Color(0.92f, 0.94f, 0.82f), 2f);
+            for (int i = 0; i < 7; i++)
+            {
+                float sx = wx + 14f + Jit((float)i * 3.7f + 1f) * (ww - 28f);
+                float sy = wy + 10f + Jit((float)i * 5.3f + 2f) * (wh * 0.5f);
+                Dot(new Vector2(sx, sy), 1.4f, new Color(0.95f, 0.96f, 0.90f));
+            }
+        }
+        else
+        {
+            // 日 / 黄昏：窗外一轮暖光
+            Disk(new Vector2(wx + ww * 0.72f, wy + wh * 0.34f), 12f, Ink, new Color(1f, 0.96f, 0.74f), 2f);
+        }
+
+        // 房间整体光晕（低 alpha，叠在背景上，不覆盖家具/物件）
+        DrawRect(new Rect2(0, 0, W, H), pal.RoomWash);
+
+        // 窗投到地面的光束（平行四边形：上端窄、落地宽；半透明）
+        float lx = wx + 24f, rx = wx + ww - 24f;
+        var beam = new Vector2[]
+        {
+            new Vector2(lx, wy + wh),
+            new Vector2(rx, wy + wh),
+            new Vector2(rx + 46f, InteriorRoom.FloorY),
+            new Vector2(lx - 34f, InteriorRoom.FloorY),
+        };
+        DrawColoredPolygon(beam, pal.Beam);
+        // 地面光斑（压扁椭圆）
+        DrawFlatEllipse(new Vector2((lx + rx) / 2f + 6f, InteriorRoom.FloorY + 4f), 96f, 20f, pal.Beam);
+    }
+
+    /// <summary>压扁椭圆（光斑 / 地面阴影用，避免依赖 DrawEllipse 版本差异）。</summary>
+    private void DrawFlatEllipse(Vector2 c, float rx, float ry, Color col, int seg = 26)
+    {
+        var pts = new Vector2[seg];
+        for (int i = 0; i < seg; i++)
+        {
+            float ang = i * Mathf.Tau / seg;
+            pts[i] = new Vector2(c.X + Mathf.Cos(ang) * rx, c.Y + Mathf.Sin(ang) * ry);
+        }
+        DrawColoredPolygon(pts, col);
+    }
+
+    /// <summary>家具凹洞（藏匿点）矩形，按类型给尺寸。</summary>
+    private Rect2 RecessRect(Furniture f)
+    {
+        float w = f.Type switch { FurnitureType.Cabinet => 48f, FurnitureType.PictureFrame => 46f, FurnitureType.Stove => 46f, _ => 52f };
+        float h = f.Type switch { FurnitureType.Cabinet => 42f, FurnitureType.PictureFrame => 42f, FurnitureType.Stove => 22f, _ => 26f };
+        Vector2 c = f.RecessPos();
+        return new Rect2(c.X - w / 2f, c.Y - h / 2f, w, h);
+    }
+
+    /// <summary>判断地落物是否被某家具前脸遮挡（其 x 落在家具前脸水平范围内、且低于台面 → 藏在家具后面）。</summary>
+    private bool OccludedBy(Furniture f, RoomItem it)
+    {
+        if (it.Mode != RoomItemMode.FloorDrop) return false;
+        float hw = f.HalfW() * 1.5f;
+        if (it.Pos.X < f.Center.X - hw || it.Pos.X > f.Center.X + hw) return false;
+        // 落在家具台面上（被 PhysicsStep 顶住）不算遮挡，应画在家具之上
+        if (it.Settled && Mathf.Abs(it.Pos.Y - f.TopY()) < 6f) return false;
+        return it.Pos.Y > f.TopY() + 4f;
+    }
+
+    /// <summary>是否被任意家具遮挡。</summary>
+    private bool OccludedAny(RoomItem it)
+    {
+        foreach (var f in _room.Furniture)
+            if (OccludedBy(f, it)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// v3.71 用户诉求①：物件不平贴背景，要有纵深 —— 家具主体（含凹洞）提供遮挡关系。
+    /// 先画凹洞（暗腔），再画家具 carcass 包住它；藏匿物在 _Draw 里于 body 与 front 之间露出。
+    /// </summary>
+    private void DrawFurnitureBody(Furniture f, WorldClock.Phase t)
+    {
+        float hw = f.HalfW();
+        float top = f.TopY();
+        bool steel = f.Type == FurnitureType.Stove;
+        Color body = steel ? Steel : Wood;
+        Color bodySh = steel ? SteelShadow : WoodShadow;
+        Color bodyLit = steel ? SteelLit : WoodLit;
+
+        if (f.Type == FurnitureType.PictureFrame)
+        {
+            float fx = f.Center.X - 46f, fy = f.Center.Y - 34f, fw = 92f, fh = 68f;
+            DrawRect(RecessRect(f), new Color(0.10f, 0.08f, 0.07f));   // 墙洞（凹洞）
+            HandRect(new Rect2(fx, fy, fw, fh), bodyLit, Ink, 4f, f.Seed, bodySh, bodyLit); // 画框
+            return;
+        }
+
+        float bottom = f.Center.Y + (f.Type == FurnitureType.Cabinet ? 46f : 32f);
+        var carcass = new Rect2(f.Center.X - hw, top - 8f, hw * 2f, bottom - (top - 8f));
+        HandRect(carcass, body, Ink, 4f, f.Seed, bodySh, bodyLit);
+        DrawRect(RecessRect(f), new Color(0.10f, 0.08f, 0.07f));     // 凹洞（藏匿点）
+        DrawRect(new Rect2(f.Center.X - hw, top - 8f, hw * 2f, 6f), bodyLit); // 台面高光
+        if (f.Type != FurnitureType.Stove) // 腿
+        {
+            Line(new Vector2(f.Center.X - hw + 8f, bottom), new Vector2(f.Center.X - hw + 8f, bottom + 16f), 5f, Ink);
+            Line(new Vector2(f.Center.X + hw - 8f, bottom), new Vector2(f.Center.X + hw - 8f, bottom + 16f), 5f, Ink);
+        }
+    }
+
+    /// <summary>
+    /// v3.71 用户诉求②：家具前脸（抽屉面 / 柜门 / 炉门 / 画心）盖住凹洞；
+    /// 翻开时按 OpenT 平移离开，露出凹洞与藏匿物（开启动画）。
+    /// </summary>
+    private void DrawFurnitureFront(Furniture f, WorldClock.Phase t)
+    {
+        var r = RecessRect(f);
+        Vector2 off = f.Type switch
+        {
+            FurnitureType.Cabinet => new Vector2(f.HalfW() * 1.3f * f.OpenT, 0f),          // 柜门向右摆开
+            FurnitureType.PictureFrame => new Vector2(0f, -r.Size.Y * 1.05f * f.OpenT),   // 画心上抬
+            _ => new Vector2(0f, r.Size.Y * 0.9f * f.OpenT),                               // 抽屉 / 炉门向下拉出
+        };
+        bool steel = f.Type == FurnitureType.Stove;
+        Color cover = steel ? SteelShadow : WoodShadow;
+        Color coverLit = steel ? SteelLit : WoodLit;
+
+        if (f.Type == FurnitureType.PictureFrame)
+        {
+            var cr = new Rect2(r.Position.X + off.X, r.Position.Y + off.Y, r.Size.X, r.Size.Y);
+            HandRect(cr, coverLit, Ink, 3f, f.Seed + 7, cover, coverLit);   // 画心
+            DrawRect(new Rect2(cr.Position.X + 5f, cr.Position.Y + 5f, cr.Size.X - 10f, cr.Size.Y * 0.6f), new Color(0.52f, 0.60f, 0.70f));
+            DrawRect(new Rect2(cr.Position.X + 5f, cr.Position.Y + cr.Size.Y - 14f, cr.Size.X - 10f, 9f), new Color(0.36f, 0.44f, 0.36f));
+            return;
+        }
+
+        var fr = new Rect2(r.Position.X + off.X, r.Position.Y + off.Y, r.Size.X, r.Size.Y);
+        HandRect(fr, cover, Ink, 3f, f.Seed + 3, cover, coverLit);
+        // 把手（黄铜）
+        Dot(new Vector2(fr.Position.X + fr.Size.X * (f.Type == FurnitureType.Cabinet ? 0.80f : 0.5f),
+                        fr.Position.Y + fr.Size.Y * 0.5f), 2.6f, new Color(0.78f, 0.63f, 0.30f));
+    }
+
+    /// <summary>v3.71 用户诉求④：地落物 —— 接触阴影落在地面、随离地高度缩放；本体由 DrawItemCore 画。</summary>
+    private void DrawDropItem(RoomItem it)
+    {
+        bool near = _room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count && _room.Items[_room.NearIndex] == it;
+        DrawItemCore(it, it.Pos, near, 1f, true);
+    }
+
+    /// <summary>关键物（真实烈士信/遗书）微光：不刺眼的暖光脉冲，画在物件之前（被物件压住，只剩光晕）。</summary>
+    private Vector2[] GlowPoly(Vector2 c, float r)
+    {
+        int seg = 18;
+        var pts = new Vector2[seg];
+        for (int i = 0; i < seg; i++)
+        {
+            float ang = i * Mathf.Tau / seg;
+            pts[i] = new Vector2(c.X + Mathf.Cos(ang) * r, c.Y + Mathf.Sin(ang) * r * 0.7f);
+        }
+        return pts;
+    }
+
+    /// <summary>
+    /// 物件绘制核心。origin=绘制中心；reveal=开启淡入(0..1)；floorShadow=true 时阴影画在地面（地落物）。
+    /// v3.71：关键物未搜前画一抹随低频 sin 脉冲的暖光，提醒但不刺眼。
+    /// </summary>
+    private void DrawItemCore(RoomItem it, Vector2 p, bool near, float reveal, bool floorShadow)
+    {
+        float a = (it.Done ? 0.55f : 1f) * reveal;
         float seed = StrHash(it.SpotId);
 
-        DrawContactShadow(p, a);
+        if (floorShadow)
+        {
+            float above = InteriorRoom.FloorY - it.Pos.Y;
+            float k = Mathf.Clamp(1f - above / 220f, 0.15f, 1f);
+            DrawFlatEllipse(new Vector2(it.Pos.X, InteriorRoom.FloorY + 18f),
+                20f * (0.45f + 0.55f * k), 7f, new Color(0.10f, 0.08f, 0.06f, 0.42f * k));
+        }
+        else
+        {
+            DrawContactShadow(p, a);
+        }
+
+        // 关键物微光（仅真实烈士姓名信/遗书，未搜前）
+        if (it.Key && !it.Done)
+        {
+            float g = (float)(Time.GetTicksMsec() % 1600) / 1600f;
+            float pulse = 0.10f + 0.07f * (0.5f + 0.5f * Mathf.Sin(g * Mathf.Tau));
+            for (int i = 3; i >= 1; i--)
+                DrawColoredPolygon(GlowPoly(p, 30f * i + 10f), new Color(0.99f, 0.86f, 0.55f, pulse / i));
+        }
 
         // 物件本体（v3.70：手绘漫画风，抖动墨线 + 三档平涂 + 内部细节，不再用方块图标）
         switch (it.Kind)
@@ -550,6 +964,14 @@ public partial class InteriorForeground : Control
             DrawRect(new Rect2(p.X - 30f, p.Y - 46f, 60f * Mathf.Clamp(it.Progress, 0f, 1f), 5f), Red);
         }
     }
+
+    // v3.71：新重载 —— 支持凹洞 origin + 开启淡入 reveal
+    private void DrawItem(RoomItem it, Vector2 origin, bool near, float reveal = 1f)
+        => DrawItemCore(it, origin, near, reveal, false);
+
+    // 兼容旧调用（若有）
+    private void DrawItem(RoomItem it, bool near)
+        => DrawItemCore(it, it.Pos, near, 1f, false);
 
     // ---------- 各类实体物件（v3.70：手绘漫画风 —— 抖动墨线 + 三档平涂 + 内部细节） ----------
     private void DrawChest(Vector2 p, float a, float seed)

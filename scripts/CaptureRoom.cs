@@ -39,6 +39,8 @@ public partial class CaptureRoom : Node
 
     private void BuildRoom(RoomType type, int variant, int seed, string titleText)
     {
+        // v3.71 用户诉求③：CaptureRoom 造的都是九一八的屋（夜袭），窗光设为月光
+        WorldClock.Time = WorldClock.Phase.Night;
         var kids = _holder.GetChildren();
         for (int i = kids.Count - 1; i >= 0; i--)
         {
@@ -75,6 +77,9 @@ public partial class CaptureRoom : Node
         _room.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         content.AddChild(_room);
         _room.QueueRedraw();
+        // v3.71：预览里把家具全部翻开（OpenT=1），让「藏在家具内的信/遗书」连同关键物微光一起
+        // 进帧，方便核对容器翻找 + 微光提醒；地落物在 _Process 的 Step 里实时掉到地面静止。
+        foreach (var f in _room.Furniture) { f.Opened = true; f.OpenT = 1f; }
         // v3.70：第一视角验证 —— 把准星停在第一个物件上，截图能同时看到
         // 「准星扫视」+ 手绘漫画风物件 + 靠近高亮，不再让小人走动漂移。
         if (_room.Items.Count > 0) _room.PlayerX = _room.Items[0].Pos.X;

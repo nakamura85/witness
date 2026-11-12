@@ -1408,6 +1408,8 @@ public partial class N918Level : Node2D
 
     private void OpenHouse(EnterableHouse h)
     {
+        // v3.71 用户诉求③：九一八夜袭，进屋窗光为月光（WorldClock.Night）
+        WorldClock.Time = WorldClock.Phase.Night;
         string title = h.Id switch
         {
             "h1" => "柳条湖边的小屋",
