@@ -3562,7 +3562,13 @@ public partial class JiangqiaoLevel : Node2D
             DrawTextureRect(SoftSnow.Blob(new Color(0.88f, 0.91f, 0.92f), 0.5f),
                 new Rect2(-boxW, -boxW, boxW * 2f, boxW * 2f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-            SnowShadow.Draw(this, new Vector2(cartX + boxW * 0.5f, GroundY - 1f), boxW * 0.6f, 0.22f);
+            // v3.76: dark ground-contact shadow so the cart crate reads as
+            // resting on the ground, not floating. Old SnowShadow(0.22) too faint.
+            float cartContactW = boxW * 1.5f;
+            DrawSetTransform(new Vector2(cartX + boxW * 0.5f, GroundY + 3f), 0, new Vector2(cartContactW / 40f, 0.30f));
+            DrawTextureRect(SoftSnow.Blob(new Color(0.10f, 0.11f, 0.13f), 0.5f),
+                new Rect2(-20f, -20f, 40f, 40f), false);
+            DrawSetTransform(Vector2.Zero, 0, Vector2.One);
 
             // the crate body, tipped over on its side with a slight tilt
             float tw = boxW * 1.3f;
@@ -3992,8 +3998,7 @@ public partial class JiangqiaoLevel : Node2D
                     DrawTextureRect(SoftSnow.Blob(new Color(0.88f, 0.91f, 0.92f), 0.5f),
                         new Rect2(-cw * 0.7f, -cw * 0.7f, cw * 1.4f, cw * 1.4f), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-                    // soft contact shadow
-                    SnowShadow.Draw(this, new Vector2(x + 10f, GroundY - 1f), cw * 0.55f, 0.22f);
+                    // (contact shadow re-added below the crate so it actually reads)
                     // the crate itself, tilted, sunk a touch
                     DrawSetTransform(new Vector2(x + 8f, GroundY - 1f), rot, Vector2.One);
                     DrawTextureRect(crate, new Rect2(-cw * 0.5f, -ch + 2f, cw, ch), false);
@@ -4007,6 +4012,14 @@ public partial class JiangqiaoLevel : Node2D
                     DrawSetTransform(new Vector2(x + 6f, GroundY + 1f), 0, new Vector2(1.4f, 0.4f));
                     DrawTextureRect(SoftSnow.Blob(new Color(0.94f, 0.96f, 0.96f), 0.55f),
                         new Rect2(-cw * 0.5f, -8f, cw, 16f), false);
+                    DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+                    // v3.76: dark ground-contact shadow at the crate base. The old
+                    // SnowShadow(0.22) was too faint against the snow drift, so the
+                    // box read as floating. Drawn last so it stays visible.
+                    float crateContactW = cw * 0.64f;
+                    DrawSetTransform(new Vector2(x + 8f, GroundY + 3f), 0, new Vector2(crateContactW / 40f, 0.30f));
+                    DrawTextureRect(SoftSnow.Blob(new Color(0.10f, 0.11f, 0.13f), 0.5f),
+                        new Rect2(-20f, -20f, 40f, 40f), false);
                     DrawSetTransform(Vector2.Zero, 0, Vector2.One);
                 }
             }
