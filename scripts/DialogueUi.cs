@@ -12,6 +12,7 @@ namespace Witness;
 public partial class DialogueUi : CanvasLayer
 {
     private Label _name, _text;
+    private ScrollContainer _scroll;
     private HBoxContainer _buttons;
     private BurntPaperPanel _paper;
     private DialogueOverlay _overlay;
@@ -26,9 +27,15 @@ public partial class DialogueUi : CanvasLayer
         root.MouseFilter = Control.MouseFilterEnum.Stop;
         AddChild(root);
 
-        _paper = new BurntPaperPanel(BurntPaperArt.StableHash("dialogue"), 0.42f);
-        _paper.SetAnchorsPreset(Control.LayoutPreset.CenterBottom);
-        _paper.Position = new Vector2(-470, -190);
+        // v3.80：居中摆放 + 中度烧毁(0.7)；缩小字号并把纸张真正居中，确保底钮不出屏。
+        // 关键：SetAnchorsPreset(Center) 只把锚点移到 0.5，若不设 GrowDirection.Both，
+        // 控件会以锚点为「左上角」向右下撑开 → 整张纸偏到右下、底部按钮被裁掉（v3.80 实机帧实测）。
+        // Both 让纸张以锚点为中心向四周均分生长，配合 CustomMinimumSize 稳定居中、同父坐标系
+        // 也让 DialogueOverlay 用 GetRect() 画的命令印章位置保持正确。
+        _paper = new BurntPaperPanel(BurntPaperArt.StableHash("dialogue"), 0.7f);
+        _paper.SetAnchorsPreset(Control.LayoutPreset.Center);
+        _paper.GrowHorizontal = Control.GrowDirection.Both;
+        _paper.GrowVertical = Control.GrowDirection.Both;
         _paper.CustomMinimumSize = new Vector2(940, 0);
         root.AddChild(_paper);
 
@@ -44,7 +51,7 @@ public partial class DialogueUi : CanvasLayer
         _paper.AddChild(box);
 
         _name = new Label();
-        _name.AddThemeFontSizeOverride("font_size", 18);
+        _name.AddThemeFontSizeOverride("font_size", 15);
         _name.AddThemeColorOverride("font_color", new Color(0.45f, 0.14f, 0.12f));
         box.AddChild(_name);
 
@@ -53,15 +60,29 @@ public partial class DialogueUi : CanvasLayer
         nameRule.CustomMinimumSize = new Vector2(0, 12);
         box.AddChild(nameRule);
 
+        // v3.80：文字放进可滚动容器，长文本只滚动此区，底钮恒定可见（修复底钮出屏）
+        _scroll = new ScrollContainer
+        {
+            CustomMinimumSize = new Vector2(800, 300),
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            VerticalScrollMode = ScrollContainer.ScrollMode.Auto,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        _scroll.AddThemeConstantOverride("margin_left", 2);
+        _scroll.AddThemeConstantOverride("margin_right", 2);
+        _scroll.AddThemeConstantOverride("margin_top", 2);
+        _scroll.AddThemeConstantOverride("margin_bottom", 2);
         _text = new Label();
-        _text.AddThemeFontSizeOverride("font_size", 19);
+        _text.AddThemeFontSizeOverride("font_size", 16);
         _text.AddThemeColorOverride("font_color", InkStyle.InkColor);
         _text.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        _text.CustomMinimumSize = new Vector2(820, 0);
-        box.AddChild(_text);
+        _text.CustomMinimumSize = new Vector2(780, 0);
+        _text.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+        _scroll.AddChild(_text);
+        box.AddChild(_scroll);
 
         _buttons = new HBoxContainer();
-        _buttons.AddThemeConstantOverride("separation", 14);
+        _buttons.AddThemeConstantOverride("separation", 12);
         _buttons.Alignment = BoxContainer.AlignmentMode.End;
         box.AddChild(_buttons);
 
@@ -83,6 +104,7 @@ public partial class DialogueUi : CanvasLayer
         _name.Text = name;
         _name.Visible = name != "";
         _text.Text = text;
+        if (_scroll != null) _scroll.ScrollVertical = 0;
         foreach (var c in _buttons.GetChildren())
             c.QueueFree();
         for (int i = 0; i < opts.Length; i++)

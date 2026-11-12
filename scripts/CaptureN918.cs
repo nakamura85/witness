@@ -28,6 +28,9 @@ public partial class CaptureN918 : Node
         AddChild(_sub);
         _lvl = new N918Level(new Main());
         _lvl.DebugClock = 11.0f;   // 初秋暖色白昼
+        // v3.80：截图时抑制不抵抗令自动弹窗（TryResistChoice 在 PlayerX>=1900 就会弹，往后所有机位都算触发区），
+        // 否则 stage6 拍柳条湖断轨/木牌时会被对话框盖住。对话框核验由 stage11 手动 new 一个完成。
+        _lvl.SuppressAutoDialogue = true;
         _sub.AddChild(_lvl);
         _started = true;
         _t = 0f;

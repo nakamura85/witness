@@ -256,7 +256,10 @@ public partial class N918Level : Node2D
     /// <summary>v2.8: verification switch, hides the chimney smoke so the
     /// shake check can measure the backdrop on its own.</summary>
     public bool DebugNoSmoke;
+    /// <summary>截图专用：抑制不抵抗令自动弹窗，避免遮住柳条湖地名木牌（不影响正式游戏）。</summary>
+    public bool SuppressAutoDialogue;
     private float _lastDryToast = -99f;
+    private static Font _signFont;
 
     public N918Level(Main main) { _main = main; }
 
@@ -267,6 +270,14 @@ public partial class N918Level : Node2D
 
     public override void _Ready()
     {
+        // v3.80：直接加载工程内置 CJK 字体（与 Main.SetupFont 同一文件），
+        // 这样无论 Capture（不跑 Main）还是正式游戏，DrawString 都能拿到非 null 字体渲染中文。
+        const string fpath = "res://assets/fonts/NotoSansCJKsc-Regular.otf";
+        if (ResourceLoader.Exists(fpath))
+            _signFont = GD.Load<FontFile>(fpath);
+        if (_signFont != null)
+            ThemeDB.FallbackFont = _signFont;
+
         BuildSky();
         BuildBackdrop();
         BuildMidSmoke();
@@ -304,6 +315,10 @@ public partial class N918Level : Node2D
                         Artillery(0.4f);
                 };
             });
+
+        // 柳条湖地名木牌文字在 DrawRailEmbankment 内用引擎默认主题字体直接绘制
+        // （与 HUD 同一套字体，Capture/游戏都能显中文；不依赖 ThemeDB.FallbackFont，
+        // 避免 headless 下 FallbackFont 为 null 让整段 _Draw 崩溃、连木牌都不画）。
     }
 
     // ================= 构图 =================
@@ -1794,6 +1809,7 @@ public partial class N918Level : Node2D
     /// </summary>
     private void TryResistChoice()
     {
+        if (SuppressAutoDialogue) return;               // 截图专用：不弹窗遮挡柳条湖木牌
         if (_ended || _noteOpen || _houseUi != null) return;
         if (GameState.I.S.N918Resist != 0) return;     // 已抉择（含「抉择中」哨兵 -1）
         if (PlayerX < 1900f) return;                    // 抵达北大营才触发
@@ -3826,13 +3842,32 @@ public partial class N918Level : Node2D
             }
             // 顶部高光条（卡通短直线）
             DrawLine(new Vector2(bx - 58f, GroundY - 88f), new Vector2(bx + 58f, GroundY - 88f), woodLit, 2.4f, false);
-            // 手写感刻字（五道短促抖动笔画，暗示「柳条湖」，不写真实伪文字；3px 提高小图可读性）
-            for (int k = 0; k < 5; k++)
+            // v3.80：柳条湖地名文字——用 ThemeDB.FallbackFont 直接绘制（与 HUD 的「生命/手榴弹」同一套，
+            // _Ready 已把它设为工程内置 CJK 字体，Capture/游戏都非 null）。先量字宽再居中，基线对齐板面中部。
+            var dfont = ThemeDB.FallbackFont;
+            if (dfont != null)
             {
-                float x0 = bx - 50f + k * 24f;
-                DrawLine(new Vector2(x0, GroundY - 78f), new Vector2(x0 + 15f + (k % 2) * 6f, GroundY - 60f),
-                    new Color(0.14f, 0.09f, 0.05f), 3f, false);
+                int fs = 28;
+                Vector2 tsz = dfont.GetStringSize("柳条湖", HorizontalAlignment.Left, -1, fs);
+                float tx = bx - tsz.X / 2f;
+                float ty = GroundY - 66f + tsz.Y * 0.42f; // 基线：让字形视觉居中于板面
+                DrawString(dfont, new Vector2(tx, ty), "柳条湖",
+                    HorizontalAlignment.Left, -1, fs, new Color(0.16f, 0.10f, 0.06f, 0.97f));
             }
+            // 战损：弹孔（深色洞）+ 放射裂纹 + 木牌斜裂，消除「工工整整无破损」
+            var holes = new[] { new Vector2(bx - 28f, GroundY - 66f), new Vector2(bx + 40f, GroundY - 56f) };
+            foreach (var h in holes)
+            {
+                DrawCircle(h, h == holes[0] ? 4.5f : 3.5f, new Color(0.10f, 0.07f, 0.04f));
+                for (int k = 0; k < 5; k++)
+                {
+                    float ang = k * Mathf.Tau / 5f + k * 0.37f;
+                    DrawLine(h, h + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * 12f,
+                        new Color(0.18f, 0.12f, 0.07f), 1.2f, false);
+                }
+            }
+            DrawLine(new Vector2(bx - 52f, GroundY - 87f), new Vector2(bx + 42f, GroundY - 51f),
+                new Color(0.16f, 0.10f, 0.06f, 0.82f), 1.4f, false);
             // 四角铆钉（3.5px 深色，确保可见）
             foreach (var c in new[] { new Vector2(bx - 60f, GroundY - 85f), new Vector2(bx + 60f, GroundY - 85f),
                 new Vector2(bx - 60f, GroundY - 51f), new Vector2(bx + 60f, GroundY - 51f) })

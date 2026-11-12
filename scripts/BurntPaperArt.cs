@@ -39,7 +39,8 @@ public static class BurntPaperArt
     {
         var rng = NewRng(seed + 991);
         float warm = rng.RandfRange(-0.035f, 0.035f);
-        baseC = new Color(0.92f + warm, 0.855f + warm * 0.6f, 0.70f - warm * 0.4f);
+        // v3.80：中度烧毁旧纸——偏鞣黄/旧纸色，不再是干净象牙白
+        baseC = new Color(0.84f + warm * 0.6f, 0.72f + warm * 0.4f, 0.52f - warm * 0.2f);
         shade = new Color(baseC.R * 0.78f, baseC.G * 0.76f, baseC.B * 0.72f);
         lit = new Color(Mathf.Min(1f, baseC.R * 1.10f), Mathf.Min(1f, baseC.G * 1.10f),
             Mathf.Min(1f, baseC.B * 1.12f));
@@ -167,7 +168,8 @@ public static class BurntPaperArt
 
         // 烧穿的小洞：1–2 个，位置随 seed。v3.68 收尾：全部锁在上下留白带，
         // 绝不落在正文上——纸上是真实烈士档案，烧焦不能把名字/数字啃掉。
-        int holes = rng.RandiRange(1, 2);
+        // v3.80：中度烧毁——3~5 个烧穿洞（仍锁在上下留白带，不啃正文）
+        int holes = rng.RandiRange(3, 5);
         for (int i = 0; i < holes; i++)
         {
             float hx = x + rng.RandfRange(30f, W - 30f);
@@ -211,6 +213,17 @@ public static class BurntPaperArt
             c.DrawCircle(new Vector2(ax, ay), rng.RandfRange(1.2f, 2.6f),
                 new Color(0.30f, 0.26f, 0.22f, 0.8f));
         }
+
+        // 做旧焦斑：散落的细小碳化点，集中在上下留白带，强化「旧纸」观感又不压正文
+        for (int i = 0; i < 6; i++)
+        {
+            float cx = x + rng.RandfRange(34f, W - 34f);
+            float cy = y + (i % 2 == 0
+                ? rng.RandfRange(14f, 30f)
+                : rng.RandfRange(H - 30f, H - 14f));
+            c.DrawCircle(new Vector2(cx, cy), rng.RandfRange(0.8f, 1.9f),
+                new Color(0.20f, 0.15f, 0.11f, 0.5f));
+        }
     }
 
     private static void DrawBurnBand(CanvasItem c, List<Vector2> pts, int edge, int start, int len,
@@ -233,14 +246,14 @@ public static class BurntPaperArt
         {
             int i0 = (baseIdx + i + pts.Count) % pts.Count;
             int i1 = (baseIdx + i + 1 + pts.Count) % pts.Count;
-            float d0 = 7f + 6f * burn + J(seed + i, seed) * 5f;
-            float d1 = 7f + 6f * burn + J(seed + i + 1, seed) * 5f;
+            float d0 = 8f + 9f * burn + J(seed + i, seed) * 6f;
+            float d1 = 8f + 9f * burn + J(seed + i + 1, seed) * 6f;
             var quad = new[]
             {
                 pts[i0], pts[i1],
                 pts[i1] + inward * d1, pts[i0] + inward * d0,
             };
-            c.DrawColoredPolygon(quad, new Color(0.55f, 0.35f, 0.18f, 0.95f));
+            c.DrawColoredPolygon(quad, new Color(0.46f, 0.27f, 0.13f, 0.96f));
             c.DrawLine(quad[0], quad[1], new Color(0.36f, 0.22f, 0.12f), 2f, true);
         }
 

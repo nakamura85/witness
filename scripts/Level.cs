@@ -156,10 +156,11 @@ public partial class Level : Node2D
         _texBrick = ChromaKey.Tile("res://assets/art/sprites/tile_brick.jpg", 0.08f, 0.15f);
         _texWood = ChromaKey.Tile("res://assets/art/sprites/tile_wood.jpg", 0.08f, 0.15f);
         _texRubble = ChromaKey.Tile("res://assets/art/sprites/tile_rubble.jpg", 0.08f, 0.15f);
-        _texCrate = ChromaKey.Cutout("res://assets/art/sprites/prop_crate.jpg", 0.04f, 0.08f);
-        _texStone = ChromaKey.Cutout("res://assets/art/sprites/prop_stone_pile.jpg", 0.04f, 0.08f);
-        _texDoor = ChromaKey.Cutout("res://assets/art/sprites/prop_door.jpg", 0.04f, 0.08f);
-        _texValve = ChromaKey.Cutout("res://assets/art/sprites/prop_valve.jpg", 0.04f, 0.08f);
+        // v3.80：收紧 chroma 阈值，抠净 JPG 无 alpha 留下的灰白残片（#8）
+        _texCrate = ChromaKey.Cutout("res://assets/art/sprites/prop_crate.jpg", 0.03f, 0.06f);
+        _texStone = ChromaKey.Cutout("res://assets/art/sprites/prop_stone_pile.jpg", 0.03f, 0.06f);
+        _texDoor = ChromaKey.Cutout("res://assets/art/sprites/prop_door.jpg", 0.03f, 0.06f);
+        _texValve = ChromaKey.Cutout("res://assets/art/sprites/prop_valve.jpg", 0.03f, 0.06f);
         BuildWorld();
         _hud = new Hud();
         AddChild(_hud);

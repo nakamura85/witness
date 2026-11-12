@@ -1308,7 +1308,7 @@ public partial class FieldNoteUi : CanvasLayer
         center.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         AddChild(center);
 
-        var paper = new BurntPaperPanel(_seed, 0.55f) { CustomMinimumSize = new Vector2(940, 0) };
+        var paper = new BurntPaperPanel(_seed, 0.7f) { CustomMinimumSize = new Vector2(940, 0) };
         paper.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
         paper.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
         center.AddChild(paper);

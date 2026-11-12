@@ -273,27 +273,53 @@ public partial class EnterableHouse : Node2D
             DrawTextureRect(SoftSnow.Blob(new Color(0.05f, 0.04f, 0.03f), 0.38f),
                 new Rect2(-20f, -20f, 40f, 40f), false);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-            // the leaf: hinged at the lintel, sagging out of the opening.
-            // The texture is already soot-dark, so only a whisper of tint.
+            // v3.80：烧毁门板改手绘漫画风程序化绘制（与室内门 / 家具同一套 InkStyle 语言），
+            // 不再用扁平贴图 + 1.6px 细墨线。保留「烧毁 / 下垂 / 半埋雪」的叙事特征。
             DrawSetTransform(new Vector2(dx, leafCy), Lean, Vector2.One);
-            DrawTextureRect(_leafTex, leafRect, false, new Color(0.92f, 0.90f, 0.87f));
-            // burn-through where the doorknob survived the fire: a soft char
-            // blob over the handle side (texture-relative ~13% from the left,
-            // ~54% down), drawn in leaf-local space so it rides the lean. It
-            // eats the left edge raggedly - one more thing that no longer
-            // reads as "a complete door".
-            DrawTextureRect(SoftSnow.Blob(new Color(0.05f, 0.04f, 0.03f), 0.9f),
-                new Rect2(-lw * 0.52f, dh * 0.42f, lw * 0.38f, dh * 0.24f), false);
+            // 炭化木门板：三档平涂（base 焦木色 / 下缘硬边暗部 / 上缘硬边高光）
+            var doorBase = new Color(0.36f, 0.25f, 0.15f);
+            var doorShade = new Color(0.20f, 0.13f, 0.08f);
+            var doorLit = new Color(0.52f, 0.38f, 0.23f);
+            DrawRect(leafRect, doorBase);
+            DrawRect(new Rect2(leafRect.Position.X, leafRect.Position.Y + leafRect.Size.Y * 0.78f,
+                leafRect.Size.X, leafRect.Size.Y * 0.22f), doorShade);
+            DrawRect(new Rect2(leafRect.Position.X, leafRect.Position.Y,
+                leafRect.Size.X, leafRect.Size.Y * 0.08f), doorLit);
+            // 竖向木板分块（硬边，不走插值）
+            int planks = 4;
+            for (int p = 1; p < planks; p++)
+            {
+                float px = leafRect.Position.X + leafRect.Size.X * p / planks;
+                DrawLine(new Vector2(px, leafRect.Position.Y + 4f),
+                    new Vector2(px, leafRect.Position.Y + leafRect.Size.Y - 4f), doorShade, 2f, false);
+            }
+            // 木纹横纹（横向抖动，硬边）
+            for (float yy = leafRect.Position.Y + 16f; yy < leafRect.Position.Y + leafRect.Size.Y - 10f; yy += 15f)
+            {
+                float j = Mathf.Sin(yy * 0.9f) * 1.5f;
+                DrawLine(new Vector2(leafRect.Position.X + 5f, yy + j),
+                    new Vector2(leafRect.Position.X + leafRect.Size.X - 5f, yy - j), doorShade, 1.2f, false);
+            }
+            // 3px 深墨棕粗描边（门板轮廓，对齐全局红线的 3px 粗描边）
+            DrawRect(leafRect, InkStyle.InkColor, false, 3f);
+            // 门把：黄铜小圆点
+            DrawCircle(new Vector2(leafRect.Position.X + leafRect.Size.X * 0.80f,
+                leafRect.Position.Y + leafRect.Size.Y * 0.52f), 5f, new Color(0.78f, 0.63f, 0.30f));
+            // 烧毁焦痕：左上角撕裂炭黑块 + 几处散落炭点，强化「被火烧过」
+            var charCol = new Color(0.10f, 0.07f, 0.04f);
+            DrawCircle(new Vector2(leafRect.Position.X + leafRect.Size.X * 0.14f,
+                leafRect.Position.Y + leafRect.Size.Y * 0.12f), 9f, charCol);
+            DrawCircle(new Vector2(leafRect.Position.X + leafRect.Size.X * 0.34f,
+                leafRect.Position.Y + leafRect.Size.Y * 0.34f), 5f, charCol);
+            DrawCircle(new Vector2(leafRect.Position.X + leafRect.Size.X * 0.62f,
+                leafRect.Position.Y + leafRect.Size.Y * 0.78f), 4f, charCol);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
-            // thin ink jamb frame: two posts and a lintel, kept UPRIGHT - the
-            // burnt frame of the opening stands while the leaf sags in it.
-            // v3.47: no bottom bar (it drew a hard ink line across the
-            // railway band; the sill contact grounds the foot instead).
+            // 粗墨门框（3px，不是 1.6px）：两根立柱 + 门楣，保持竖直 —— 烧毁的门框立着，门板在里头下垂
             var jamb = InkStyle.InkColor;
             float jl = dx - lw * 0.5f, jr = dx + lw * 0.5f, jt = gl - dh;
-            DrawLine(new Vector2(jl, jt), new Vector2(jl, gl), jamb, 1.6f, true);
-            DrawLine(new Vector2(jr, jt), new Vector2(jr, gl), jamb, 1.6f, true);
-            DrawLine(new Vector2(jl, jt), new Vector2(jr, jt), jamb, 1.6f, true);
+            DrawLine(new Vector2(jl, jt), new Vector2(jl, gl), jamb, 3f, true);
+            DrawLine(new Vector2(jr, jt), new Vector2(jr, gl), jamb, 3f, true);
+            DrawLine(new Vector2(jl, jt), new Vector2(jr, jt), jamb, 3f, true);
             DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         }
 

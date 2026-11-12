@@ -112,7 +112,10 @@ public partial class InteriorBackdrop : Control
     public override void _Ready()
     {
         ClipContents = true;
-        _tex = GD.Load<Texture2D>(PathFor(_type));
+        // v3.80：residence.png 是钢笔淡彩（watercolor），与全局漫画风红线冲突；
+        // 改成程序化漫画风兜底背景（WashPaint 自 v3.65 起已是 manga），保证室内全一致。
+        string path = (_type == RoomType.Residence) ? null : PathFor(_type);
+        _tex = (path != null) ? GD.Load<Texture2D>(path) : null;
 
         if (_tex != null)
         {
@@ -715,31 +718,11 @@ public partial class InteriorForeground : Control
         var pal = WorldClock.For(t);
         float wx = W * 0.66f, wy = 54f, ww = 150f, wh = 118f;
 
-        // 窗框（粗墨线，先于玻璃，保证玻璃在框内）
-        Box(new Rect2(wx - 4f, wy - 4f, ww + 8f, wh + 8f), InkStyle.InkSoft, Ink, 4f);
-        // 玻璃 = 窗外天空（夜：深蓝；晨：浅蓝；黄昏：橙红）
-        DrawRect(new Rect2(wx, wy, ww, wh), pal.WindowSky);
-        // 窗外地平线 / 地面带
-        DrawRect(new Rect2(wx, wy + wh * 0.70f, ww, wh * 0.30f), pal.WindowGround);
-        // 窗格十字
-        Line(new Vector2(wx + ww / 2f, wy), new Vector2(wx + ww / 2f, wy + wh), 2f, Ink);
-        Line(new Vector2(wx, wy + wh / 2f), new Vector2(wx + ww, wy + wh / 2f), 2f, Ink);
-        if (pal.HasMoon)
-        {
-            // 夜：月亮 + 确定性星点（不闪）
-            Disk(new Vector2(wx + ww * 0.70f, wy + wh * 0.30f), 13f, Ink, new Color(0.92f, 0.94f, 0.82f), 2f);
-            for (int i = 0; i < 7; i++)
-            {
-                float sx = wx + 14f + Jit((float)i * 3.7f + 1f) * (ww - 28f);
-                float sy = wy + 10f + Jit((float)i * 5.3f + 2f) * (wh * 0.5f);
-                Dot(new Vector2(sx, sy), 1.4f, new Color(0.95f, 0.96f, 0.90f));
-            }
-        }
-        else
-        {
-            // 日 / 黄昏：窗外一轮暖光
-            Disk(new Vector2(wx + ww * 0.72f, wy + wh * 0.34f), 12f, Ink, new Color(1f, 0.96f, 0.74f), 2f);
-        }
+        // v3.80（用户反馈 #6「这个根本不需要吧」+ 全局画风一致红线）：移除原先浮在
+        // 右上墙面的「浅黄 2×2 方格 + 悬空圆盘」纯色窗框。它读起来像 UI 调试格子、
+        // 与整体手绘上色漫画风冲突；房间左上已有手绘漫画风木格窗承担「有窗」信息。
+        // v3.71 已确认的「窗光随时辰」功能核心保留：改为画外高窗透入的时辰光晕 +
+        // 地面光束表达（颜色仍由 WorldClock.For(t) 联动，夜偏冷 / 晨昏偏暖），不回退功能。
 
         // 房间整体光晕（低 alpha，叠在背景上，不覆盖家具/物件）
         DrawRect(new Rect2(0, 0, W, H), pal.RoomWash);
