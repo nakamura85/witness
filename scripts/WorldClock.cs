@@ -29,12 +29,15 @@ public static class WorldClock
 
     private static readonly Palette Day = new()
     {
-        WindowSky = new Color(0.80f, 0.88f, 0.96f),
-        WindowGround = new Color(0.86f, 0.87f, 0.88f),
-        RoomWash = new Color(1.00f, 0.97f, 0.86f, 0.16f),
-        Beam = new Color(1.00f, 0.95f, 0.78f, 0.20f),
+        // v3.77 暖金日光：室内背景 residence.png 的窗已是暖金日光，程序化窗光须同源，
+        // 否则出现「一边暖金日光、一边冷蓝窗光」的色温矛盾。WindowSky 仅被室内窗/门消费
+        // （户外建筑贴图不读此色），故改暖不影响已通过的户外画面。
+        WindowSky = new Color(0.96f, 0.86f, 0.60f),
+        WindowGround = new Color(0.84f, 0.76f, 0.56f),
+        RoomWash = new Color(1.00f, 0.95f, 0.82f, 0.16f),
+        Beam = new Color(1.00f, 0.93f, 0.74f, 0.20f),
         HasMoon = false,
-        Label = "清晨日光",
+        Label = "暖金日光",
     };
 
     private static readonly Palette Dusk = new()

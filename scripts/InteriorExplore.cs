@@ -618,7 +618,7 @@ public partial class InteriorForeground : Control
         // 0) 窗光 + 窗外晕染（最底层，背景之上、家具之下）
         DrawWindowLight(W, H, _room.WorldTime);
         // 1) 门
-        DrawDoor(W, H);
+        DrawDoor(W, H, _room.WorldTime);
 
         // 2) 逐家具分层：先画被它遮挡的地落物 → 家具主体（含凹洞）→ 已开容器的露出物 → 家具前脸（盖住未开藏匿物）
         foreach (var f in _room.Furniture)
@@ -653,14 +653,15 @@ public partial class InteriorForeground : Control
         RefreshResult(W, H);
     }
 
-    private void DrawDoor(float W, float H)
+    private void DrawDoor(float W, float H, WorldClock.Phase t)
     {
         float floor = H * 0.635f;
         float dx = 12f, dw = 68f, dh = H * 0.60f;
         float dy = floor + 16f - dh;
 
-        // 门外是秋夜 / 雪夜：深蓝实色，不做渐变
-        Box(new Rect2(dx + 5f, dy + 6f, dw - 10f, dh - 6f), Night, Ink, 3f);
+        // 门外随室内时辰（与窗光同源，避免「窗是日光、门是夜光」的矛盾）
+        var dpal = WorldClock.For(t);
+        Box(new Rect2(dx + 5f, dy + 6f, dw - 10f, dh - 6f), dpal.WindowSky, Ink, 3f);
         // 门板：木板三档平涂
         Box(new Rect2(dx + 11f, dy + 14f, dw - 22f, dh - 20f), Wood, Ink, 3f);
         for (float y = dy + 34f; y < dy + dh - 20f; y += 30f)
@@ -850,9 +851,28 @@ public partial class InteriorForeground : Control
         if (f.Type == FurnitureType.PictureFrame)
         {
             var cr = new Rect2(r.Position.X + off.X, r.Position.Y + off.Y, r.Size.X, r.Size.Y);
-            HandRect(cr, coverLit, Ink, 3f, f.Seed + 7, cover, coverLit);   // 画心
-            DrawRect(new Rect2(cr.Position.X + 5f, cr.Position.Y + 5f, cr.Size.X - 10f, cr.Size.Y * 0.6f), new Color(0.52f, 0.60f, 0.70f));
-            DrawRect(new Rect2(cr.Position.X + 5f, cr.Position.Y + cr.Size.Y - 14f, cr.Size.X - 10f, 9f), new Color(0.36f, 0.44f, 0.36f));
+            HandRect(cr, coverLit, Ink, 3f, f.Seed + 7, cover, coverLit);   // 画心底（米白）
+            // v3.77 画中画改为手绘漫画风小景：暖色天 + 太阳 + 平缓山丘，与全屋上色同源，
+            // 不再是一块冷蓝写实矩形（用户圈注「物品美术风格不跟整体」即指此冷蓝块）。
+            float ix = cr.Position.X + 5f, iy = cr.Position.Y + 5f, iw = cr.Size.X - 10f, ih = cr.Size.Y - 10f;
+            var sky = new Color(0.66f, 0.74f, 0.85f);
+            var skySh = new Color(0.50f, 0.58f, 0.70f);
+            var skyLit = new Color(0.84f, 0.90f, 0.96f);
+            HandRect(new Rect2(ix, iy, iw, ih), sky, Ink, 2f, f.Seed + 11, skySh, skyLit);   // 天空（粗墨描边）
+            Disk(new Vector2(ix + iw * 0.70f, iy + ih * 0.26f), 6f, Ink, new Color(0.96f, 0.82f, 0.44f), 2f); // 暖阳
+            var hill = new Color(0.48f, 0.56f, 0.38f);
+            var hillSh = new Color(0.34f, 0.42f, 0.28f);
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(ix, iy + ih * 0.66f), new Vector2(ix + iw * 0.42f, iy + ih * 0.50f),
+                new Vector2(ix + iw * 0.78f, iy + ih * 0.64f), new Vector2(ix + iw, iy + ih * 0.54f),
+                new Vector2(ix + iw, iy + ih), new Vector2(ix, iy + ih)
+            }, hill);
+            DrawPolyline(new[]
+            {
+                new Vector2(ix, iy + ih * 0.66f), new Vector2(ix + iw * 0.42f, iy + ih * 0.50f),
+                new Vector2(ix + iw * 0.78f, iy + ih * 0.64f), new Vector2(ix + iw, iy + ih * 0.54f)
+            }, Ink, 2f, true);
             return;
         }
 

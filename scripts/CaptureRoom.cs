@@ -40,7 +40,7 @@ public partial class CaptureRoom : Node
     private void BuildRoom(RoomType type, int variant, int seed, string titleText)
     {
         // v3.71 用户诉求③：CaptureRoom 造的都是九一八的屋（夜袭），窗光设为月光
-        WorldClock.Time = WorldClock.Phase.Night;
+        WorldClock.Time = WorldClock.Phase.Day;
         var kids = _holder.GetChildren();
         for (int i = kids.Count - 1; i >= 0; i--)
         {

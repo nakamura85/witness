@@ -1410,8 +1410,11 @@ public partial class N918Level : Node2D
 
     private void OpenHouse(EnterableHouse h)
     {
-        // v3.71 用户诉求③：九一八夜袭，进屋窗光为月光（WorldClock.Night）
-        WorldClock.Time = WorldClock.Phase.Night;
+        // v3.77：九一八室内窗光改为日光，与室内背景贴图（AI 手绘漫画风，窗内已是暖色日光）
+        // 同源。此前 WorldClock.Night 让程序化窗=夜蓝、背景窗=暖日，同屋出现「一边日光一边夜光」
+        // 的矛盾（用户复核截图指出）。美术参考以日光为准，故室内统一日光；若日后要保留九一八夜袭
+        // 史实基调，应改在室内背景贴图重绘为夜调后再切回 Night（候选图走 previews 审批）。
+        WorldClock.Time = WorldClock.Phase.Day;
         string title = h.Id switch
         {
             "h1" => "柳条湖边的小屋",
@@ -3787,25 +3790,53 @@ public partial class N918Level : Node2D
                     ink, 2.4f, false);
             }
 
-            // 南满铁路里程碑：白石碑 + 深墨刻度 + 硬边暗部
+            // 南满铁路里程碑：白石碑 + 深墨刻度 + 硬边暗部 + 石面纹理（手绘漫画风，不再像平板方块）
             for (float x = 520f; x < WorldW; x += 620f)
             {
                 DrawRect(new Rect2(x, GroundY + 12f, 24f, 46f), stone);
                 DrawRect(new Rect2(x, GroundY + 44f, 24f, 14f), stoneShade);
+                // 石面竖向裂纹（硬边，不走插值）
+                DrawLine(new Vector2(x + 8f, GroundY + 16f), new Vector2(x + 10f, GroundY + 44f), stoneShade, 1.2f, false);
+                DrawLine(new Vector2(x + 16f, GroundY + 18f), new Vector2(x + 14f, GroundY + 44f), stoneShade, 1.0f, false);
+                // 左侧高光（卡通短直线）
+                DrawLine(new Vector2(x + 3f, GroundY + 16f), new Vector2(x + 3f, GroundY + 42f), new Color(0.96f, 0.95f, 0.90f), 1.4f, false);
                 DrawRect(new Rect2(x, GroundY + 12f, 24f, 46f), ink, false, 3f);
                 for (int k = 0; k < 3; k++)
                     DrawLine(new Vector2(x + 6f, GroundY + 22f + k * 8f),
                         new Vector2(x + 18f, GroundY + 22f + k * 8f), ink, 2f, false);
             }
 
-            // 柳条湖爆破点地名木牌：立在断轨缺口旁，点出事件地点
+            // 柳条湖爆破点地名木牌：立在断轨缺口旁，点出事件地点（手绘漫画风：木纹 + 硬边墨线 + 高光 + 手写感刻字）
             float bx = LiutiaohuBreakX + LiutiaohuBreakW + 42f;
-            DrawLine(new Vector2(bx, GroundY + 4f), new Vector2(bx, GroundY - 54f), wood, 5f, false);
-            DrawRect(new Rect2(bx - 46f, GroundY - 82f, 92f, 32f), wood);
-            DrawRect(new Rect2(bx - 46f, GroundY - 82f, 92f, 32f), ink, false, 3f);
-            DrawRect(new Rect2(bx - 40f, GroundY - 58f, 80f, 5f), new Color(0.40f, 0.26f, 0.14f));
-            DrawLine(new Vector2(bx - 34f, GroundY - 72f), new Vector2(bx + 18f, GroundY - 72f),
-                new Color(0.94f, 0.88f, 0.72f), 2.4f, false);
+            var woodShade = new Color(0.42f, 0.28f, 0.15f, 0.96f);
+            var woodLit = new Color(0.80f, 0.62f, 0.36f, 0.96f);
+            // 立柱（加高到板顶以上，避免「板浮空」）
+            DrawLine(new Vector2(bx, GroundY + 4f), new Vector2(bx, GroundY - 96f), wood, 6f, false);
+            DrawLine(new Vector2(bx - 2f, GroundY + 2f), new Vector2(bx - 2f, GroundY - 94f), woodShade, 2f, false);
+            // 板身：亮木色平涂（提高与暗背景对比）+ 4px 粗墨框，确保小图也读成「牌子」而非素板
+            var woodFace = new Color(0.72f, 0.54f, 0.32f, 0.98f);
+            DrawRect(new Rect2(bx - 66f, GroundY - 90f, 132f, 44f), woodFace);
+            DrawRect(new Rect2(bx - 66f, GroundY - 90f, 132f, 44f), ink, false, 4f);
+            DrawRect(new Rect2(bx - 60f, GroundY - 84f, 120f, 32f), ink, false, 1f);
+            // 木纹（横向抖动，硬边，不走插值）
+            for (float yy = GroundY - 80f; yy < GroundY - 50f; yy += 6f)
+            {
+                float j = (Mathf.Sin(yy * 0.7f) * 0.5f) * 1.8f;
+                DrawLine(new Vector2(bx - 58f, yy + j), new Vector2(bx + 58f, yy - j), woodShade, 1.6f, false);
+            }
+            // 顶部高光条（卡通短直线）
+            DrawLine(new Vector2(bx - 58f, GroundY - 88f), new Vector2(bx + 58f, GroundY - 88f), woodLit, 2.4f, false);
+            // 手写感刻字（五道短促抖动笔画，暗示「柳条湖」，不写真实伪文字；3px 提高小图可读性）
+            for (int k = 0; k < 5; k++)
+            {
+                float x0 = bx - 50f + k * 24f;
+                DrawLine(new Vector2(x0, GroundY - 78f), new Vector2(x0 + 15f + (k % 2) * 6f, GroundY - 60f),
+                    new Color(0.14f, 0.09f, 0.05f), 3f, false);
+            }
+            // 四角铆钉（3.5px 深色，确保可见）
+            foreach (var c in new[] { new Vector2(bx - 60f, GroundY - 85f), new Vector2(bx + 60f, GroundY - 85f),
+                new Vector2(bx - 60f, GroundY - 51f), new Vector2(bx + 60f, GroundY - 51f) })
+                DrawCircle(c, 3.5f, woodShade);
         }
 
         private void DrawTrenchLines()
