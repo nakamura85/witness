@@ -3664,10 +3664,10 @@ public partial class N918Level : Node2D
         {
             var skip = new HashSet<int>(_railSkipIdx);
             float railY = GroundY - 1f;
-            // v3.72：铁路进场点从 2400 后移到 2600，越过村落后段(f3@2280)的
-            // 开阔旱地再进场，不再从房屋前脸穿过；房屋 z=-3/-6 在铁轨(GroundArt z=-10)之前，
-            // 铁轨读成「村后铁轨」而非「屋前铁轨」。
-            const float StartX = 2600f;
+            // v3.72b：铁路进场点进一步后移到 3900，越过最后一栋民宅 h4@3800，
+            // 只从类车站的通信据点(comm@4250)附近进场，民宅门前不再有轨横穿；
+            // 柳条湖炸断口(4457)在开阔地收口，虏道工小屋/民居群都在铁轨之前。
+            const float StartX = 3900f;
             float endX = WorldW + 40f;
             float breakL = LiutiaohuBreakX;
             float breakR = LiutiaohuBreakX + LiutiaohuBreakW;
@@ -3698,9 +3698,16 @@ public partial class N918Level : Node2D
             // 画上翘的焦黑轨头。贴图缺失时自动走带笔触的程序化兜底。
             MangaSceneArt.RailRun(this, StartX, endX, railY, InGap);
 
-            // 炸断口两端：翻起道砟 + 上翘轨头 + 焦黑爆破痕
+            // 炸断口两端：翻起道砟 + 扭曲翻卷轨头 + 焦黑爆破痕（v3.72b 强化炸断感）
             MangaPropArt.TornRailEnd(this, breakL, railY, -1f, 19310918u);
             MangaPropArt.TornRailEnd(this, breakR, railY, 1f, 19310919u);
+
+            // v3.72b：断口 / 弹坑缺口内补散落道砟 + 焦痕，避免缺口太干净像「一刀切」
+            for (float gx = StartX; gx < endX; gx += 19f)
+            {
+                if (InGap(gx))
+                    MangaPropArt.ScatterBallast(this, gx - 9f, gx + 9f, railY, (uint)(gx * 13 + 7), 5);
+            }
 
             // 道砟上的碎石：硬边实色小点（不是半透明水彩点）
             for (float gx = StartX + 10f; gx < endX; gx += 57f)

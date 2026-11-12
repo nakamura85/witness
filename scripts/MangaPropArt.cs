@@ -113,38 +113,76 @@ public static class MangaPropArt
             c.DrawCircle(new Vector2(x, y + h * 0.55f), 1.7f, BrassHighlight);
     }
 
-    /// <summary>断轨口：焦黑翻起的道砟 + 上翘扭曲的轨头（漫画风硬边）。</summary>
+    /// <summary>断轨口：焦黑爆破痕 + 翻起错落的道砟 + 扭曲翻卷的轨头（漫画风硬边，强调「被炸断」而非整齐切口）。</summary>
     public static void TornRailEnd(CanvasItem c, float x, float y, float dir, uint seed)
     {
         var rng = new RandomNumberGenerator();
         rng.Seed = seed;
-        // 翻起的道砟：三块硬边平涂多边形
-        for (int i = 0; i < 3; i++)
+
+        // 焦黑爆破痕：多块不规则实色块堆出炸点，不用整齐矩形
+        for (int i = 0; i < 6; i++)
         {
-            float w = 10f + rng.RandfRange(0f, 9f);
-            float px = x + dir * (2f + i * 9f);
+            float cx = x - dir * (2f + i * 6f + rng.RandfRange(-3f, 3f));
+            float cw = 12f + rng.RandfRange(0f, 16f);
+            float ch = 4f + rng.RandfRange(0f, 6f);
+            c.DrawRect(new Rect2(cx - cw * 0.5f, y + 15f + rng.RandfRange(-4f, 8f), cw, ch),
+                i % 2 == 0 ? CharredWood : InkStyle.InkColor);
+        }
+
+        // 翻起道砟：4~5 块硬边多边形，高低错落、不排成整齐一条
+        for (int i = 0; i < 5; i++)
+        {
+            float w = 7f + rng.RandfRange(0f, 13f);
+            float px = x + dir * (1f + i * 8f + rng.RandfRange(-4f, 4f));
+            float lift = 3f + rng.RandfRange(0f, 14f);
             InkStyle.PenStroke(c, new[]
             {
-                new Vector2(px, y + 16f),
-                new Vector2(px + dir * w, y + 16f),
-                new Vector2(px + dir * w * 0.6f, y + 6f - rng.RandfRange(0f, 6f)),
-            }, i == 1 ? BallastShadow : BallastBase, InkStyle.InkColor, InkStyle.Stroke);
+                new Vector2(px - w * 0.5f, y + 16f),
+                new Vector2(px + w * 0.5f, y + 16f),
+                new Vector2(px + w * 0.35f, y + 16f - lift),
+                new Vector2(px - w * 0.25f, y + 16f - lift * 0.6f),
+            }, i % 2 == 0 ? BallastBase : BallastShadow, InkStyle.InkColor, InkStyle.Stroke);
         }
-        // 上翘的轨头：粗墨线 + 钢色平涂短线
-        foreach (float ry in new[] { y, y + 12f })
+
+        // 上翘 / 扭曲的轨头：用多段折线画出弯折翻卷，不是直挺挺一截
+        foreach (float ry in new[] { y, y + 13f })
         {
-            for (int s = 0; s < 2; s++)
+            int segs = 3;
+            float total = 15f + rng.RandfRange(0f, 10f);
+            float a = 0.5f + rng.RandfRange(-0.15f, 0.5f);
+            Vector2[] inkPts = new Vector2[segs + 1];
+            inkPts[0] = new Vector2(x, ry);
+            float lx = x, ly = ry;
+            for (int s = 0; s < segs; s++)
             {
-                float len = 9f + rng.RandfRange(0f, 7f);
-                float tilt = 0.35f + 0.45f * s + rng.RandfRange(-0.10f, 0.10f);
-                var tip = new Vector2(x + dir * len * Mathf.Cos(tilt), ry - len * Mathf.Sin(tilt));
-                c.DrawLine(new Vector2(x, ry), tip, InkStyle.InkColor, 4.2f, true);
-                c.DrawLine(new Vector2(x, ry), tip, SteelBase, 2.2f, true);
-                InkStyle.KawaiiHighlight(c, tip, 1.6f, SteelHighlight);
+                float segLen = total / segs * (0.7f + rng.RandfRange(0f, 0.7f));
+                a += rng.RandfRange(-0.55f, 0.65f);
+                lx += dir * segLen * Mathf.Cos(a);
+                ly -= segLen * Mathf.Sin(a);
+                inkPts[s + 1] = new Vector2(lx, ly);
             }
+            c.DrawPolyline(inkPts, InkStyle.InkColor, 5f, true);
+            Vector2[] steelPts = new Vector2[segs + 1];
+            for (int k = 0; k <= segs; k++) steelPts[k] = inkPts[k] + new Vector2(0f, -1.5f);
+            c.DrawPolyline(steelPts, SteelBase, 2.6f, true);
+            InkStyle.KawaiiHighlight(c, inkPts[segs], 1.8f, SteelHighlight);
         }
-        // 焦黑爆破痕：硬边实色块，非半透明烟晕
-        c.DrawRect(new Rect2(x - dir * 16f - 8f, y + 17f, 32f, 5f), CharredWood);
+    }
+
+    /// <summary>在一段区间内撒散落道砟碎片 + 零星焦痕，用于断口 / 弹坑内，避免出现「干净一刀切」的缺口。</summary>
+    public static void ScatterBallast(CanvasItem c, float x0, float x1, float y, uint seed, int count = 10)
+    {
+        if (x1 - x0 < 4f) return;
+        var rng = new RandomNumberGenerator();
+        rng.Seed = seed;
+        for (int i = 0; i < count; i++)
+        {
+            float px = x0 + rng.RandfRange(0f, x1 - x0);
+            float gy = y + 3f + rng.RandfRange(-3f, 15f);
+            float w = 3f + rng.RandfRange(0f, 7f);
+            float h = 2f + rng.RandfRange(0f, 4f);
+            c.DrawRect(new Rect2(px, gy, w, h), rng.Randf() < 0.5f ? BallastBase : BallastShadow);
+        }
     }
 
     // ================= 手榴弹 =================

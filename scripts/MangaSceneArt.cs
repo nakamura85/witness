@@ -180,8 +180,10 @@ public static class MangaSceneArt
         var ts = _rail.GetSize();
         float frac = Mathf.Clamp(width / RailTileW, 0.02f, 1f);
         float srcW = ts.X * frac;
-        float srcH = deckOnly ? ts.Y * 0.62f : ts.Y;
-        float destH = deckOnly ? 32f : RailTileH;
+        // v3.72b：桥面钢轨加高到 46px（田野段 52px），消除「大轨上桥缩成小轨」的观感；
+        // 同时多取贴图上段(0.85)让钢轨+枕木比例与田野段一致，仅不画最底部道砟以露出钢板铆钉。
+        float srcH = deckOnly ? ts.Y * 0.85f : ts.Y;
+        float destH = deckOnly ? 46f : RailTileH;
         var src = new Rect2(flip ? ts.X - srcW : 0f, 0f, srcW, srcH);
         var dest = new Rect2(x, railY + RailTopOffset, width, destH);
         var white = new Color(1f, 1f, 1f, 1f);

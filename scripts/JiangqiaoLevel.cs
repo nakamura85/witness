@@ -371,8 +371,9 @@ public partial class JiangqiaoLevel : Node2D
             HouseWidthForWall("house_posts", WallH), false, 0f, hr.RandfRange(-4f, 4f));
         AddHouse("h2", 2900f + hr.RandfRange(-35f, 35f), "house_burned_near", 450f, true, 0f,
             hr.RandfRange(-3f, 3f));
-        // 村落后段开阔雪原：烧毁民居落在铁路(StartX=3500)之后的远景，由房屋遮挡铁轨
-        AddHouse("f3", 4300f + hr.RandfRange(-50f, 50f), "house_burned_near",
+        // v3.72b：烧毁民居从村后(4300)搬回村落中段(3150)，落在铁路进场点(3500)之前，
+        // 不再紧贴桥台框住桥桁架；与 h3(2320)/h4(3360)错落，且门前不再有铁轨横穿。
+        AddHouse("f3", 3150f + hr.RandfRange(-50f, 50f), "house_burned_near",
             331f * hr.RandfRange(0.90f, 1.10f), false, 12f + hr.RandfRange(-5f, 9f), hr.RandfRange(-6f, 5f));
     }
 
@@ -3626,6 +3627,10 @@ public partial class JiangqiaoLevel : Node2D
             // 的开阔雪原再进场，铁轨不再从屋前穿过；房屋 z=-3/-6 在铁轨(GroundArt z=-10)之前。
             MangaSceneArt.RailRun(this, 3500f, fieldEnd, railY, InGap);
 
+            // v3.72b：田野段弹坑缺口内补散落道砟，避免缺口太干净像「一刀切」
+            for (float gx = 3500f; gx < fieldEnd; gx += 19f)
+                if (InGap(gx)) MangaPropArt.ScatterBallast(this, gx - 9f, gx + 9f, railY, (uint)(gx * 13 + 3), 5);
+
             // 桥面钢板（仅本关有桥，史实 1931.11 守军炸毁嫩江铁桥）：
             // 三档平涂 + 粗墨边 + 铆钉小圆点，保留不动。
             const float plateH = 13f;
@@ -3639,12 +3644,19 @@ public partial class JiangqiaoLevel : Node2D
                 new Vector2(fieldEnd - 104f, railY + 22f),
             }, MangaPropArt.BallastBase, InkStyle.InkColor, InkStyle.Stroke);
 
-            // v3.69：桥面段只铺「钢轨 + 枕木」（deckOnly 裁掉道砟），
-            // 不让碎石盖住钢板铆钉；与田野段同一张贴图的同一支笔。
-            MangaSceneArt.RailRun(this, fieldEnd, trackEnd, railY, null, true);
+            // v3.72b：田野→桥面过渡处撒散落道砟，消除「整齐一刀切」接痕
+            MangaPropArt.ScatterBallast(this, fieldEnd - 64f, fieldEnd + 28f, railY, 19311104u, 16);
 
-            // 断桥处扭曲的轨头
-            MangaPropArt.TornRailEnd(this, trackEnd, railY, 1f, 19311104u);
+            // v3.72b：桥面在中段炸出一段明显缺口（不是一路平直到桥尾），
+            // 缺口两端翻卷轨头 + 散落碎石，读成「被炸断」而非整齐切口。
+            float deckBreakL = trackEnd - 90f;
+            float deckBreakR = trackEnd - 30f;
+            bool InDeckGap(float x) => x > deckBreakL && x < deckBreakR;
+            MangaSceneArt.RailRun(this, fieldEnd, trackEnd, railY, InDeckGap, true);
+            MangaPropArt.TornRailEnd(this, deckBreakL, railY, -1f, 19311104u);
+            MangaPropArt.TornRailEnd(this, deckBreakR, railY, 1f, 19311105u);
+            for (float gx = deckBreakL; gx < deckBreakR; gx += 11f)
+                MangaPropArt.ScatterBallast(this, gx - 5f, gx + 5f, railY, (uint)(gx * 17 + 5), 4);
 
             // 道砟上的碎石：硬边实色小点
             for (float gx = 3530; gx < fieldEnd; gx += 57f)
