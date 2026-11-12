@@ -137,6 +137,8 @@ public partial class InteriorRoom : Control
     public float PlayerX = 132f;
     public int NearIndex = -1;
     public bool AtDoor => PlayerX <= 82f;
+    /// <summary>v3.70：进入室内自动切换第一视角（隐藏走动小人，改画准星扫视）。默认开启。</summary>
+    public bool FirstPerson = true;
 
     private InteriorForeground _fg;
     private float _walkT;
@@ -389,7 +391,7 @@ public partial class InteriorForeground : Control
 
         _hint = new Label
         {
-            Text = "A / D 或 ← / → 走动　·　靠近物件按 E 查看　·　走到左边门口按 E 离开",
+            Text = "A / D 或 ← / → 环视屋内　·　准星对准物件按 E 搜寻　·　移到门口按 E 离开",
             HorizontalAlignment = HorizontalAlignment.Center,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
@@ -433,7 +435,9 @@ public partial class InteriorForeground : Control
         for (int i = 0; i < _room.Items.Count; i++)
             DrawItem(_room.Items[i], i == _room.NearIndex);
 
-        DrawPlayer(W, H);
+        // v3.70：进入室内自动切换第一视角 —— 隐藏走动小人，改画「准星扫视」
+        if (_room.FirstPerson) DrawReticle(W, H);
+        else DrawPlayer(W, H);
 
         // 靠近物件 / 门口时的漫画风小提示牌（米黄土实色 + 3px 深墨棕粗框 + 硬投影）
         RefreshPrompt(W, H);
@@ -473,12 +477,9 @@ public partial class InteriorForeground : Control
         }
     }
 
-    private void DrawItem(RoomItem it, bool near)
+    /// <summary>接触阴影：硬边压扁椭圆（手绘，带轻微抖动），不用柔边羽化。</summary>
+    private void DrawContactShadow(Vector2 p, float a)
     {
-        Vector2 p = it.Pos;
-        float a = it.Done ? 0.55f : 1f;
-
-        // 接触阴影：硬边压扁椭圆（不用柔边羽化）
         DrawColoredPolygon(new[]
         {
             new Vector2(p.X - 26f, p.Y + 20f),
@@ -488,22 +489,31 @@ public partial class InteriorForeground : Control
             new Vector2(p.X + 18f, p.Y + 25f),
             new Vector2(p.X - 18f, p.Y + 25f),
         }, new Color(0.10f, 0.08f, 0.06f, 0.42f * a));
+    }
 
-        // 物件本体
+    private void DrawItem(RoomItem it, bool near)
+    {
+        Vector2 p = it.Pos;
+        float a = it.Done ? 0.55f : 1f;
+        float seed = StrHash(it.SpotId);
+
+        DrawContactShadow(p, a);
+
+        // 物件本体（v3.70：手绘漫画风，抖动墨线 + 三档平涂 + 内部细节，不再用方块图标）
         switch (it.Kind)
         {
-            case "chest":  DrawChest(p, a); break;
-            case "ammo":   DrawAmmoBox(p, a); break;
-            case "grenade": DrawGrenade(p, a); break;
+            case "chest":   DrawChest(p, a, seed); break;
+            case "ammo":    DrawAmmoBox(p, a, seed); break;
+            case "grenade": DrawGrenade(p, a, seed); break;
             case "letter":
             case "will":
-            case "clue":   DrawEnvelope(p, a, it.Kind == "clue"); break;
-            case "gauze":  DrawGauze(p, a); break;
-            case "medkit": DrawMedkit(p, a); break;
-            case "ash":    DrawAsh(p, a); break;
-            case "power":  DrawPowerBox(p, a); break;
-            case "radio":  DrawRadio(p, a); break;
-            default:       DrawAmmoBox(p, a); break;
+            case "clue":    DrawEnvelope(p, a, seed, it.Kind == "clue"); break;
+            case "gauze":   DrawGauze(p, a, seed); break;
+            case "medkit":  DrawMedkit(p, a, seed); break;
+            case "ash":     DrawAsh(p, a, seed); break;
+            case "power":   DrawPowerBox(p, a, seed); break;
+            case "radio":   DrawRadio(p, a, seed); break;
+            default:        DrawAmmoBox(p, a, seed); break;
         }
 
         // 未搜过：物件上方一颗卡通高光十字星（不是文字标签）
@@ -541,98 +551,188 @@ public partial class InteriorForeground : Control
         }
     }
 
-    // ---------- 各类实体物件（一律 3px 粗墨边 + 三档平涂） ----------
-    private void DrawChest(Vector2 p, float a)
+    // ---------- 各类实体物件（v3.70：手绘漫画风 —— 抖动墨线 + 三档平涂 + 内部细节） ----------
+    private void DrawChest(Vector2 p, float a, float seed)
     {
-        Box(new Rect2(p.X - 24f, p.Y - 18f, 48f, 34f), C(Wood, a), Ink, 3f);
-        DrawRect(new Rect2(p.X - 24f, p.Y + 4f, 48f, 12f), C(WoodShadow, a));
-        Box(new Rect2(p.X - 24f, p.Y - 22f, 48f, 10f), C(WoodLit, a), Ink, 3f);
-        Box(new Rect2(p.X - 6f, p.Y - 6f, 12f, 12f), C(new Color(0.78f, 0.63f, 0.30f), a), Ink, 2f);
-        Dot(new Vector2(p.X, p.Y), 2.6f, Ink);
-        Line(new Vector2(p.X - 20f, p.Y - 14f), new Vector2(p.X - 12f, p.Y - 14f), 2f, C(WoodLit, a));
+        float w = 50f, h = 36f;
+        var r = new Rect2(p.X - w / 2f, p.Y - h / 2f, w, h);
+        HandRect(r, C(Wood, a), Ink, 3f, seed, C(WoodShadow, a), C(WoodLit, a));
+        // 木纹横缝
+        for (float y = r.Position.Y + 9f; y < r.Position.Y + h - 5f; y += 9f)
+        {
+            float j = (Jit(seed + y) - 0.5f) * 1.6f;
+            Line(new Vector2(r.Position.X + 4f, y + j),
+                 new Vector2(r.Position.X + w - 4f, y + j + (Jit(seed + y + 1) - 0.5f)), 1.4f, C(WoodShadow, a));
+        }
+        // 斜撑
+        Line(new Vector2(r.Position.X + 4f, r.Position.Y + 4f), new Vector2(r.Position.X + w - 4f, r.Position.Y + h - 4f), 1.2f, C(InkStyle.InkSoft, a));
+        Line(new Vector2(r.Position.X + w - 4f, r.Position.Y + 4f), new Vector2(r.Position.X + 4f, r.Position.Y + h - 4f), 1.2f, C(InkStyle.InkSoft, a));
+        // 金属包角
+        foreach (var c in new[] { r.Position, new Vector2(r.Position.X + w, r.Position.Y), new Vector2(r.Position.X + w, r.Position.Y + h), new Vector2(r.Position.X, r.Position.Y + h) })
+            Dot(c, 2.4f, C(SteelLit, a));
+        // 锁扣
+        Box(new Rect2(p.X - 7f, p.Y - 4f, 14f, 12f), C(new Color(0.78f, 0.63f, 0.30f), a), Ink, 2f);
+        Dot(new Vector2(p.X, p.Y + 1f), 2f, Ink);
     }
 
-    private void DrawAmmoBox(Vector2 p, float a)
+    private void DrawAmmoBox(Vector2 p, float a, float seed)
     {
-        Box(new Rect2(p.X - 18f, p.Y - 13f, 36f, 25f), C(Wood, a), Ink, 3f);
-        DrawRect(new Rect2(p.X - 18f, p.Y + 2f, 36f, 10f), C(WoodShadow, a));
+        float w = 38f, h = 26f;
+        var r = new Rect2(p.X - w / 2f, p.Y - h / 2f, w, h);
+        HandRect(r, C(Wood, a), Ink, 3f, seed, C(WoodShadow, a), C(WoodLit, a));
+        // 木纹横缝
+        Line(new Vector2(r.Position.X + 4f, r.Position.Y + 7f), new Vector2(r.Position.X + w - 4f, r.Position.Y + 7f), 1.2f, C(WoodLit, a));
+        // 露出的子弹尖（铜色）
         for (int i = -1; i <= 1; i++)
-            Line(new Vector2(p.X + i * 9f, p.Y - 10f), new Vector2(p.X + i * 9f, p.Y - 2f), 2f, C(SteelLit, a));
-        Line(new Vector2(p.X - 15f, p.Y - 10f), new Vector2(p.X - 8f, p.Y - 10f), 2f, C(WoodLit, a));
+        {
+            float x = p.X + i * 9f;
+            Line(new Vector2(x, r.Position.Y + 4f), new Vector2(x, r.Position.Y + h - 4f), 1.6f, C(SteelLit, a));
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(x - 2.4f, r.Position.Y - 1f), new Vector2(x + 2.4f, r.Position.Y - 1f),
+                new Vector2(x, r.Position.Y - 8f),
+            }, C(SteelLit, a));
+        }
+        // 金属包边铆钉
+        Dot(new Vector2(r.Position.X + 5f, r.Position.Y + 5f), 1.8f, C(Steel, a));
+        Dot(new Vector2(r.Position.X + w - 5f, r.Position.Y + 5f), 1.8f, C(Steel, a));
     }
 
-    private void DrawGrenade(Vector2 p, float a)
+    private void DrawGrenade(Vector2 p, float a, float seed)
     {
-        // 横躺的木柄手榴弹（v3.66 同款漫画风，简化到屋内尺寸）
-        Box(new Rect2(p.X - 26f, p.Y - 5f, 30f, 10f), C(Wood, a), Ink, 3f);
-        DrawRect(new Rect2(p.X - 26f, p.Y + 1f, 30f, 4f), C(WoodShadow, a));
-        Box(new Rect2(p.X + 3f, p.Y - 9f, 20f, 18f), C(Steel, a), Ink, 3f);
-        DrawRect(new Rect2(p.X + 3f, p.Y + 3f, 20f, 6f), C(SteelShadow, a));
-        Line(new Vector2(p.X + 7f, p.Y - 6f), new Vector2(p.X + 19f, p.Y - 6f), 2f, C(SteelLit, a));
-        Dot(new Vector2(p.X - 22f, p.Y - 2f), 2.2f, C(WoodLit, a));
+        // 横躺的木柄手榴弹（手绘漫画风，木柄有纹理、钢头有凹槽、顶端引信）
+        var handle = new Rect2(p.X - 27f, p.Y - 5f, 30f, 10f);
+        HandRect(handle, C(Wood, a), Ink, 3f, seed, C(WoodShadow, a), C(WoodLit, a));
+        for (float y = handle.Position.Y + 2f; y < handle.Position.Y + handle.Size.Y; y += 3f)
+            Line(new Vector2(handle.Position.X + 3f, y), new Vector2(handle.Position.X + handle.Size.X - 3f, y), 0.8f, C(WoodShadow, a));
+        var head = new Rect2(p.X + 3f, p.Y - 9f, 21f, 18f);
+        HandRect(head, C(Steel, a), Ink, 3f, seed + 50f, C(SteelShadow, a), C(SteelLit, a));
+        for (int i = 0; i < 3; i++)
+            Line(new Vector2(head.Position.X + 4f + i * 5f, head.Position.Y + 3f),
+                 new Vector2(head.Position.X + 4f + i * 5f, head.Position.Y + head.Size.Y - 3f), 1.2f, C(SteelShadow, a));
+        // 引信
+        Line(new Vector2(head.Position.X + head.Size.X - 2f, head.Position.Y + 2f), new Vector2(head.Position.X + head.Size.X + 6f, head.Position.Y - 4f), 2f, Ink);
+        Dot(new Vector2(p.X - 22f, p.Y - 1f), 2.2f, C(WoodLit, a));
     }
 
-    private void DrawEnvelope(Vector2 p, float a, bool burnt)
+    private void DrawEnvelope(Vector2 p, float a, float seed, bool burnt)
     {
+        float w = 42f, h = 26f;
+        var r = new Rect2(p.X - w / 2f, p.Y - h / 2f, w, h);
         Color paper = burnt ? new Color(0.72f, 0.62f, 0.48f) : Paper;
-        Box(new Rect2(p.X - 20f, p.Y - 12f, 40f, 24f), C(paper, a), Ink, 3f);
-        Line(new Vector2(p.X - 20f, p.Y - 12f), new Vector2(p.X, p.Y + 2f), 2f, Ink);
-        Line(new Vector2(p.X + 20f, p.Y - 12f), new Vector2(p.X, p.Y + 2f), 2f, Ink);
+        HandRect(r, C(paper, a), Ink, 3f, seed,
+            C(burnt ? new Color(0.50f, 0.42f, 0.32f) : PaperDim, a), C(PaperLit, a));
+        // 信封折线（汇聚到中心的 V）
+        Line(new Vector2(r.Position.X, r.Position.Y), new Vector2(p.X, p.Y + 3f), 1.6f, Ink);
+        Line(new Vector2(r.Position.X + w, r.Position.Y), new Vector2(p.X, p.Y + 3f), 1.6f, Ink);
+        Line(new Vector2(r.Position.X, r.Position.Y + h), new Vector2(p.X, p.Y + 3f), 1.6f, Ink);
+        Line(new Vector2(r.Position.X + w, r.Position.Y + h), new Vector2(p.X, p.Y + 3f), 1.6f, Ink);
         if (burnt)
         {
-            DrawRect(new Rect2(p.X + 8f, p.Y + 4f, 12f, 8f), C(new Color(0.28f, 0.22f, 0.18f), a));
-            Line(new Vector2(p.X - 16f, p.Y - 9f), new Vector2(p.X - 10f, p.Y - 9f), 2f, C(PaperLit, a));
+            // 烧焦缺角 + 余烬
+            DrawColoredPolygon(new[]
+            {
+                new Vector2(r.Position.X + w - 12f, r.Position.Y + h),
+                new Vector2(r.Position.X + w, r.Position.Y + h),
+                new Vector2(r.Position.X + w, r.Position.Y + h - 14f),
+                new Vector2(r.Position.X + w - 12f, r.Position.Y + h - 4f),
+            }, C(new Color(0.26f, 0.20f, 0.16f), a));
+            Dot(new Vector2(p.X + 10f, p.Y + 2f), 2f, C(new Color(0.72f, 0.40f, 0.24f), a));
         }
-        else Dot(new Vector2(p.X, p.Y + 2f), 2.6f, Red);
+        else
+        {
+            // 红蜡封
+            Dot(new Vector2(p.X, p.Y + 2f), 3.2f, C(Red, a));
+            Dot(new Vector2(p.X, p.Y + 2f), 1.4f, C(new Color(0.40f, 0.10f, 0.08f), a));
+        }
     }
 
-    private void DrawGauze(Vector2 p, float a)
+    private void DrawGauze(Vector2 p, float a, float seed)
     {
-        Disk(new Vector2(p.X, p.Y), 14f, Ink, C(new Color(0.94f, 0.92f, 0.86f), a), 3f);
-        Disk(new Vector2(p.X, p.Y), 5f, Ink, C(new Color(0.74f, 0.72f, 0.68f), a), 2f);
-        Line(new Vector2(p.X - 10f, p.Y - 8f), new Vector2(p.X - 5f, p.Y - 11f), 2f, C(new Color(1f, 1f, 1f), a));
+        // 卷起的纱布：椭圆筒 + 卷纹 + 红十字
+        Disk(new Vector2(p.X, p.Y), 15f, Ink, C(new Color(0.94f, 0.92f, 0.86f), a), 3f);
+        DrawArc(new Vector2(p.X, p.Y), 9f, 0.4f, Mathf.Tau - 0.4f, 18, C(new Color(0.78f, 0.76f, 0.72f), a), 1.4f, true);
+        DrawRect(new Rect2(p.X - 2.5f, p.Y - 7f, 5f, 14f), C(Red, a));
+        DrawRect(new Rect2(p.X - 7f, p.Y - 2.5f, 14f, 5f), C(Red, a));
+        Line(new Vector2(p.X - 11f, p.Y - 10f), new Vector2(p.X - 5f, p.Y - 13f), 2f, C(new Color(1f, 1f, 1f), a));
     }
 
-    private void DrawMedkit(Vector2 p, float a)
+    private void DrawMedkit(Vector2 p, float a, float seed)
     {
-        Box(new Rect2(p.X - 18f, p.Y - 14f, 36f, 28f), C(new Color(0.90f, 0.88f, 0.80f), a), Ink, 3f);
-        DrawRect(new Rect2(p.X - 18f, p.Y + 6f, 36f, 8f), C(new Color(0.66f, 0.64f, 0.58f), a));
-        DrawRect(new Rect2(p.X - 3f, p.Y - 10f, 6f, 20f), C(Red, a));
-        DrawRect(new Rect2(p.X - 10f, p.Y - 3f, 20f, 6f), C(Red, a));
+        float w = 38f, h = 30f;
+        var r = new Rect2(p.X - w / 2f, p.Y - h / 2f, w, h);
+        HandRect(r, C(new Color(0.90f, 0.88f, 0.80f), a), Ink, 3f, seed,
+            C(new Color(0.66f, 0.64f, 0.58f), a), C(new Color(0.99f, 0.98f, 0.92f), a));
+        // 红十字
+        DrawRect(new Rect2(p.X - 3f, p.Y - 9f, 6f, 18f), C(Red, a));
+        DrawRect(new Rect2(p.X - 9f, p.Y - 3f, 18f, 6f), C(Red, a));
+        // 卡扣
+        Dot(new Vector2(r.Position.X + w / 2f, r.Position.Y + 2f), 2f, Ink);
+        Dot(new Vector2(r.Position.X + w / 2f, r.Position.Y + h - 2f), 2f, Ink);
     }
 
-    private void DrawAsh(Vector2 p, float a)
+    private void DrawAsh(Vector2 p, float a, float seed)
     {
         var grey = new Color(0.38f, 0.36f, 0.34f);
+        // 不规则灰堆（手绘多边形，非对称）
         DrawColoredPolygon(new[]
         {
-            new Vector2(p.X - 24f, p.Y + 12f), new Vector2(p.X - 14f, p.Y - 6f),
-            new Vector2(p.X, p.Y - 12f), new Vector2(p.X + 15f, p.Y - 4f),
+            new Vector2(p.X - 24f, p.Y + 12f),
+            new Vector2(p.X - 15f, p.Y - 7f + (Jit(seed) - 0.5f) * 4f),
+            new Vector2(p.X - 3f, p.Y - 13f),
+            new Vector2(p.X + 13f, p.Y - 5f + (Jit(seed + 1) - 0.5f) * 4f),
             new Vector2(p.X + 25f, p.Y + 12f),
         }, C(grey, a));
-        DrawRect(new Rect2(p.X - 24f, p.Y + 8f, 49f, 5f), C(new Color(0.22f, 0.20f, 0.19f), a));
-        Line(new Vector2(p.X - 10f, p.Y - 2f), new Vector2(p.X - 4f, p.Y - 6f), 2f, C(new Color(0.62f, 0.60f, 0.56f), a));
-        Dot(new Vector2(p.X + 8f, p.Y + 2f), 2.4f, C(new Color(0.72f, 0.40f, 0.24f), a));
+        DrawColoredPolygon(new[]
+        {
+            new Vector2(p.X - 18f, p.Y + 10f),
+            new Vector2(p.X - 8f, p.Y - 2f),
+            new Vector2(p.X + 4f, p.Y + 4f),
+            new Vector2(p.X + 14f, p.Y + 10f),
+        }, C(new Color(0.26f, 0.24f, 0.22f), a));
+        // 焦黑木炭 + 余烬
+        Line(new Vector2(p.X - 10f, p.Y - 2f), new Vector2(p.X - 4f, p.Y - 7f), 2f, C(new Color(0.62f, 0.60f, 0.56f), a));
+        Dot(new Vector2(p.X + 8f, p.Y + 1f), 2.4f, C(new Color(0.72f, 0.40f, 0.24f), a));
+        Dot(new Vector2(p.X + 2f, p.Y - 4f), 1.8f, C(new Color(0.62f, 0.30f, 0.18f), a));
     }
 
-    private void DrawPowerBox(Vector2 p, float a)
+    private void DrawPowerBox(Vector2 p, float a, float seed)
     {
-        Box(new Rect2(p.X - 22f, p.Y - 20f, 44f, 36f), C(Steel, a), Ink, 3f);
-        DrawRect(new Rect2(p.X - 22f, p.Y + 6f, 44f, 10f), C(SteelShadow, a));
-        for (int i = -1; i <= 1; i++) Dot(new Vector2(p.X + i * 11f, p.Y - 12f), 3.4f, C(new Color(0.88f, 0.78f, 0.52f), a));
-        Line(new Vector2(p.X - 8f, p.Y + 2f), new Vector2(p.X + 6f, p.Y - 6f), 3f, Ink);
-        Dot(new Vector2(p.X + 12f, p.Y + 1f), 3f, C(Red, a));
+        float w = 46f, h = 38f;
+        var r = new Rect2(p.X - w / 2f, p.Y - h / 2f, w, h);
+        HandRect(r, C(Steel, a), Ink, 3f, seed, C(SteelShadow, a), C(SteelLit, a));
+        // 瓷瓶保险
+        for (int i = -1; i <= 1; i++)
+        {
+            float x = p.X + i * 12f;
+            Dot(new Vector2(x, p.Y - 12f), 4f, C(new Color(0.88f, 0.78f, 0.52f), a));
+            Line(new Vector2(x, p.Y - 9f), new Vector2(x + i * 5f, p.Y + 3f), 2f, C(new Color(0.45f, 0.40f, 0.32f), a));
+        }
+        // 刀闸把手
+        Line(new Vector2(p.X - 9f, p.Y + 3f), new Vector2(p.X + 7f, p.Y - 7f), 3f, Ink);
+        Dot(new Vector2(p.X + 9f, p.Y + 1f), 3f, C(Red, a));
+        // 导线
+        Line(new Vector2(r.Position.X + 5f, r.Position.Y + h - 4f), new Vector2(r.Position.X + w - 5f, r.Position.Y + h - 4f), 1.4f, Ink);
     }
 
-    private void DrawRadio(Vector2 p, float a)
+    private void DrawRadio(Vector2 p, float a, float seed)
     {
-        Box(new Rect2(p.X - 24f, p.Y - 17f, 48f, 33f), C(Steel, a), Ink, 3f);
-        DrawRect(new Rect2(p.X - 24f, p.Y + 7f, 48f, 9f), C(SteelShadow, a));
-        Disk(new Vector2(p.X - 12f, p.Y - 5f), 8f, Ink, C(new Color(0.86f, 0.84f, 0.72f), a), 2.5f);
-        Line(new Vector2(p.X - 12f, p.Y - 5f), new Vector2(p.X - 8f, p.Y - 10f), 2f, C(Red, a));
-        for (int i = 0; i < 2; i++) Dot(new Vector2(p.X + 5f + i * 10f, p.Y - 5f), 3.2f, C(new Color(0.30f, 0.28f, 0.24f), a));
+        float w = 50f, h = 34f;
+        var r = new Rect2(p.X - w / 2f, p.Y - h / 2f, w, h);
+        HandRect(r, C(Steel, a), Ink, 3f, seed, C(SteelShadow, a), C(SteelLit, a));
+        // 表盘
+        Disk(new Vector2(p.X - 14f, p.Y - 4f), 9f, Ink, C(new Color(0.86f, 0.84f, 0.72f), a), 2.5f);
+        Line(new Vector2(p.X - 14f, p.Y - 4f), new Vector2(p.X - 10f, p.Y - 10f), 1.8f, C(Red, a));
+        // 旋钮
+        for (int i = 0; i < 2; i++)
+        {
+            float x = p.X + 6f + i * 11f;
+            Dot(new Vector2(x, p.Y - 4f), 3.4f, C(new Color(0.30f, 0.28f, 0.24f), a));
+            Dot(new Vector2(x, p.Y - 4f), 1.6f, C(new Color(0.62f, 0.56f, 0.44f), a));
+        }
+        // 散热栅
         for (int i = 0; i < 4; i++)
-            Line(new Vector2(p.X - 18f + i * 11f, p.Y + 2f), new Vector2(p.X - 18f + i * 11f, p.Y + 6f), 1.6f, Ink);
+            Line(new Vector2(r.Position.X + 2f + i * 11f, r.Position.Y + h - 6f), new Vector2(r.Position.X + 2f + i * 11f, r.Position.Y + h - 1f), 1.4f, Ink);
     }
 
     // ---------- 玩家小人：粗墨边平涂，走路摆腿 ----------
@@ -684,6 +784,32 @@ public partial class InteriorForeground : Control
         // 卡通高光：小圆点 + 短直线
         Dot(new Vector2(x - 4f, foot - 82f), 2.2f, InkStyle.SkinHighlight);
         Line(new Vector2(x - 10f, foot - 90f), new Vector2(x - 3f, foot - 90f), 2f, PaperLit);
+    }
+
+    /// <summary>
+    /// v3.70 第一视角准星：A/D 移动的水平扫视线 + 手绘漫画风十字准星（墨圈 + 四向刻线 +
+    /// 高光点），不画 UI 圆角框。靠近物件时准星下落到该物件高度，强调「我在盯著它看」。
+    /// </summary>
+    private void DrawReticle(float W, float H)
+    {
+        float x = _room.PlayerX;
+        // 靠近物件时准星落到该物件高度，否则停在房间中上部扫视
+        float y = H * 0.50f;
+        if (_room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count)
+            y = _room.Items[_room.NearIndex].Pos.Y;
+
+        // 竖直扫视引导线（淡）
+        Line(new Vector2(x, H * 0.10f), new Vector2(x, H * 0.92f), 1.4f, new Color(0.99f, 0.94f, 0.80f, 0.20f));
+
+        // 准星：墨圈 + 内圈淡光 + 四向刻线 + 高光点
+        float r = 13f;
+        DrawArc(new Vector2(x, y), r, 0, Mathf.Tau, 28, Ink, 3f, true);
+        DrawCircle(new Vector2(x, y), r - 3f, new Color(0.99f, 0.94f, 0.80f, 0.10f));
+        foreach (var d in new[] { new Vector2(0, -1), new Vector2(0, 1), new Vector2(-1, 0), new Vector2(1, 0) })
+            Line(new Vector2(x + d.X * (r + 3f), y + d.Y * (r + 3f)),
+                 new Vector2(x + d.X * (r + 11f), y + d.Y * (r + 11f)), 2.4f, Ink);
+        Dot(new Vector2(x - 3f, y - 3f), 2.2f, new Color(0.99f, 0.94f, 0.80f));
+        Dot(new Vector2(x, y), 1.8f, Red);
     }
 
     // ---------- 提示牌 / 结果条 ----------
@@ -753,4 +879,61 @@ public partial class InteriorForeground : Control
     private void Dot(Vector2 c, float radius, Color col) => DrawCircle(c, radius, col);
 
     private void Line(Vector2 a, Vector2 b, float w, Color col) => DrawLine(a, b, col, w, false);
+
+    /// <summary>确定性字符串散列 → 0..1000 浮点，保证同一物件每次绘制一致（不闪）。</summary>
+    private static float StrHash(string s)
+    {
+        float h = 0f;
+        for (int i = 0; i < s.Length; i++) h = (h * 31f + s[i]) % 1000f;
+        return h;
+    }
+
+    /// <summary>确定性抖动 0..1（手绘勾线感，不依赖随机，画面稳定）。</summary>
+    private static float Jit(float n) => Mathf.Abs(Mathf.Sin(n * 12.9898f + 7.13f)) % 1f;
+
+    /// <summary>手绘多边形：先粗描边再平涂（自动闭合）。</summary>
+    private void InkPoly(Vector2[] poly, Color fill, Color outline, float bw)
+    {
+        if (poly == null || poly.Length < 3) return;
+        DrawColoredPolygon(poly, fill);
+        var closed = new Vector2[poly.Length + 1];
+        Array.Copy(poly, closed, poly.Length);
+        closed[poly.Length] = poly[0];
+        DrawPolyline(closed, outline, bw, true);
+    }
+
+    /// <summary>
+    /// 手绘矩形：抖动墨线轮廓（四角 + 每边中点轻微摆动）+ 三档平涂
+    /// （base / 下缘暗部 / 上缘高光）。不再用完美直角矩形，读起来像手绘上色漫画。
+    /// </summary>
+    private void HandRect(Rect2 r, Color fill, Color outline, float bw, float seed, Color? shade = null, Color? lit = null)
+    {
+        var corners = new[]
+        {
+            r.Position,
+            new Vector2(r.Position.X + r.Size.X, r.Position.Y),
+            new Vector2(r.Position.X + r.Size.X, r.Position.Y + r.Size.Y),
+            new Vector2(r.Position.X, r.Position.Y + r.Size.Y),
+        };
+        var poly = new Vector2[8];
+        for (int i = 0; i < 4; i++)
+        {
+            var a = corners[i];
+            var b = corners[(i + 1) % 4];
+            poly[i * 2] = a + new Vector2((Jit(seed + i * 2) - 0.5f) * 2f, (Jit(seed + i * 2 + 1) - 0.5f) * 2f);
+            var mid = (a + b) * 0.5f;
+            poly[i * 2 + 1] = mid + new Vector2((Jit(seed + 20 + i * 2) - 0.5f) * 3.4f, (Jit(seed + 20 + i * 2 + 1) - 0.5f) * 3.4f);
+        }
+        InkPoly(poly, fill, outline, bw);
+        if (shade.HasValue)
+        {
+            float sh = Mathf.Clamp(r.Size.Y * 0.30f, 3f, 14f);
+            DrawRect(new Rect2(r.Position.X + 1f, r.Position.Y + r.Size.Y - sh, r.Size.X - 2f, sh), shade.Value);
+        }
+        if (lit.HasValue)
+        {
+            float hl = Mathf.Clamp(r.Size.Y * 0.14f, 2f, 8f);
+            DrawRect(new Rect2(r.Position.X + 1f, r.Position.Y + 1f, r.Size.X - 2f, hl), lit.Value);
+        }
+    }
 }

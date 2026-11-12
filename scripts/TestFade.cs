@@ -13,7 +13,7 @@ public partial class TestFade : Node
     {
         _main = new Main();
         AddChild(_main);
-        GetWindow().MoveToForeground();
+        GetWindow().GrabFocus();
     }
 
     public override void _Process(double delta)

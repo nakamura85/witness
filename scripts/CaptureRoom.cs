@@ -75,6 +75,9 @@ public partial class CaptureRoom : Node
         _room.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         content.AddChild(_room);
         _room.QueueRedraw();
+        // v3.70：第一视角验证 —— 把准星停在第一个物件上，截图能同时看到
+        // 「准星扫视」+ 手绘漫画风物件 + 靠近高亮，不再让小人走动漂移。
+        if (_room.Items.Count > 0) _room.PlayerX = _room.Items[0].Pos.X;
 
         // v3.67b：标题由 InteriorForeground 统一绘制，这里不再重复叠一层。
 
@@ -83,8 +86,8 @@ public partial class CaptureRoom : Node
     public override void _Process(double delta)
     {
         _t += (float)delta;
-        // 让小人在房间里走动，截出来的帧能看到「靠近物件 → 出现 E 提示牌」
-        _room?.Step((float)delta, 1f);
+        // v3.70：第一视角下不再让小人走动；准星固定在第一个物件上扫视
+        _room?.Step((float)delta, 0f);
         switch (_stage)
         {
             case 0 when _t > 1.0f:
