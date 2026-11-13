@@ -1292,18 +1292,32 @@ public partial class InteriorForeground : Control
 
         if (f.Type == FurnitureType.PictureFrame)
         {
-            // 卷轴从下往上卷：仍可见比例 = 1-ot，画心顶部锚定，底部随卷起上升；
-            // ot→1 时整幅卷起、只留暗格（暗格由 DrawFurnitureBody 已画在底层）。
+            // v3.92 挂画「往上卷」：画心自底部向上卷入，底部卷口（横向卷轴）随卷起上升；
+            // ot→1 时整幅卷起、卷轴停在框顶，只留暗格（暗格由 DrawFurnitureBody 已画在底层）。
+            // 用户 2026-11-13：「挂画掀开是拨开的意思或者将画往上卷才会看到暗格」。
             if (mirror) DrawSetTransformMatrix(mirrorM);
-            float h = dst.Size.Y * (1f - ot);
-            if (h > 1f)
+            float visibleH = dst.Size.Y * (1f - ot);
+            float rollH = Mathf.Min(dst.Size.Y * 0.11f, 16f);
+            if (visibleH > 1f)
             {
-                var dDst = new Rect2(dst.Position.X, dst.Position.Y, dst.Size.X, h);
+                var dDst = new Rect2(dst.Position.X, dst.Position.Y, dst.Size.X, visibleH);
                 var dSrc = new Rect2(src.Position.X, src.Position.Y, src.Size.X, src.Size.Y * (1f - ot));
                 DrawTextureRectRegion(_roomTex, dDst, dSrc, new Color(1f, 1f, 1f, 1f));
-                // 卷口画轴端（圆），暗示已卷起，而非整块消失
-                DrawCircle(new Vector2(dst.Position.X + dst.Size.X * 0.5f, dst.Position.Y + h),
-                           dst.Size.X * 0.15f, new Color(0.40f, 0.31f, 0.22f, 0.95f));
+                // 卷口：在仍可见画心的下缘画一截横向卷轴（矩形+两端圆角），读作「往上卷」
+                float cy = dst.Position.Y + visibleH;
+                DrawRect(new Rect2(dst.Position.X, cy - rollH * 0.5f, dst.Size.X, rollH),
+                         new Color(0.42f, 0.32f, 0.22f, 0.95f));
+                DrawCircle(new Vector2(dst.Position.X, cy), rollH * 0.5f, new Color(0.42f, 0.32f, 0.22f, 0.95f));
+                DrawCircle(new Vector2(dst.Position.X + dst.Size.X, cy), rollH * 0.5f, new Color(0.42f, 0.32f, 0.22f, 0.95f));
+            }
+            else
+            {
+                // 完全卷起：卷轴停在框顶，框内只剩暗格（仍读作「画已卷上去」）
+                float cy = dst.Position.Y + rollH * 0.5f;
+                DrawRect(new Rect2(dst.Position.X, cy - rollH * 0.5f, dst.Size.X, rollH),
+                         new Color(0.42f, 0.32f, 0.22f, 0.95f));
+                DrawCircle(new Vector2(dst.Position.X, cy), rollH * 0.5f, new Color(0.42f, 0.32f, 0.22f, 0.95f));
+                DrawCircle(new Vector2(dst.Position.X + dst.Size.X, cy), rollH * 0.5f, new Color(0.42f, 0.32f, 0.22f, 0.95f));
             }
             if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
             return;
@@ -1311,14 +1325,36 @@ public partial class InteriorForeground : Control
 
         if (f.Type == FurnitureType.Cabinet)
         {
-            // 柜门绕左合页旋开（门保持不透明、始终可见），露出柜内暗腔与藏物。
-            float ang = ot * Mathf.DegToRad(100f);
-            Vector2 hinge = new Vector2(dst.Position.X, dst.Position.Y);
-            var rp = hinge.Rotated(ang);
-            var rot = new Transform2D(ang, hinge - rp);
-            var m = mirror ? mirrorM * rot : rot;
-            DrawSetTransformMatrix(m);
-            DrawTextureRectRegion(_roomTex, dst, src, new Color(1f, 1f, 1f, 1f));
+            // v3.92 双开门（对开门）：两扇门各自以外侧合页为轴，开启时向两侧「压扁」（水平透视缩短），
+            // 露出门后暗腔与藏物；ot→1 时两扇收成门侧窄条、中间暗腔完全露出。
+            // 每扇门把「整片半边门面」横向压缩进窄条（而非只取门边），确保左右两扇都看得到木门面；
+            // 背景只画了一扇门且右半偏暗，故两扇均取亮的左半源、右扇再水平镜像让亮木纹朝外、左右对称。
+            // 参考用户 2026-11-13 所发「中式双开门老柜子」图：两扇门各自向左右翻开、平贴两侧。
+            float scale = 1f - ot * 0.86f;            // 1(关) → 0.14(全开，收成门侧窄条)
+            float halfDstW = dst.Size.X * 0.5f;
+            float wL = halfDstW * scale;
+            float wR = halfDstW * scale;
+            // 显式设定基础矩阵，避免继承上一件家具遗留的变换状态
+            DrawSetTransformMatrix(mirror ? mirrorM : Transform2D.Identity);
+            // 左扇：整片左半门面横向压缩进左缘窄条（合页在左）
+            {
+                Rect2 dstL = new Rect2(dst.Position.X, dst.Position.Y, wL, dst.Size.Y);
+                Rect2 srcL = new Rect2(src.Position.X, src.Position.Y, src.Size.X * 0.5f, src.Size.Y);
+                DrawTextureRectRegion(_roomTex, dstL, srcL, new Color(1f, 1f, 1f, 1f));
+            }
+            // 右扇：取亮的左半门面、水平镜像后压缩进右缘窄条，使亮木纹朝外、左右对称
+            {
+                Rect2 dstR = new Rect2(dst.Position.X + dst.Size.X - wR, dst.Position.Y, wR, dst.Size.Y);
+                Rect2 srcR = new Rect2(src.Position.X, src.Position.Y, src.Size.X * 0.5f, src.Size.Y);
+                if (!mirror)
+                {
+                    // 在右窄条内做水平镜像，让亮木纹落在右扇外侧（origin = 2*X + W 使窄条原地镜像）
+                    var flip = new Transform2D(new Vector2(-1f, 0f), new Vector2(0f, 1f),
+                                               new Vector2(2f * dstR.Position.X + dstR.Size.X, 0f));
+                    DrawSetTransformMatrix(flip);
+                }
+                DrawTextureRectRegion(_roomTex, dstR, srcR, new Color(1f, 1f, 1f, 1f));
+            }
             DrawSetTransformMatrix(Transform2D.Identity);
             return;
         }
