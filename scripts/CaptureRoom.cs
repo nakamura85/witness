@@ -215,10 +215,34 @@ public partial class CaptureRoom : Node
                 _stage = 12;
                 break;
             case 12 when _t > 13.0f:
-                SaveShot("room_13_residence_pointer.png");
+                // v3.86：存完「住家指向挂画」后切到住家全开态，核对卷轴挂画 / 柜门
+                // 与由裁片推导出来的规整暗格是否刚好对齐（用户「一定要刚刚好遮到暗格」）。
+                SaveShot("room_13_residence_pointer.png", () =>
+                    BuildRoom(RoomType.Residence, 0, 19310918,
+                        "柳条湖边的小屋 · 屋内", 1f));
                 _stage = 13;
                 break;
-            case 13 when _t > 13.9f:
+            case 13 when _t > 14.0f:
+                SaveShot("room_14_recess_cover.png", () =>
+                    // v3.86：焚毁仓库关闭态 —— 明面小件应只剩灰烬 / 焦木箱等残物
+                    BuildRoom(RoomType.BurntWarehouse, 0, 19310921,
+                        "焚毁的仓库 · 屋内", 0f));
+                _stage = 14;
+                break;
+            case 14 when _t > 15.0f:
+                SaveShot("room_15_burnt_closed.png", () =>
+                    // v3.86：等价于「左键点击地图挂画」之后的结果态（headless 无真实鼠标，
+                    // 用指向 + 全开态的等价路径帧 + HouseInteriorUi._Process 代码走查代替）。
+                    BuildRoom(RoomType.CommOutpost, 0, 19310920,
+                        "通信据点 · 无线电发信机 · 屋内", 1f, null,
+                        HitCenter(RoomType.CommOutpost, FurnitureType.PictureFrame)));
+                _stage = 15;
+                break;
+            case 15 when _t > 16.0f:
+                SaveShot("room_16_click_opened.png");
+                _stage = 16;
+                break;
+            case 16 when _t > 16.9f:
                 GD.Print("CAPTURE_ROOM done");
                 GetTree().Quit();
                 break;

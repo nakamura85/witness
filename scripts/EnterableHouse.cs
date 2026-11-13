@@ -384,8 +384,11 @@ public partial class HouseInteriorUi : CanvasLayer
     private string _noteSource = "出处：见各张纸页。文本为据公开史料整理的档案摘录，非烈士本人遗书或原话。";
     private bool _n918Chapter;   // v3.68：屋内档案按关卡取不同的真实通电 / 名录
     private Control _root;
-    private Label _hint;
     private InteriorRoom _explore;   // v3.67 可探索房间
+    /// <summary>v3.86：左键边沿检测（按下那一帧才触发，按住不重复搜刮）。</summary>
+    private bool _leftDownPrev;
+    /// <summary>v3.86：每次进屋递增，混入房间 seed ⇒ 三间房 / 每次进入的藏匿编排都不同。</summary>
+    private static int _visitSeq;
     private bool _noteOpen;          // 读信 / 看纸条时暂停走动
     private Spot _chestSpot;
     private float _pryT;
@@ -676,18 +679,27 @@ public partial class HouseInteriorUi : CanvasLayer
             float dir = 0f;
             if (Input.IsActionPressed("move_left")) dir -= 1f;
             if (Input.IsActionPressed("move_right")) dir += 1f;
-            _explore.Step((float)delta, dir);
 
-            if (Input.IsActionJustPressed("interact"))
+            // v3.86 用户拍板「鼠标左键点击是否也能触发／可以的」：
+            // 边沿检测取「按下那一帧」，按住左键不会每帧重复搜刮；
+            // Step 在点击帧强制用鼠标当前位置重算命中，避开 0.6s 静止回落。
+            bool leftDown = Input.IsMouseButtonPressed(MouseButton.Left);
+            bool clicked = leftDown && !_leftDownPrev;
+            _leftDownPrev = leftDown;
+            _explore.Step((float)delta, dir, null, clicked);
+
+            bool keyE = Input.IsActionJustPressed("interact");
+            // 门口离开仍只认 E（或右上角按钮）：随便点一下左上角不该把玩家踢出屋子。
+            if (keyE && _explore.AtDoor) { Close(); return; }
+            // E 与左键点击共用同一套交互；点空白时 NearIndex / NearFurniture 都是 -1，
+            // OpenNearbyFurniture() 自己会返回 false，不会有任何副作用。
+            if (keyE || clicked)
             {
-                if (_explore.AtDoor) { Close(); return; }
-                // v3.84：一次 E 只做一件事。能搜的物件优先；没有可搜物件时，
-                // 若站在未翻开的柜 / 挂画 / 抽屉 / 灶膛前，这次 E 就是「开柜门 / 掀挂画」。
-                // v3.71~v3.83 OpenNearbyFurniture() 全仓零调用点，柜门在游戏里永远打不开，
-                // 只有截图场景靠强制 Opened=true 才看得到藏匿物 —— 这里把交互链路接上。
+                // 一次互动只做一件事：能搜的物件优先；否则若指向未翻开的
+                // 柜 / 挂画 / 抽屉 / 灶膛，这次就是「开柜门 / 掀挂画」。
                 if (_explore.NearIndex >= 0 && _explore.NearIndex < _spots.Count)
                     OnSpot(_spots[_explore.NearIndex]);
-                else
+                else if (_explore.NearFurniture >= 0)
                     _explore.OpenNearbyFurniture();
             }
             if (Input.IsActionJustPressed("pause")) { Close(); return; }
@@ -773,10 +785,9 @@ public partial class HouseInteriorUi : CanvasLayer
         _explore?.MarkDone(s.SpotId, s.ResultText);
     }
 
-    /// <summary>结果文字同时给旧提示 Label（若存在）与新房间的结果条。</summary>
+    /// <summary>v3.86：结果文字只给房间的结果条；底部常驻提示 Label 已按用户拍板整体删除。</summary>
     private void SetResult(string text)
     {
-        if (_hint != null) _hint.Text = text;
         if (_explore != null) _explore.ResultText = text;
     }
 
@@ -838,8 +849,13 @@ public partial class HouseInteriorUi : CanvasLayer
         foreach (var s in _spots)
             items.Add(new RoomItem { SpotId = s.SpotId, Kind = s.Kind, Label = s.Text, Done = s.Done });
 
+        // v3.86 用户拍板「三间房是否都要同款指针交互／要随机」：
+        // 同一套指针交互三间房都有，但每次进屋把访问序号混进 seed，
+        // 让「哪些物件藏在哪个容器、哪些留在明面」随进屋变化，不会三间房长一个样。
+        // 截图场景直接调 InteriorRoom.Create(固定 seed)，保持可复现。
+        int roomSeed = (_houseId.GetHashCode() & 0xffff) ^ (++_visitSeq * 7919);
         _explore = InteriorRoom.Create(_roomType, _roomVariant,
-            _houseId.GetHashCode() & 0xffff, _houseTitle, items);
+            roomSeed, _houseTitle, items);
         _explore.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         content.AddChild(_explore);
 

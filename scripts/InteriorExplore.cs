@@ -304,12 +304,25 @@ public partial class InteriorRoom : Control
     }
 
     /// <summary>由 HouseInteriorUi._Process 驱动：走动、靠近判定、掉落物理、重绘。</summary>
-    public void Step(float dt, float dir, Vector2? pointer = null)
+    public void Step(float dt, float dir, Vector2? pointer = null, bool clicked = false)
     {
         if (_fg == null) return;
         float W = Size.X > 0f ? Size.X : 952f;
 
-        // ---- v3.85 指针来源优先级：截图强制 > 真实鼠标 > 超时回落 A/D 准星 ----
+        // ---- v3.86 指针来源优先级：截图强制 > 左键点击 > 真实鼠标 > 超时回落 A/D 准星 ----
+        // 用户拍板「鼠标左键点击是否也能触发／可以的」：点击那一帧即便鼠标已静止 0.6s
+        // （Pointer 已回落 (-1,-1)），也要用当前鼠标位置重新算一次命中，否则点了没反应。
+        // 点击在屋内画布之外不生效，避免点到关卡 UI 误开柜。
+        if (!pointer.HasValue && clicked && AutoMouse && GetViewport() != null)
+        {
+            Vector2 clickGlobal = GetViewport().GetMousePosition();
+            if (GetGlobalRect().HasPoint(clickGlobal))
+            {
+                Pointer = GetLocalMousePosition();
+                _lastMouse = clickGlobal;
+                _pointerIdle = 0f;
+            }
+        }
         if (pointer.HasValue)
         {
             Pointer = pointer.Value;
@@ -656,105 +669,112 @@ public partial class InteriorRoom : Control
     }
 
     /// <summary>
-    /// v3.84 核心：把每件 loot 分派到「藏进哪个家具」或「留在明面哪块空地」。
-    /// 确定性、可复算；一个容器最多 2 件；真实游戏与预览共用。
+    /// v3.86 藏匿 / 明面编排：同一 seed 结果可复算，但真实游戏每次进屋 seed 不同 ⇒ 随机。
+    /// 用户拍板 Q3「完整的房子不用但是如果被烧坏的就要（减少明面小件）」、
+    ///         Q7「三间房是否都要同款指针交互／要随机」。
+    /// 洗牌对象：容器顺序、每容器 kind 优先序、loot 顺序、明面锚点。
+    /// 完好房间：容器 cap=2，放不下的照旧留明面（数量不减少，用户说「不用」）。
+    /// 焚毁仓库：容器 cap = 柜3 / 灶2 / 桌1（受 BurntFront 前脸体量约束，共 6），
+    ///           不看 kind 随机兜底塞满，只留 ≤2 件明面（优先灰烬 / 焦木箱这类焦黑残物）；
+    ///           标准 8 件 loot 下明面从 v3.82 的 5 件降到 2 件。
+    /// 真实 loot 一件都不会消失：藏进容器的仍可搜，明面的仍可搜。
     /// </summary>
     private void AssignPlacement()
     {
-        // v3.84：焚毁仓库沿用 v3.82 已逐帧验收过的摆位，本轮不重排（避免破坏已确认成果）
-        if (Type == RoomType.BurntWarehouse)
-        {
-            AssignPlacementBurntV382();
-            return;
-        }
+        var rng = new RandomNumberGenerator();
+        rng.Seed = (ulong)((uint)(Seed ^ (Variant * 7919) ^ (Items.Count * 104729) ^ 0x5f3759df) % 1000003u) + 1u;
+
+        bool burnt = (Type == RoomType.BurntWarehouse);
         bool mirror = (Type == RoomType.Residence && Variant != 0);
         float MX(float x) => mirror ? 952f - x : x;
-        var placed = new HashSet<RoomItem>();
 
+        // 1) loot 洗牌；仓库把灰烬 / 焦木箱排到末尾，让它们优先留在明面（符合烧毁屋子）
+        var pool = new List<RoomItem>(Items);
+        Shuffle(pool, rng);
+        if (burnt)
+        {
+            var tail = pool.FindAll(x => x.Kind == "ash" || x.Kind == "chest");
+            pool.RemoveAll(x => x.Kind == "ash" || x.Kind == "chest");
+            pool.AddRange(tail);
+        }
+
+        // 2) 容器规则洗牌 + 每容器 kind 优先序洗牌；容量按房间给
+        var rules = new List<(string furn, string[] kinds)>();
         foreach (var (furnId, kinds) in HideRules(Type))
         {
+            var k = (string[])kinds.Clone();
+            Shuffle(k, rng);
+            rules.Add((furnId, k));
+        }
+        Shuffle(rules, rng);
+
+        var cap = new Dictionary<string, int>();
+        foreach (var (furnId, _) in rules)
+            cap[furnId] = burnt
+                ? (furnId == "cab" ? 3 : furnId == "stove" ? 2 : 1)
+                : 2;
+
+        var placed = new HashSet<RoomItem>();
+        foreach (var (furnId, kinds) in rules)
+        {
             var f = Furniture.Find(x => x.Id == furnId);
-            if (f == null) continue;
-            int cap = 2;
+            if (f == null || cap[furnId] <= 0) continue;
+            // 先按 kind 优先序藏（信进抽屉、手榴弹进挂画暗格…）
             foreach (var kind in kinds)
             {
-                if (cap <= 0) break;
-                foreach (var it in Items)
+                if (cap[furnId] <= 0) break;
+                foreach (var it in pool)
                 {
-                    if (cap <= 0) break;
+                    if (cap[furnId] <= 0) break;
                     if (placed.Contains(it) || it.Kind != kind) continue;
-                    it.Mode = RoomItemMode.Container;
-                    it.ContainerId = f.Id;
-                    it.Pos = f.RecessPos();
-                    placed.Add(it);
-                    cap--;
-                    if (f.ContainsSpotId == null) f.ContainsSpotId = it.SpotId;
+                    HideItem(it, f); placed.Add(it); cap[furnId]--;
+                }
+            }
+            // 仓库：不看 kind 随机兜底塞满，把原本摊在明面的小件收进柜 / 灶 / 桌
+            if (burnt)
+            {
+                foreach (var it in pool)
+                {
+                    if (cap[furnId] <= 0) break;
+                    if (placed.Contains(it)) continue;
+                    HideItem(it, f); placed.Add(it); cap[furnId]--;
                 }
             }
         }
 
-        var anchors = SurfaceAnchors(Type);
+        // 3) 剩余留明面；锚点也洗牌 ⇒ 三间房不会站成同一排
+        var anchors = new List<Vector2>(SurfaceAnchors(Type));
+        Shuffle(anchors, rng);
         int ai = 0;
-        foreach (var it in Items)
+        foreach (var it in pool)
         {
-            // 关键物（真实烈士姓名的信/遗书）沿用 v3.71 的不刺眼微光；真实 loot 由这里补齐标记
             if (it.Kind == "letter" || it.Kind == "will") it.Key = true;
             if (placed.Contains(it)) continue;
+            var a = anchors[ai % anchors.Count]; ai++;
             it.Mode = RoomItemMode.Surface;
-            var a = anchors[ai % anchors.Length];
-            it.Pos = new Vector2(MX(a.X), a.Y);
-            ai++;
+            it.Pos = burnt ? a : new Vector2(MX(a.X), a.Y);
         }
     }
 
-    /// <summary>
-    /// v3.84 仓库兼容分支：完整复刻 v3.82 的藏匿与摆位（用户 2026-11-13 逐帧验收通过）。
-    /// 本轮「锚点对齐 / 小件尺寸表 / 挂画暗格」只作用于住家与通信据点；
-    /// 仓库的焦黑柜、塌砖灶、灰堆与实时掉落一律不动。
-    /// </summary>
-    private void AssignPlacementBurntV382()
+    private static void Shuffle<T>(IList<T> list, RandomNumberGenerator rng)
     {
-        foreach (var f in Furniture) f.ContainsSpotId = null;
-        var desk = Furniture.Find(x => x.Id == "desk");
-        var cab = Furniture.Find(x => x.Id == "cab");
-        var stove = Furniture.Find(x => x.Id == "stove");
-        foreach (var it in Items)
+        for (int i = list.Count - 1; i > 0; i--)
         {
-            if (it.Kind == "letter" || it.Kind == "will") it.Key = true;
-            switch (it.Kind)
-            {
-                case "letter" when desk != null:  HideIn(it, desk); break;
-                case "medkit" when cab != null:   HideIn(it, cab); break;
-                case "will" when stove != null:   HideIn(it, stove); break;
-                case "ammo":                      DropAt(it, 410f, 0f); break;
-                case "grenade":                   DropAt(it, 720f, 0.14f); break;
-                case "chest":                     SurfaceAt(it, 760f, 492f); break;
-                case "gauze":                     SurfaceAt(it, 540f, 492f); break;
-                case "ash":                       SurfaceAt(it, 470f, 498f); break;
-                default:                          SurfaceAt(it, 620f, 496f); break;
-            }
+            int j = (int)(rng.Randi() % (uint)(i + 1));
+            (list[i], list[j]) = (list[j], list[i]);
         }
     }
 
-    private void HideIn(RoomItem it, Furniture f)
+    /// <summary>v3.86：藏匿物摆在与前脸裁片绑定的暗格中心，不再用家具 Center 的近似值。</summary>
+    private void HideItem(RoomItem it, Furniture f)
     {
         it.Mode = RoomItemMode.Container;
         it.ContainerId = f.Id;
-        it.Pos = f.RecessPos();
+        // 完好房间：暗格中心由柜门 / 画心裁片推导（含镜像）；仓库沿用 v3.82 的 RecessPos。
+        it.Pos = Type == RoomType.BurntWarehouse
+            ? f.RecessPos()
+            : InteriorForeground.RecessCenterMirrored(Type, Variant, f.Type);
         if (f.ContainsSpotId == null) f.ContainsSpotId = it.SpotId;
-    }
-
-    private void DropAt(RoomItem it, float x, float delay)
-    {
-        it.Mode = RoomItemMode.FloorDrop;
-        it.Pos = new Vector2(x, FloorY - 150f);
-        it.DropDelay = delay;
-    }
-
-    private void SurfaceAt(RoomItem it, float x, float y)
-    {
-        it.Mode = RoomItemMode.Surface;
-        it.Pos = new Vector2(x, y);
     }
 
     /// <summary>v3.84：给 UI 的翻找动词（未开家具的提示牌文案）。</summary>
@@ -782,7 +802,12 @@ public partial class InteriorForeground : Control
     private Label _prompt;
     private Label _result;
     private Label _title;
-    private Label _hint;
+    /// <summary>
+    /// v3.86 淡墨软阴影贴图资产（离线自绘，见 tools/bridge_restyle/make_contact_shadow.py）。
+    /// 用户拍板「不要程式化感觉会怪怪」⇒ 删掉 v3.85 运行时的三层 DrawFlatEllipse，
+    /// 改为一次性贴图采样；运行时零程序化几何色块。
+    /// </summary>
+    private Texture2D _shadowTex;
 
     public float WalkPhase;
     public float Facing = 1f;
@@ -915,6 +940,38 @@ public partial class InteriorForeground : Control
         src.Size.X * InteriorRoom.BgScale,
         src.Size.Y * InteriorRoom.BgScale);
 
+    /// <summary>
+    /// v3.86 前脸（柜门 / 画心 / 抽屉 / 灶面）在房间画布上的矩形；仓库没有裁片时返回空矩形。
+    /// 这是「挂画 / 柜门到底盖住了哪一块」的唯一事实来源。
+    /// </summary>
+    public static Rect2 CoverRect(RoomType type, FurnitureType ft)
+        => FrontSrc.TryGetValue((type, ft), out var src) ? BgRect(src) : new Rect2();
+
+    /// <summary>
+    /// v3.86 由前脸矩形推导规整暗格：四边内缩 14px、且每边至少留 8px，
+    /// 所以 Recess ⊂ Front 恒成立 ⇒ 用户说的「前面的挂画一定要刚刚好遮到暗格」。
+    /// 不做不规则边缘（用户：「暗格通常是已经挖好的，直接四四方方或长方形即可」）。
+    /// </summary>
+    public static Rect2 RecessForCover(Rect2 front)
+    {
+        if (front.Size.X < 16f || front.Size.Y < 16f) return front;
+        float w = Mathf.Min(Mathf.Max(80f, front.Size.X - 28f), front.Size.X - 16f);
+        float h = Mathf.Min(Mathf.Max(28f, front.Size.Y - 28f), front.Size.Y - 16f);
+        return new Rect2(front.Position.X + (front.Size.X - w) * 0.5f,
+                         front.Position.Y + (front.Size.Y - h) * 0.5f, w, h);
+    }
+
+    /// <summary>
+    /// v3.86 暗格中心（画布坐标，含住家镜像 variant 翻转）。
+    /// 藏匿物位置与指针命中都用它，保证「东西就摆在暗格里」，不飘到裁片外面。
+    /// </summary>
+    public static Vector2 RecessCenterMirrored(RoomType type, int variant, FurnitureType ft)
+    {
+        var c = RecessForCover(CoverRect(type, ft)).GetCenter();
+        if (type == RoomType.Residence && variant != 0) c.X = 952f - c.X;
+        return c;
+    }
+
     /// <summary>v3.84 前景柜门裁片用的背景贴图（与 InteriorBackdrop 同一份资源，不新增资产）。</summary>
     private Texture2D _roomTex;
 
@@ -929,6 +986,8 @@ public partial class InteriorForeground : Control
         _propsAtlas ??= GD.Load<Texture2D>("res://assets/art/interior/props_atlas.png");
         _propsAtlasBurnt ??= GD.Load<Texture2D>("res://assets/art/interior/props_atlas_burnt.png");
         _paperTex ??= GD.Load<Texture2D>("res://assets/art/ui/paper_burnt_v1.png");
+        // v3.86：软阴影 / 地面光斑统一用同一张淡墨贴图，不再运行时画椭圆
+        _shadowTex ??= GD.Load<Texture2D>("res://assets/art/interior/contact_shadow.png");
         // v3.84：柜门 / 画心裁片直接取同一张背景贴图，不新增美术资产
         _roomTex = GD.Load<Texture2D>(_room.Type switch
         {
@@ -950,20 +1009,9 @@ public partial class InteriorForeground : Control
         _title.OffsetBottom = 40;
         AddChild(_title);
 
-        _hint = new Label
-        {
-            Text = "鼠标指向物件 / 柜门 / 挂画 按 E 互动　·　A / D 或 ← / → 也可环视　·　移到门口按 E 离开",
-            HorizontalAlignment = HorizontalAlignment.Center,
-            MouseFilter = Control.MouseFilterEnum.Ignore,
-        };
-        // v3.85 淡化成淡墨小字：它只是操作说明，不能读成「常驻的 E 提示」；
-        // 命中时由 RefreshPrompt 整行隐藏，画面里只留那张 E 纸条。
-        _hint.AddThemeFontSizeOverride("font_size", 12);
-        _hint.AddThemeColorOverride("font_color", new Color(0.70f, 0.64f, 0.54f, 0.78f));
-        _hint.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
-        _hint.OffsetTop = -36;
-        _hint.OffsetBottom = -8;
-        AddChild(_hint);
+        // v3.86 用户拍板「底部说明要不要彻底去掉／去掉」：
+        // 整行常驻操作说明（含 v3.85 的淡墨小字版本）彻底删除。
+        // 画面里唯一的操作反馈只剩「鼠标选中时才出现」的那张 E 纸条。
 
         _prompt = new Label
         {
@@ -1016,8 +1064,15 @@ public partial class InteriorForeground : Control
                 foreach (var it in _room.Items)
                 {
                     if (it.Mode != RoomItemMode.Container || it.ContainerId != f.Id) continue;
-                    Vector2 p = f.RecessPos() + new Vector2(
-                        (k - (total - 1) * 0.5f) * 38f, (k % 2 == 0 ? 0f : 7f));
+                    // v3.86：物件排在「由前脸裁片推导出来的暗格」中心，
+                    // 与 AssignPlacement 写入的 it.Pos 用同一套坐标；2 列网格容纳最多 3 件不重叠。
+                    Vector2 rc = IsBurnt
+                        ? RecessRect(f).GetCenter()
+                        : InteriorForeground.RecessCenterMirrored(_room.Type, _room.Variant, f.Type);
+                    int rows = Mathf.CeilToInt(total / 2f);
+                    Vector2 p = rc + new Vector2(
+                        (k % 2 == 0 ? -19f : 19f),
+                        (k / 2 - (rows - 1) * 0.5f) * 30f);
                     bool near = _room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count
                                 && _room.Items[_room.NearIndex] == it;
                     DrawItem(it, p, near, f.OpenT);
@@ -1064,19 +1119,17 @@ public partial class InteriorForeground : Control
     }
 
     /// <summary>
-    /// v3.85 接触阴影：三层淡墨递减做软边，让小件「坐进」背景里。
-    /// 旧版 6 顶点不透明多边形（0.42a）读作「物件底下垫了块硬纸片」，是格格不入的主因之一。
-    /// 这只是表现层的投影，不是场景实体；物件本体仍是同源贴图裁片。
+    /// v3.86 接触阴影：只采样一张离线自绘的淡墨晕染贴图，运行时零程序化椭圆。
+    /// v3.85 的三层 DrawFlatEllipse 虽然压淡了，但形状是完美同心椭圆，
+    /// 用户拍板「不要程式化感觉会怪怪」⇒ 换成有手绘不规则边 + 斑驳浓淡的 PNG。
+    /// 贴图本身 alpha ≤0.44，叠在暖褐背景上读作一抹淡墨，不会像垫了块硬纸片。
     /// </summary>
     private void DrawContactShadow(Vector2 p, float a)
     {
-        for (int i = 3; i >= 1; i--)
-        {
-            float k = i / 3f;
-            DrawFlatEllipse(new Vector2(p.X, p.Y + 20f + i * 1.2f),
-                25f * (0.55f + 0.45f * k), 7.5f * (0.5f + 0.5f * k),
-                new Color(0.16f, 0.12f, 0.09f, 0.12f * a / k));
-        }
+        if (_shadowTex == null) return;
+        float w = 58f, h = 20f;
+        DrawTextureRect(_shadowTex, new Rect2(p.X - w / 2f, p.Y + 9f, w, h), false,
+            new Color(1f, 1f, 1f, a));
     }
 
     // =====================================================================
@@ -1112,21 +1165,18 @@ public partial class InteriorForeground : Control
             new Vector2(lx - 34f, InteriorRoom.FloorY),
         };
         DrawColoredPolygon(beam, pal.Beam);
-        // 地面光斑（压扁椭圆）
-        DrawFlatEllipse(new Vector2((lx + rx) / 2f + 6f, InteriorRoom.FloorY + 4f), 96f, 20f, pal.Beam);
+        // v3.86 地面光斑：同用那张淡墨晕染贴图上色，不再运行时画椭圆。
+        // 贴图自带 ≤0.44 的软 alpha，故把 Beam 的 alpha 补 2.2 倍维持原有明度。
+        if (_shadowTex != null)
+            DrawTextureRect(_shadowTex,
+                new Rect2((lx + rx) / 2f + 6f - 96f, InteriorRoom.FloorY - 16f, 192f, 40f),
+                false,
+                new Color(pal.Beam.R, pal.Beam.G, pal.Beam.B,
+                          Mathf.Min(1f, pal.Beam.A * 2.2f)));
     }
 
-    /// <summary>压扁椭圆（光斑 / 地面阴影用，避免依赖 DrawEllipse 版本差异）。</summary>
-    private void DrawFlatEllipse(Vector2 c, float rx, float ry, Color col, int seg = 26)
-    {
-        var pts = new Vector2[seg];
-        for (int i = 0; i < seg; i++)
-        {
-            float ang = i * Mathf.Tau / seg;
-            pts[i] = new Vector2(c.X + Mathf.Cos(ang) * rx, c.Y + Mathf.Sin(ang) * ry);
-        }
-        DrawColoredPolygon(pts, col);
-    }
+    // v3.86：DrawFlatEllipse 已删除 —— 接触阴影、地落阴影、地面光斑全部改贴图采样。
+    // 用户明确「不要程式化感觉会怪怪」，运行时不再画任何椭圆 / 几何色块。
 
     /// <summary>
     /// v3.84 暗格矩形：按背景家具真实体量给尺寸，能并排放 2 件 34–52px 小件。
@@ -1137,15 +1187,20 @@ public partial class InteriorForeground : Control
     {
         if (IsBurnt)
         {
-            float bw = f.Type switch { FurnitureType.Cabinet => 48f, FurnitureType.PictureFrame => 46f, FurnitureType.Stove => 46f, _ => 52f };
-            float bh = f.Type switch { FurnitureType.Cabinet => 42f, FurnitureType.PictureFrame => 42f, FurnitureType.Stove => 22f, _ => 26f };
+            // v3.86 仓库：暗格仍是规整矩形，尺寸按 BurntFront 前脸体量给
+            // （柜 116x152 / 灶 120x92 / 断桌板 64x30 / 挂画 60x84），
+            // 全部严格小于前脸 ⇒ 前脸刚好完全遮住暗格，且放得下 2 件藏匿物。
+            float bw = f.Type switch { FurnitureType.Cabinet => 100f, FurnitureType.Stove => 92f, FurnitureType.PictureFrame => 56f, _ => 56f };
+            float bh = f.Type switch { FurnitureType.Cabinet => 84f, FurnitureType.Stove => 62f, FurnitureType.PictureFrame => 72f, _ => 26f };
             Vector2 bc = f.RecessPos();
             return new Rect2(bc.X - bw / 2f, bc.Y - bh / 2f, bw, bh);
         }
-        float w = f.Type switch { FurnitureType.Cabinet => 110f, FurnitureType.PictureFrame => 100f, FurnitureType.Stove => 76f, _ => 106f };
-        float h = f.Type switch { FurnitureType.Cabinet => 82f, FurnitureType.PictureFrame => 86f, FurnitureType.Stove => 40f, _ => 44f };
-        Vector2 c = f.RecessPos();
-        return new Rect2(c.X - w / 2f, c.Y - h / 2f, w, h);
+        // v3.86 用户原话：「前面的挂画一定要刚刚好遮到暗格才能是暗格哦」。
+        // 旧版以家具 Center 另画一个固定 100x86 矩形，与柜门/画心裁片毫无绑定：
+        // 通信据点抽屉暗格 y[439,483] 整个露在抽屉面 y[375,413] 下面；
+        // 住家挂画暗格左右只剩 3.55px 边距 —— 掀开画看到的是飘在墙中间的小洞，不像暗格。
+        // 现在暗格直接由前脸裁片内缩推导，四周至少留 8px，Recess ⊂ Front 恒成立。
+        return RecessForCover(CoverRect(_room.Type, f.Type));
     }
 
     /// <summary>判断地落物是否被某家具前脸遮挡（其 x 落在家具前脸水平范围内、且低于台面 → 藏在家具后面）。</summary>
@@ -1285,8 +1340,14 @@ public partial class InteriorForeground : Control
         {
             float above = InteriorRoom.FloorY - it.Pos.Y;
             float k = Mathf.Clamp(1f - above / 220f, 0.15f, 1f);
-            DrawFlatEllipse(new Vector2(it.Pos.X, InteriorRoom.FloorY + 18f),
-                20f * (0.45f + 0.55f * k), 7f, new Color(0.14f, 0.11f, 0.08f, 0.20f * k));
+            // v3.86：地落接触阴影同样改用淡墨贴图（离地越高越淡越窄）
+            if (_shadowTex != null)
+            {
+                float dw = 44f * (0.45f + 0.55f * k);
+                DrawTextureRect(_shadowTex,
+                    new Rect2(it.Pos.X - dw / 2f, InteriorRoom.FloorY + 8f, dw, 15f),
+                    false, new Color(1f, 1f, 1f, k));
+            }
         }
         else
         {
@@ -1652,13 +1713,7 @@ public partial class InteriorForeground : Control
     // ---------- 提示牌 / 结果条 ----------
     private void RefreshPrompt(float W, float H)
     {
-        // v3.85：没指向任何东西时只留一行淡墨操作说明；一旦命中就把它收起来，
-        // 屏幕上唯一的反馈是贴着物件的那张 E 纸条。
-        bool hovered = _room.AtDoor
-            || (_room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count)
-            || (_room.NearFurniture >= 0 && _room.NearFurniture < _room.Furniture.Count);
-        _hint.Visible = !hovered;
-
+        // v3.86：底部常驻说明已整体删除；这里只负责画「选中时才出现」的 E 纸条。
         string text;
         Vector2 pos;
         if (_room.AtDoor)
