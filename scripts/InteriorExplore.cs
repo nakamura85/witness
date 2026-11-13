@@ -112,10 +112,12 @@ public partial class InteriorBackdrop : Control
     public override void _Ready()
     {
         ClipContents = true;
-        // v3.80：residence.png 是钢笔淡彩（watercolor），与全局漫画风红线冲突；
-        // 改成程序化漫画风兜底背景（WashPaint 自 v3.65 起已是 manga），保证室内全一致。
-        string path = (_type == RoomType.Residence) ? null : PathFor(_type);
-        _tex = (path != null) ? GD.Load<Texture2D>(path) : null;
+        // v3.81 回退（用户 2026-11-13 纠正「谁跟你说要程序化」）：
+        // 三张室内贴图 residence / comm_outpost / burnt_warehouse 本来就是同一支笔的
+        // 钢笔淡彩·水墨手绘渲染，与用户 2026-11-12 两张参考图、v3.78 基线房屋贴图同源。
+        // v3.80 误把 residence 换成程序化 WashPaint，反而制造了画风不一致 —— 全部恢复加载；
+        // 程序化房间只保留为「贴图未导入」时的兜底，不再当正常渲染路径。
+        _tex = GD.Load<Texture2D>(PathFor(_type));
 
         if (_tex != null)
         {
@@ -556,6 +558,17 @@ public partial class InteriorForeground : Control
     private static readonly Color Red = new(0.62f, 0.21f, 0.16f);
     private static readonly Color Night = InkStyle.Night;
 
+    // v3.81：物品贴图集 —— 从 residence / comm_outpost 同源钢笔淡彩·水墨室内贴图裁片，
+    // 4x3 共 12 格（每格 160x120）。替换 v3.70 起的 DrawRect/HandRect 几何色块物件，
+    // 让前景物品与背景贴图同一支笔（用户 2026-11-13「谁跟你说要程序化」）。
+    private static Texture2D _propsAtlas;
+    private static readonly System.Collections.Generic.Dictionary<string, int> PropTile = new()
+    {
+        { "chest", 0 }, { "ammo", 1 }, { "grenade", 2 }, { "letter", 3 },
+        { "will", 4 }, { "clue", 5 }, { "gauze", 6 }, { "medkit", 7 },
+        { "ash", 8 }, { "power", 9 }, { "radio", 10 },
+    };
+
     public InteriorForeground(InteriorRoom room)
     {
         _room = room;
@@ -564,6 +577,7 @@ public partial class InteriorForeground : Control
 
     public override void _Ready()
     {
+        _propsAtlas ??= GD.Load<Texture2D>("res://assets/art/interior/props_atlas.png");
         _title = new Label
         {
             // 预览场景传入的标题已含「屋内」，游戏内传入的是屋名；避免叠成「· 屋内 · 屋内」
@@ -659,26 +673,9 @@ public partial class InteriorForeground : Control
     private void DrawDoor(float W, float H, WorldClock.Phase t)
     {
         float floor = H * 0.635f;
-        float dx = 12f, dw = 68f, dh = H * 0.60f;
-        float dy = floor + 16f - dh;
-
-        // 门外随室内时辰（与窗光同源，避免「窗是日光、门是夜光」的矛盾）
-        var dpal = WorldClock.For(t);
-        Box(new Rect2(dx + 5f, dy + 6f, dw - 10f, dh - 6f), dpal.WindowSky, Ink, 3f);
-        // 门板：木板三档平涂
-        Box(new Rect2(dx + 11f, dy + 14f, dw - 22f, dh - 20f), Wood, Ink, 3f);
-        for (float y = dy + 34f; y < dy + dh - 20f; y += 30f)
-            Line(new Vector2(dx + 14f, y), new Vector2(dx + dw - 14f, y), 1.6f, WoodShadow);
-        // 门框粗墨线
-        Line(new Vector2(dx, dy), new Vector2(dx, dy + dh), 4f, Ink);
-        Line(new Vector2(dx + dw, dy), new Vector2(dx + dw, dy + dh), 4f, Ink);
-        Line(new Vector2(dx, dy), new Vector2(dx + dw, dy), 4f, Ink);
-        // 门把：黄铜小圆点
-        Dot(new Vector2(dx + dw - 18f, dy + dh * 0.52f), 5f, new Color(0.78f, 0.63f, 0.30f));
-        // 卡通高光：短直线，不是模糊光晕
-        Line(new Vector2(dx + 16f, dy + 24f), new Vector2(dx + 30f, dy + 24f), 2.4f, WoodLit);
-
-        // 门口地面箭头（硬边三角），提示「往这边走出去」
+        // v3.81：不再画程序化几何门 —— 背景贴图 residence / comm_outpost / burnt_warehouse
+        // 本身就有手绘木门与卷轴，再叠一层 Box/Line 色块只会造成画风割裂。
+        // 仅保留门口交互箭头（UI 反馈，非场景美术）。
         if (_room.AtDoor)
         {
             DrawColoredPolygon(new[]
@@ -787,31 +784,9 @@ public partial class InteriorForeground : Control
     /// </summary>
     private void DrawFurnitureBody(Furniture f, WorldClock.Phase t)
     {
-        float hw = f.HalfW();
-        float top = f.TopY();
-        bool steel = f.Type == FurnitureType.Stove;
-        Color body = steel ? Steel : Wood;
-        Color bodySh = steel ? SteelShadow : WoodShadow;
-        Color bodyLit = steel ? SteelLit : WoodLit;
-
-        if (f.Type == FurnitureType.PictureFrame)
-        {
-            float fx = f.Center.X - 46f, fy = f.Center.Y - 34f, fw = 92f, fh = 68f;
-            DrawRect(RecessRect(f), new Color(0.10f, 0.08f, 0.07f));   // 墙洞（凹洞）
-            HandRect(new Rect2(fx, fy, fw, fh), bodyLit, Ink, 4f, f.Seed, bodySh, bodyLit); // 画框
-            return;
-        }
-
-        float bottom = f.Center.Y + (f.Type == FurnitureType.Cabinet ? 46f : 32f);
-        var carcass = new Rect2(f.Center.X - hw, top - 8f, hw * 2f, bottom - (top - 8f));
-        HandRect(carcass, body, Ink, 4f, f.Seed, bodySh, bodyLit);
-        DrawRect(RecessRect(f), new Color(0.10f, 0.08f, 0.07f));     // 凹洞（藏匿点）
-        DrawRect(new Rect2(f.Center.X - hw, top - 8f, hw * 2f, 6f), bodyLit); // 台面高光
-        if (f.Type != FurnitureType.Stove) // 腿
-        {
-            Line(new Vector2(f.Center.X - hw + 8f, bottom), new Vector2(f.Center.X - hw + 8f, bottom + 16f), 5f, Ink);
-            Line(new Vector2(f.Center.X + hw - 8f, bottom), new Vector2(f.Center.X + hw - 8f, bottom + 16f), 5f, Ink);
-        }
+        // v3.81：家具主体不再用 HandRect 几何色块 —— 背景贴图已自带手绘木桌 / 木柜 / 砖灶 / 画框。
+        // 只留一处低对比暗腔，标出「可翻找」位置，保住藏匿玩法的可读性。
+        DrawRect(RecessRect(f), new Color(0.10f, 0.08f, 0.07f, 0.50f));
     }
 
     /// <summary>
@@ -820,50 +795,31 @@ public partial class InteriorForeground : Control
     /// </summary>
     private void DrawFurnitureFront(Furniture f, WorldClock.Phase t)
     {
+        // v3.81：盖板改同源贴图裁片（画框→卷轴/地图、柜/桌→木柜、炉→砖灶），
+        // 翻开位移 off 原样保留，不再是几何色块 + 卡通高光。
         var r = RecessRect(f);
         Vector2 off = f.Type switch
         {
-            FurnitureType.Cabinet => new Vector2(f.HalfW() * 1.3f * f.OpenT, 0f),          // 柜门向右摆开
-            FurnitureType.PictureFrame => new Vector2(0f, -r.Size.Y * 1.05f * f.OpenT),   // 画心上抬
-            _ => new Vector2(0f, r.Size.Y * 0.9f * f.OpenT),                               // 抽屉 / 炉门向下拉出
+            FurnitureType.Cabinet => new Vector2(f.HalfW() * 1.3f * f.OpenT, 0f),
+            FurnitureType.PictureFrame => new Vector2(0f, -r.Size.Y * 1.05f * f.OpenT),
+            _ => new Vector2(0f, r.Size.Y * 0.9f * f.OpenT),
         };
-        bool steel = f.Type == FurnitureType.Stove;
-        Color cover = steel ? SteelShadow : WoodShadow;
-        Color coverLit = steel ? SteelLit : WoodLit;
-
-        if (f.Type == FurnitureType.PictureFrame)
-        {
-            var cr = new Rect2(r.Position.X + off.X, r.Position.Y + off.Y, r.Size.X, r.Size.Y);
-            HandRect(cr, coverLit, Ink, 3f, f.Seed + 7, cover, coverLit);   // 画心底（米白）
-            // v3.77 画中画改为手绘漫画风小景：暖色天 + 太阳 + 平缓山丘，与全屋上色同源，
-            // 不再是一块冷蓝写实矩形（用户圈注「物品美术风格不跟整体」即指此冷蓝块）。
-            float ix = cr.Position.X + 5f, iy = cr.Position.Y + 5f, iw = cr.Size.X - 10f, ih = cr.Size.Y - 10f;
-            var sky = new Color(0.66f, 0.74f, 0.85f);
-            var skySh = new Color(0.50f, 0.58f, 0.70f);
-            var skyLit = new Color(0.84f, 0.90f, 0.96f);
-            HandRect(new Rect2(ix, iy, iw, ih), sky, Ink, 2f, f.Seed + 11, skySh, skyLit);   // 天空（粗墨描边）
-            Disk(new Vector2(ix + iw * 0.70f, iy + ih * 0.26f), 6f, Ink, new Color(0.96f, 0.82f, 0.44f), 2f); // 暖阳
-            var hill = new Color(0.48f, 0.56f, 0.38f);
-            var hillSh = new Color(0.34f, 0.42f, 0.28f);
-            DrawColoredPolygon(new[]
-            {
-                new Vector2(ix, iy + ih * 0.66f), new Vector2(ix + iw * 0.42f, iy + ih * 0.50f),
-                new Vector2(ix + iw * 0.78f, iy + ih * 0.64f), new Vector2(ix + iw, iy + ih * 0.54f),
-                new Vector2(ix + iw, iy + ih), new Vector2(ix, iy + ih)
-            }, hill);
-            DrawPolyline(new[]
-            {
-                new Vector2(ix, iy + ih * 0.66f), new Vector2(ix + iw * 0.42f, iy + ih * 0.50f),
-                new Vector2(ix + iw * 0.78f, iy + ih * 0.64f), new Vector2(ix + iw, iy + ih * 0.54f)
-            }, Ink, 2f, true);
-            return;
-        }
-
         var fr = new Rect2(r.Position.X + off.X, r.Position.Y + off.Y, r.Size.X, r.Size.Y);
-        HandRect(fr, cover, Ink, 3f, f.Seed + 3, cover, coverLit);
-        // 把手（黄铜）
-        Dot(new Vector2(fr.Position.X + fr.Size.X * (f.Type == FurnitureType.Cabinet ? 0.80f : 0.5f),
-                        fr.Position.Y + fr.Size.Y * 0.5f), 2.6f, new Color(0.78f, 0.63f, 0.30f));
+        if (_propsAtlas != null)
+        {
+            int tile = f.Type switch
+            {
+                FurnitureType.PictureFrame => 3,   // 卷轴挂画
+                FurnitureType.Stove => 8,          // 砖灶
+                _ => 0,                            // 木柜
+            };
+            var src = new Rect2((tile % 4) * 160f, (tile / 4) * 120f, 160f, 120f);
+            DrawTextureRectRegion(_propsAtlas, fr, src);
+        }
+        else
+        {
+            DrawRect(fr, new Color(0.34f, 0.24f, 0.16f, 0.85f));
+        }
     }
 
     /// <summary>v3.71 用户诉求④：地落物 —— 接触阴影落在地面、随离地高度缩放；本体由 DrawItemCore 画。</summary>
@@ -916,21 +872,33 @@ public partial class InteriorForeground : Control
                 DrawColoredPolygon(GlowPoly(p, 30f * i + 10f), new Color(0.99f, 0.86f, 0.55f, pulse / i));
         }
 
-        // 物件本体（v3.70：手绘漫画风，抖动墨线 + 三档平涂 + 内部细节，不再用方块图标）
-        switch (it.Kind)
+        // v3.81：物件本体改同源贴图裁片（不再是程序化几何色块）。
+        // 图集取自用户认可的钢笔淡彩·水墨室内贴图，与背景同一支笔。
+        if (_propsAtlas != null)
         {
-            case "chest":   DrawChest(p, a, seed); break;
-            case "ammo":    DrawAmmoBox(p, a, seed); break;
-            case "grenade": DrawGrenade(p, a, seed); break;
-            case "letter":
-            case "will":
-            case "clue":    DrawEnvelope(p, a, seed, it.Kind == "clue"); break;
-            case "gauze":   DrawGauze(p, a, seed); break;
-            case "medkit":  DrawMedkit(p, a, seed); break;
-            case "ash":     DrawAsh(p, a, seed); break;
-            case "power":   DrawPowerBox(p, a, seed); break;
-            case "radio":   DrawRadio(p, a, seed); break;
-            default:        DrawAmmoBox(p, a, seed); break;
+            int tile = PropTile.TryGetValue(it.Kind, out int idx) ? idx : 11;
+            var src = new Rect2((tile % 4) * 160f, (tile / 4) * 120f, 160f, 120f);
+            var dst = new Rect2(p.X - 34f, p.Y - 28f, 68f, 56f);
+            DrawTextureRectRegion(_propsAtlas, dst, src, new Color(1f, 1f, 1f, a));
+        }
+        else
+        {
+            // 兜底：仅当贴图未导入时才走旧程序化绘制
+            switch (it.Kind)
+            {
+                case "chest":   DrawChest(p, a, seed); break;
+                case "ammo":    DrawAmmoBox(p, a, seed); break;
+                case "grenade": DrawGrenade(p, a, seed); break;
+                case "letter":
+                case "will":
+                case "clue":    DrawEnvelope(p, a, seed, it.Kind == "clue"); break;
+                case "gauze":   DrawGauze(p, a, seed); break;
+                case "medkit":  DrawMedkit(p, a, seed); break;
+                case "ash":     DrawAsh(p, a, seed); break;
+                case "power":   DrawPowerBox(p, a, seed); break;
+                case "radio":   DrawRadio(p, a, seed); break;
+                default:        DrawAmmoBox(p, a, seed); break;
+            }
         }
 
         // 未搜过：物件上方一颗卡通高光十字星（不是文字标签）

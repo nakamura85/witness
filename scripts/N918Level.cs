@@ -260,6 +260,8 @@ public partial class N918Level : Node2D
     public bool SuppressAutoDialogue;
     private float _lastDryToast = -99f;
     private static Font _signFont;
+    // v3.81：柳条湖木牌板身贴图 —— 从 door_leaf_burnt.png 裁片提取，与房屋/铁轨同一支笔
+    private static Texture2D _signWoodTex;
 
     public N918Level(Main main) { _main = main; }
 
@@ -3825,23 +3827,19 @@ public partial class N918Level : Node2D
             // 柳条湖爆破点地名木牌：立在断轨缺口旁，点出事件地点（手绘漫画风：木纹 + 硬边墨线 + 高光 + 手写感刻字）
             float bx = LiutiaohuBreakX + LiutiaohuBreakW + 42f;
             var woodShade = new Color(0.42f, 0.28f, 0.15f, 0.96f);
-            var woodLit = new Color(0.80f, 0.62f, 0.36f, 0.96f);
             // 立柱（加高到板顶以上，避免「板浮空」）
             DrawLine(new Vector2(bx, GroundY + 4f), new Vector2(bx, GroundY - 96f), wood, 6f, false);
             DrawLine(new Vector2(bx - 2f, GroundY + 2f), new Vector2(bx - 2f, GroundY - 94f), woodShade, 2f, false);
-            // 板身：亮木色平涂（提高与暗背景对比）+ 4px 粗墨框，确保小图也读成「牌子」而非素板
-            var woodFace = new Color(0.72f, 0.54f, 0.32f, 0.98f);
-            DrawRect(new Rect2(bx - 66f, GroundY - 90f, 132f, 44f), woodFace);
-            DrawRect(new Rect2(bx - 66f, GroundY - 90f, 132f, 44f), ink, false, 4f);
+            // v3.81：板身改同源手绘木纹贴图（从 door_leaf_burnt.png 裁片提亮），
+            // 不再是纯色 DrawRect + 程序化横线木纹 —— 与房屋 / 铁轨同一支笔。
+            var signRect = new Rect2(bx - 66f, GroundY - 90f, 132f, 44f);
+            _signWoodTex ??= GD.Load<Texture2D>("res://assets/art/props/liutiaohu_sign_wood.png");
+            if (_signWoodTex != null)
+                DrawTextureRect(_signWoodTex, signRect, false);
+            else
+                DrawRect(signRect, new Color(0.72f, 0.54f, 0.32f, 0.98f)); // 贴图缺失兜底
+            DrawRect(signRect, ink, false, 4f);
             DrawRect(new Rect2(bx - 60f, GroundY - 84f, 120f, 32f), ink, false, 1f);
-            // 木纹（横向抖动，硬边，不走插值）
-            for (float yy = GroundY - 80f; yy < GroundY - 50f; yy += 6f)
-            {
-                float j = (Mathf.Sin(yy * 0.7f) * 0.5f) * 1.8f;
-                DrawLine(new Vector2(bx - 58f, yy + j), new Vector2(bx + 58f, yy - j), woodShade, 1.6f, false);
-            }
-            // 顶部高光条（卡通短直线）
-            DrawLine(new Vector2(bx - 58f, GroundY - 88f), new Vector2(bx + 58f, GroundY - 88f), woodLit, 2.4f, false);
             // v3.80：柳条湖地名文字——用 ThemeDB.FallbackFont 直接绘制（与 HUD 的「生命/手榴弹」同一套，
             // _Ready 已把它设为工程内置 CJK 字体，Capture/游戏都非 null）。先量字宽再居中，基线对齐板面中部。
             var dfont = ThemeDB.FallbackFont;
