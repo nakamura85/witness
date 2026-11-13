@@ -196,8 +196,15 @@ public partial class InteriorRoom : Control
     public readonly List<Furniture> Furniture = new();
     /// <summary>v3.71 全局时辰（进屋时从 WorldClock 读取，驱动窗光）。</summary>
     public WorldClock.Phase WorldTime = WorldClock.Phase.Day;
-    /// <summary>v3.71 地板静止线（房间画布 y），掉落物最终落在此。</summary>
+    /// <summary>v3.71 地板静止线（房间画布 y），掉落物最终落在此。v3.82 焦黑柜/灶底边仍用此线。</summary>
     public const float FloorY = 506f;
+    /// <summary>
+    /// v3.84 完好房间的「真实地板线」：由背景贴图换算而来。
+    /// residence / comm_outpost 的地板线在贴图 y≈710 / 690，乘 0.765 ⇒ 543 / 528。
+    /// 旧版把 Surface 物件一律放在 y≈492，比地板线高 40~50px ⇒ 用户说的「浮在墙上 / 摆的地方不对」。
+    /// 仓库不动（v3.82 已按 FloorY 验收通过），避免破坏已确认成果。
+    /// </summary>
+    public const float GroundY = 536f;
 
     /// <summary>玩家小人在房间画布上的 x（脚底落在地板行走带）。</summary>
     public float PlayerX = 132f;
@@ -212,7 +219,16 @@ public partial class InteriorRoom : Control
     private float _walkT;
     private float _facing = 1f;
 
-    /// <summary>只给 CaptureRoom 预览用：没有真实 loot 时，按房间格局造一组示例物件。</summary>
+    /// <summary>
+    /// v3.84：真实游戏与截图预览共用同一套「家具 + 藏匿分配表」。
+    ///
+    /// 【修掉的隐藏 bug】旧版这里先 BuildContents 造一批示例物件（竹箩 / 木箱 / 焦砖），
+    /// 再把真实 loot 全部 Mode=Surface 追加到 Items 尾部；而 EnterableHouse._Process 用
+    /// NearIndex 直接索引 _spots（真实 loot 数组）⇒ 两个数组长度与顺序都不一致，
+    /// 准星对准示例竹箩按 E，搜到的却是 _spots 里不相干的一项；真实 loot 也永远没有藏匿玩法。
+    /// 现在 Items 严格等于传入的 items（一一对应），藏匿由 AssignPlacement 在原地分派。
+    /// items == null 时按同一分配表造预览示例，保证「截图看到的 = 游戏里玩到的」。
+    /// </summary>
     public static InteriorRoom Create(RoomType type, int variant, int seed, string title,
         IEnumerable<RoomItem> items = null)
     {
@@ -224,9 +240,12 @@ public partial class InteriorRoom : Control
             Title = string.IsNullOrEmpty(title) ? "屋内" : title,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        BuildContents(r, type, variant, seed);
+        r.BuildFurniture(type, variant, seed);
         if (items != null)
-            foreach (var it in items) { it.Mode = RoomItemMode.Surface; r.Items.Add(it); }
+            foreach (var it in items) r.Items.Add(it);
+        else
+            r.BuildPreviewItems(type, seed);
+        r.AssignPlacement();
         r.Layout();
         return r;
     }
@@ -303,15 +322,23 @@ public partial class InteriorRoom : Control
             if (d < best) { best = d; NearIndex = i; }
         }
 
-        // 最近可翻找家具（关闭且含藏匿物）
+        // v3.84 最近可翻找家具：必须「未开 + 里面还有没搜过的物件」，判定半径按家具体量给，
+        // 柜门宽约 140px，旧版统一 74px 会让人站在柜前却翻不开。
         NearFurniture = -1;
-        float bestF = 74f;
+        float bestF = float.MaxValue;
         for (int i = 0; i < Furniture.Count; i++)
         {
             var f = Furniture[i];
-            if (f.ContainsSpotId == null || f.Opened) continue;
+            if (f.Opened || !HasClosedContents(f)) continue;
+            float reach = f.Type switch
+            {
+                FurnitureType.Cabinet => 112f,
+                FurnitureType.Desk => 96f,
+                FurnitureType.PictureFrame => 92f,
+                _ => 88f,
+            };
             float d = Mathf.Abs(f.Center.X - PlayerX);
-            if (d < bestF) { bestF = d; NearFurniture = i; }
+            if (d < reach && d < bestF) { bestF = d; NearFurniture = i; }
         }
 
         _fg.WalkPhase = _walkT;
@@ -351,11 +378,28 @@ public partial class InteriorRoom : Control
         }
     }
 
-    /// <summary>v3.71 翻找最近的可开家具（E 键入口，由 HouseInteriorUi 调用）。</summary>
-    public void OpenNearbyFurniture()
+    /// <summary>v3.84 该家具是否还藏着没搜过的物件（决定能否翻、要不要画提示）。</summary>
+    private bool HasClosedContents(Furniture f)
     {
-        if (NearFurniture >= 0 && NearFurniture < Furniture.Count)
-            Furniture[NearFurniture].Opened = true;
+        foreach (var it in Items)
+            if (it.Mode == RoomItemMode.Container && it.ContainerId == f.Id && !it.Done)
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// v3.84 翻找最近的可开家具（E 键入口）。返回是否真的打开了，
+    /// 让 EnterableHouse._Process 决定这次 interact 是「开柜」还是「搜物件」。
+    /// v3.71~v3.83 这个方法是孤儿：全仓零调用点，柜门在游戏中永远打不开，
+    /// 只有 CaptureRoom 靠 foreach 强制 Opened=true 才看得到藏匿物。
+    /// </summary>
+    public bool OpenNearbyFurniture()
+    {
+        if (NearFurniture < 0 || NearFurniture >= Furniture.Count) return false;
+        var f = Furniture[NearFurniture];
+        if (f.Opened || !HasClosedContents(f)) return false;
+        f.Opened = true;
+        return true;
     }
 
     /// <summary>搜刮完成后同步状态，避免物件仍亮着「可查看」。</summary>
@@ -381,152 +425,269 @@ public partial class InteriorRoom : Control
         _fg?.QueueRedraw();
     }
 
+    // =====================================================================
+    // v3.84 摆位与藏匿规格（全部可复算，坐标不再凭感觉给）
+    // ---------------------------------------------------------------------
+    // 背景贴图 1280x800，TextureRect(KeepAspectCovered) 铺进约 952x612 的房间画布：
+    //   scale = max(952/1280, 612/800) = 612/800 = 0.765
+    //   缩放后 979.2 x 612，左右各裁 (979.2-952)/2 = 13.6 px
+    //   ⇒ canvasX = texX * 0.765 - 13.6 ；canvasY = texY * 0.765
+    // 下表统一用「贴图像素」写家具锚点，运行时换算；住家 variant!=0 背景 FlipH，
+    // MX(x)=952-x 与背景镜像同步。锚点取自带坐标网格的 previews/grid_*.png 逐格核对。
+    // =====================================================================
+    public const float BgScale = 0.765f;
+    public const float BgCropX = 13.6f;
+    public static Vector2 Bg(float texX, float texY)
+        => new(texX * BgScale - BgCropX, texY * BgScale);
+
+    /// <summary>家具锚点：(id, 类型, 贴图 x, 贴图 y) —— 对齐背景里真实画着的柜门 / 炉口 / 抽屉 / 挂画。</summary>
+    private static (string, FurnitureType, float, float)[] FurnAnchors(RoomType type) => type switch
+    {
+        // 卷轴挂画中心(260,290) / 方桌抽屉(590,620) / 砖灶炉口(855,710) / 木柜门(1150,645)
+        // 旧坐标 cab=(590,486) 与真实柜门 canvas x≈866 差 276px ⇒ 藏匿物全摆到画面正中
+        RoomType.Residence => new (string, FurnitureType, float, float)[]
+        {
+            ("pic",   FurnitureType.PictureFrame, 260f, 290f),
+            ("desk",  FurnitureType.Desk,         590f, 620f),
+            ("stove", FurnitureType.Stove,        855f, 710f),
+            ("cab",   FurnitureType.Cabinet,     1150f, 645f),
+        },
+        // 地图挂画(210,260) / 电台桌抽屉(580,590) / 砖灶炉口(855,645) / 木柜门(1150,585)
+        // 旧坐标 desk=(672,446) 与真实桌抽屉 canvas x≈430 差 242px
+        RoomType.CommOutpost => new (string, FurnitureType, float, float)[]
+        {
+            ("pic",   FurnitureType.PictureFrame, 210f, 260f),
+            ("desk",  FurnitureType.Desk,         580f, 590f),
+            ("stove", FurnitureType.Stove,        855f, 645f),
+            ("cab",   FurnitureType.Cabinet,     1150f, 585f),
+        },
+        // 焚毁仓库：v3.82 已按 FloorY 补出焦黑柜 / 塌砖灶并经真帧验收，锚点换算回贴图像素后保持不变
+        _ => new (string, FurnitureType, float, float)[]
+        {
+            ("desk",  FurnitureType.Desk,         632f, 604f),
+            ("cab",   FurnitureType.Cabinet,      828f, 617f),
+            ("stove", FurnitureType.Stove,        439f, 625f),
+        },
+    };
+
     /// <summary>
-    /// v3.71 按房间类型造家具 + 物件，并分配陈列模式：
-    /// Surface 台面/地面可见、Container 藏家具内（点击翻开才露出）、FloorDrop 实时掉落。
-    /// 关键物 = 真实烈士姓名的信/遗书（letter/will），标 Key=true 画不刺眼的微光；其余不亮。
+    /// v3.84 藏匿分配表：(家具 id, 允许藏入的 kind 优先序)。每个容器最多 2 件，
+    /// 摊开时左右错位不重叠；放不下的顺延到下一容器，仍放不下才留明面。
+    /// 用户 2026-11-13：「信，子弹有一些是藏在柜子里面……挂画……暗格放手榴弹，子弹或者遗书」。
+    /// ⇒ 柜子吃 ammo/letter/medkit；挂画暗格吃 grenade/will/ammo/clue；桌抽屉吃信；灶膛吃遗书。
     /// </summary>
-    private static void BuildContents(InteriorRoom r, RoomType type, int variant, int seed)
+    private static (string furn, string[] kinds)[] HideRules(RoomType type) => type switch
+    {
+        RoomType.CommOutpost => new (string, string[])[]
+        {
+            ("cab",   new[] { "ammo", "medkit", "letter", "grenade" }),
+            ("pic",   new[] { "grenade", "will", "clue", "ammo" }),
+            ("desk",  new[] { "letter", "clue", "will" }),
+            ("stove", new[] { "will", "ash" }),
+        },
+        RoomType.BurntWarehouse => new (string, string[])[]
+        {
+            ("cab",   new[] { "ammo", "medkit", "grenade" }),
+            ("desk",  new[] { "letter", "clue", "will" }),
+            ("stove", new[] { "will", "ash" }),
+        },
+        _ => new (string, string[])[]
+        {
+            ("cab",   new[] { "ammo", "letter", "medkit", "will" }),
+            ("pic",   new[] { "grenade", "will", "clue", "ammo" }),
+            ("desk",  new[] { "letter", "clue" }),
+            ("stove", new[] { "will", "ash" }),
+        },
+    };
+
+    /// <summary>明面锚点：只落在背景「空白地面」，避开柜/灶/桌/挂画，不再浮到墙上或家具上。</summary>
+    private static Vector2[] SurfaceAnchors(RoomType type) => type switch
+    {
+        RoomType.BurntWarehouse => new[]
+        {
+            new Vector2(760f, 492f), new Vector2(540f, 492f), new Vector2(470f, 498f),
+            new Vector2(410f, 500f), new Vector2(720f, 500f),
+        },
+        _ => new[]
+        {
+            new Vector2(120f, GroundY - 12f), new Vector2(300f, GroundY - 12f),
+            new Vector2(760f, GroundY - 12f), new Vector2(210f, GroundY - 22f),
+            new Vector2(690f, GroundY - 22f), new Vector2(390f, GroundY - 28f),
+        },
+    };
+
+    /// <summary>v3.84：只造家具（不造示例物件），锚点按背景贴图换算；仓库沿用 v3.82 的 FloorY 体量。</summary>
+    private void BuildFurniture(RoomType type, int variant, int seed)
     {
         bool mirror = (type == RoomType.Residence && variant != 0);
         float MX(float x) => mirror ? 952f - x : x;
-
-        // 家具规格：(id, 类型, x, y)
-        var furn = type switch
-        {
-            RoomType.CommOutpost => new (string, FurnitureType, float, float)[]
-            {
-                ("desk", FurnitureType.Desk, 672f, 446f),
-                ("cab",  FurnitureType.Cabinet, 800f, 462f),
-            },
-            RoomType.BurntWarehouse => new (string, FurnitureType, float, float)[]
-            {
-                ("desk",  FurnitureType.Desk, 470f, 462f),
-                ("cab",   FurnitureType.Cabinet, 620f, 472f),
-                ("stove", FurnitureType.Stove, 322f, 478f),
-            },
-            _ => new (string, FurnitureType, float, float)[]
-            {
-                ("desk",  FurnitureType.Desk, 455f, 452f),
-                ("stove", FurnitureType.Stove, 720f, 470f),
-                ("cab",   FurnitureType.Cabinet, 590f, 486f),
-                ("pic",   FurnitureType.PictureFrame, 250f, 372f),
-            },
-        };
-        // 藏匿规格：(家具id, 物件kind, 标签)
-        var hides = type switch
-        {
-            RoomType.CommOutpost => new (string, string, string)[]
-            {
-                ("desk", "letter", "地图桌抽屉里的作战图"),
-                ("cab",  "radio",  "发报密电"),
-            },
-            RoomType.BurntWarehouse => new (string, string, string)[]
-            {
-                ("desk",  "letter", "半塌桌抽屉里的残信"),
-                ("cab",   "medkit", "焦柜里的医药包"),
-                ("stove", "will",   "残灶里没烧尽的遗书"),
-            },
-            _ => new (string, string, string)[]
-            {
-                ("desk", "letter", "抽屉里的家信"),
-                ("stove","will",   "灶台里叠好的遗书"),
-                ("cab",  "medkit", "柜中的医药包"),
-                ("pic",  "clue",   "挂画后墙洞里的文件"),
-            },
-        };
-
         var rng = new RandomNumberGenerator(); rng.Seed = (ulong)(seed & 0xffffff) + 7919u;
-
-        // 1) 建家具，并填上藏匿物 SpotId
-        var furnById = new Dictionary<string, Furniture>();
-        foreach (var fs in furn)
+        foreach (var a in FurnAnchors(type))
         {
-            var c = System.Array.Find(hides, h => h.Item1 == fs.Item1);
-            string spot = (c.Item2 != null) ? $"{type}:{c.Item2}" : null;
-            var f = new Furniture
+            Vector2 c = Bg(a.Item3, a.Item4);
+            Furniture.Add(new Furniture
             {
-                Id = fs.Item1,
-                Type = fs.Item2,
-                Center = new Vector2(MX(fs.Item3), fs.Item4),
-                ContainsSpotId = spot,
+                Id = a.Item1,
+                Type = a.Item2,
+                Center = new Vector2(MX(c.X), c.Y),
+                ContainsSpotId = null,     // 由 AssignPlacement 按真实 loot 回填
                 Seed = (int)(rng.Randi() % 99991),
-            };
-            r.Furniture.Add(f);
-            furnById[fs.Item1] = f;
-        }
-
-        // 2) 藏匿物（Container 模式）：藏在家具凹洞，翻开才露
-        foreach (var h in hides)
-        {
-            var f = furnById[h.Item1];
-            bool key = (h.Item2 == "letter" || h.Item2 == "will");
-            r.Items.Add(new RoomItem
-            {
-                SpotId = $"{type}:{h.Item2}",
-                Kind = h.Item2,
-                Label = h.Item3,
-                Mode = RoomItemMode.Container,
-                ContainerId = f.Id,
-                Key = key,
-                Done = false,
-                Pos = f.RecessPos(),
             });
         }
+    }
 
-        // 3) 台面 / 掉落物件：(kind, label, mode, x, y) —— FloorDrop 的 y 由物理决定，这里只给落点 x
-        var extras = type switch
+    /// <summary>截图预览用的示例 loot（items==null 时）。走与真实游戏完全相同的分配表。</summary>
+    private void BuildPreviewItems(RoomType type, int seed)
+    {
+        var demo = type switch
         {
-            RoomType.CommOutpost => new (string, string, RoomItemMode, float, float)[]
+            RoomType.CommOutpost => new (string, string)[]
             {
-                ("power",  "墙边的电闸与手摇发电机", RoomItemMode.Surface, 170f, 452f),
-                ("ammo",   "没藏好的弹药盒",         RoomItemMode.FloorDrop, 360f, 0f),
-                ("grenade","来不及收的木柄手榴弹",   RoomItemMode.FloorDrop, 660f, 0f),
-                ("chest",  "屋角上锁的木箱",         RoomItemMode.Surface, 540f, 492f),
-                ("gauze",  "半卷纱布",               RoomItemMode.Surface, 430f, 492f),
-                ("ash",    "烧焦的灰烬",             RoomItemMode.Surface, 250f, 496f),
-                ("clue",   "桌上的便条",             RoomItemMode.Surface, 760f, 492f),
+                ("ammo", "弹药盒"), ("letter", "地图桌抽屉里的作战图"),
+                ("grenade", "木柄手榴弹"), ("will", "叠得整整齐齐的遗书"),
+                ("medkit", "军医留下的医药包"), ("chest", "上锁的弹药箱"),
+                ("ash", "墙角的废墟"), ("clue", "桌上的便条"),
+                ("power", "墙边的电闸与手摇发电机"), ("radio", "无线电发信机"),
             },
-            RoomType.BurntWarehouse => new (string, string, RoomItemMode, float, float)[]
+            RoomType.BurntWarehouse => new (string, string)[]
             {
-                ("ammo",   "没藏好的弹药盒",         RoomItemMode.FloorDrop, 410f, 0f),
-                ("grenade","来不及收的木柄手榴弹",   RoomItemMode.FloorDrop, 720f, 0f),
-                ("chest",  "焦黑的木箱",             RoomItemMode.Surface, 760f, 492f),
-                ("gauze",  "半卷纱布",               RoomItemMode.Surface, 540f, 492f),
-                ("ash",    "一摊烧焦的灰烬",         RoomItemMode.Surface, 470f, 498f),
+                ("ammo", "弹药盒"), ("grenade", "木柄手榴弹"),
+                ("letter", "半塌桌抽屉里的残信"), ("medkit", "焦柜里的医药包"),
+                ("will", "残灶里没烧尽的遗书"), ("chest", "焦黑的木箱"),
+                ("gauze", "半卷纱布"), ("ash", "一摊烧焦的灰烬"),
             },
-            _ => new (string, string, RoomItemMode, float, float)[]
+            _ => new (string, string)[]
             {
-                ("ammo",   "没藏好的弹药盒",         RoomItemMode.FloorDrop, 360f, 0f),
-                ("grenade","来不及收的木柄手榴弹",   RoomItemMode.FloorDrop, 660f, 0f),
-                ("chest",  "屋角上锁的木箱",         RoomItemMode.Surface, 835f, 492f),
-                ("gauze",  "炕上半卷纱布",           RoomItemMode.Surface, 190f, 492f),
-                ("ash",    "灶边烧焦的灰",           RoomItemMode.Surface, 820f, 496f),
+                ("ammo", "弹药盒"), ("letter", "抽屉里的家信"),
+                ("grenade", "木柄手榴弹"), ("will", "灶台里叠好的遗书"),
+                ("medkit", "柜中的医药包"), ("chest", "屋角上锁的木箱"),
+                ("gauze", "炕上半卷纱布"), ("ash", "灶边烧焦的灰"),
+                ("clue", "挂画后墙洞里的文件"),
             },
         };
-        int di = 0;
-        foreach (var e in extras)
-        {
-            var it = new RoomItem
+        int i = 0;
+        foreach (var d in demo)
+            Items.Add(new RoomItem
             {
-                SpotId = $"{type}:extra:{di}",
-                Kind = e.Item1,
-                Label = e.Item2,
-                Mode = e.Item3,
+                SpotId = $"{type}:demo:{i++}", Kind = d.Item1, Label = d.Item2,
                 Done = false,
-            };
-            if (e.Item3 == RoomItemMode.FloorDrop)
-            {
-                it.Pos = new Vector2(MX(e.Item4), FloorY - 150f);
-                it.DropDelay = (di * 0.14f) % 0.5f;   // 错落下落
-                di++;
-            }
-            else
-            {
-                it.Pos = new Vector2(MX(e.Item4), e.Item5);
-            }
-            r.Items.Add(it);
+            });
+    }
+
+    /// <summary>
+    /// v3.84 核心：把每件 loot 分派到「藏进哪个家具」或「留在明面哪块空地」。
+    /// 确定性、可复算；一个容器最多 2 件；真实游戏与预览共用。
+    /// </summary>
+    private void AssignPlacement()
+    {
+        // v3.84：焚毁仓库沿用 v3.82 已逐帧验收过的摆位，本轮不重排（避免破坏已确认成果）
+        if (Type == RoomType.BurntWarehouse)
+        {
+            AssignPlacementBurntV382();
+            return;
         }
+        bool mirror = (Type == RoomType.Residence && Variant != 0);
+        float MX(float x) => mirror ? 952f - x : x;
+        var placed = new HashSet<RoomItem>();
+
+        foreach (var (furnId, kinds) in HideRules(Type))
+        {
+            var f = Furniture.Find(x => x.Id == furnId);
+            if (f == null) continue;
+            int cap = 2;
+            foreach (var kind in kinds)
+            {
+                if (cap <= 0) break;
+                foreach (var it in Items)
+                {
+                    if (cap <= 0) break;
+                    if (placed.Contains(it) || it.Kind != kind) continue;
+                    it.Mode = RoomItemMode.Container;
+                    it.ContainerId = f.Id;
+                    it.Pos = f.RecessPos();
+                    placed.Add(it);
+                    cap--;
+                    if (f.ContainsSpotId == null) f.ContainsSpotId = it.SpotId;
+                }
+            }
+        }
+
+        var anchors = SurfaceAnchors(Type);
+        int ai = 0;
+        foreach (var it in Items)
+        {
+            // 关键物（真实烈士姓名的信/遗书）沿用 v3.71 的不刺眼微光；真实 loot 由这里补齐标记
+            if (it.Kind == "letter" || it.Kind == "will") it.Key = true;
+            if (placed.Contains(it)) continue;
+            it.Mode = RoomItemMode.Surface;
+            var a = anchors[ai % anchors.Length];
+            it.Pos = new Vector2(MX(a.X), a.Y);
+            ai++;
+        }
+    }
+
+    /// <summary>
+    /// v3.84 仓库兼容分支：完整复刻 v3.82 的藏匿与摆位（用户 2026-11-13 逐帧验收通过）。
+    /// 本轮「锚点对齐 / 小件尺寸表 / 挂画暗格」只作用于住家与通信据点；
+    /// 仓库的焦黑柜、塌砖灶、灰堆与实时掉落一律不动。
+    /// </summary>
+    private void AssignPlacementBurntV382()
+    {
+        foreach (var f in Furniture) f.ContainsSpotId = null;
+        var desk = Furniture.Find(x => x.Id == "desk");
+        var cab = Furniture.Find(x => x.Id == "cab");
+        var stove = Furniture.Find(x => x.Id == "stove");
+        foreach (var it in Items)
+        {
+            if (it.Kind == "letter" || it.Kind == "will") it.Key = true;
+            switch (it.Kind)
+            {
+                case "letter" when desk != null:  HideIn(it, desk); break;
+                case "medkit" when cab != null:   HideIn(it, cab); break;
+                case "will" when stove != null:   HideIn(it, stove); break;
+                case "ammo":                      DropAt(it, 410f, 0f); break;
+                case "grenade":                   DropAt(it, 720f, 0.14f); break;
+                case "chest":                     SurfaceAt(it, 760f, 492f); break;
+                case "gauze":                     SurfaceAt(it, 540f, 492f); break;
+                case "ash":                       SurfaceAt(it, 470f, 498f); break;
+                default:                          SurfaceAt(it, 620f, 496f); break;
+            }
+        }
+    }
+
+    private void HideIn(RoomItem it, Furniture f)
+    {
+        it.Mode = RoomItemMode.Container;
+        it.ContainerId = f.Id;
+        it.Pos = f.RecessPos();
+        if (f.ContainsSpotId == null) f.ContainsSpotId = it.SpotId;
+    }
+
+    private void DropAt(RoomItem it, float x, float delay)
+    {
+        it.Mode = RoomItemMode.FloorDrop;
+        it.Pos = new Vector2(x, FloorY - 150f);
+        it.DropDelay = delay;
+    }
+
+    private void SurfaceAt(RoomItem it, float x, float y)
+    {
+        it.Mode = RoomItemMode.Surface;
+        it.Pos = new Vector2(x, y);
+    }
+
+    /// <summary>v3.84：给 UI 的翻找动词（未开家具的提示牌文案）。</summary>
+    public string FurnitureVerb(int idx)
+    {
+        if (idx < 0 || idx >= Furniture.Count) return "翻找";
+        return Furniture[idx].Type switch
+        {
+            FurnitureType.Cabinet => "拉开柜门",
+            FurnitureType.PictureFrame => "掀起挂画",
+            FurnitureType.Desk => "拉开抽屉",
+            FurnitureType.Stove => "扒开灶膛",
+            _ => "翻找",
+        };
     }
 }
 
@@ -588,7 +749,7 @@ public partial class InteriorForeground : Control
     ///   单件最宽 132/952 = 13.9% 画布宽，不遮挡窗与房梁。
     /// ash 只取格子中段 52px 扁条（灰堆摊在地上，不该是 4:3 的方块）。
     /// </summary>
-    private static readonly Dictionary<string, (int tile, float w, float sy, float sh)> PropSpec = new()
+    private static readonly Dictionary<string, (int tile, float w, float sy, float sh)> PropSpecBurnt = new()
     {
         { "chest",   (0, 108f,  0f, 120f) },
         { "ammo",    (1,  74f,  0f, 120f) },
@@ -604,6 +765,35 @@ public partial class InteriorForeground : Control
     };
 
     /// <summary>
+    /// v3.84 完好房间（住家 / 通信据点）小件表：(贴图源, srcX, srcY, srcW, srcH, 目标宽)。
+    /// sheet 0 = props_atlas.png(640×360) / 1 = props_atlas_burnt.png(640×480) / 2 = paper_burnt_v1.png(384×384)。
+    ///
+    /// 【为什么必须拆表】v3.82 的 L/M/S 尺寸表被全局套用，完好房间也放大到 44–132px；
+    /// 而 props_atlas 的 12 格其实全是背景里「整件大家具」（木柜 / 砖灶 / 竹箩堆 / 卷轴 / 电表 / 电台）
+    /// 的裁片，叠到已经画着同款家具的背景上 ⇒ 用户圈的「一叠竹箩浮在桌上 / 尺寸不对 / 摆放不对」。
+    /// 现在：① 只裁单个小木箱 / 竹箩上沿等局部；② 目标宽收敛到 38–52px（能拿在手里的尺寸）；
+    /// ③ 信件类直接取 v3.83 验收过的揉皱旧纸贴图，语义与纸张 UI 统一。
+    /// 高由 h = w × srcH / srcW 推导，src 与 dst 同比 ⇒ 永不拉伸。
+    /// </summary>
+    private static readonly Dictionary<string, (int sheet, int sx, int sy, int sw, int sh, float w)> IntactSpec = new()
+    {
+        { "chest",   (0, 168,  10, 145, 100, 52f) },  // tile1 单个木箱
+        { "ammo",    (0, 326,  20, 140,  90, 44f) },  // tile2 小木箱
+        { "grenade", (0, 486, 246, 140,  80, 40f) },  // tile11 木箱组里的单个
+        { "letter",  (2,  96,  96, 192, 140, 42f) },  // 揉皱旧纸（v3.83 同源资产）
+        { "will",    (2,  96,  96, 192, 140, 42f) },
+        { "clue",    (2,  96,  96, 192, 140, 38f) },
+        { "gauze",   (0, 486, 126, 148,  70, 44f) },  // tile7 竹箩上沿（浅色编织，读作卷布）
+        { "medkit",  (0, 326, 246, 148,  90, 46f) },  // tile10 侧面木箱
+        { "ash",     (1,   0, 278, 160,  52, 50f) },  // v3.82 已验收的灰堆扁条
+        { "power",   (0, 166, 246, 150, 110, 48f) },  // tile9 电表
+        { "radio",   (0, 326, 246, 150, 110, 50f) },  // tile10 电台
+    };
+
+    /// <summary>v3.84 信件类用的揉皱旧纸贴图（v3.83 资产，不新增美术）。</summary>
+    private static Texture2D _paperTex;
+
+    /// <summary>
     /// v3.82 焚毁仓库家具前脸：(格号, 目标宽, 目标高, srcX, srcY, srcW, srcH)。
     /// src 与 dst 宽高比严格一致 ⇒ 不拉伸；柜 / 灶底边落在 FloorY，站得住。
     /// 背景贴图里只有一张方桌，没有橱柜和砖灶 —— 这两件必须补出实体，
@@ -617,6 +807,36 @@ public partial class InteriorForeground : Control
         { FurnitureType.PictureFrame, (15,  60f,  84f, 50f,  0f,  60f,  84f) },
     };
 
+    /// <summary>
+    /// v3.84 完好房间「柜门 / 画心 / 抽屉 / 灶面」在背景贴图里的源矩形（贴图像素）。
+    /// 前景从**同一张背景贴图**裁出、按 Bg() 换算 1:1 画回原处：
+    ///   • 关闭时与背景像素完全重合 ⇒ 不会像 v3.81 那样叠一小块不协调的贴片（用户圈的「摆放不对」）；
+    ///   • OpenT 时整块平移 + 淡出 ⇒ 真正的「拉开柜门 / 掀起挂画」动画，露出暗格里的物件。
+    /// 零新增美术资产、零运行时程序化场景实体、零拉伸（src 与 dst 同比）。
+    /// 源矩形来自 previews/grid_residence.png / grid_comm_outpost.png 逐格核对。
+    /// </summary>
+    private static readonly Dictionary<(RoomType, FurnitureType), Rect2> FrontSrc = new()
+    {
+        { (RoomType.Residence, FurnitureType.Cabinet),       new Rect2(1060, 520, 180, 250) },
+        { (RoomType.Residence, FurnitureType.PictureFrame),  new Rect2( 190,  60, 140, 460) },
+        { (RoomType.Residence, FurnitureType.Desk),          new Rect2( 410, 525, 360,  55) },
+        { (RoomType.Residence, FurnitureType.Stove),         new Rect2( 790, 555, 140, 205) },
+        { (RoomType.CommOutpost, FurnitureType.Cabinet),      new Rect2(1060, 460, 180, 250) },
+        { (RoomType.CommOutpost, FurnitureType.PictureFrame), new Rect2( 100, 120, 220, 280) },
+        { (RoomType.CommOutpost, FurnitureType.Desk),         new Rect2( 400, 490, 360,  50) },
+        { (RoomType.CommOutpost, FurnitureType.Stove),        new Rect2( 790, 500, 140, 200) },
+    };
+
+    /// <summary>贴图像素矩形 → 房间画布矩形（与 InteriorBackdrop 的 KeepAspectCovered 同一换算）。</summary>
+    private static Rect2 BgRect(Rect2 src) => new(
+        src.Position.X * InteriorRoom.BgScale - InteriorRoom.BgCropX,
+        src.Position.Y * InteriorRoom.BgScale,
+        src.Size.X * InteriorRoom.BgScale,
+        src.Size.Y * InteriorRoom.BgScale);
+
+    /// <summary>v3.84 前景柜门裁片用的背景贴图（与 InteriorBackdrop 同一份资源，不新增资产）。</summary>
+    private Texture2D _roomTex;
+
     public InteriorForeground(InteriorRoom room)
     {
         _room = room;
@@ -627,6 +847,14 @@ public partial class InteriorForeground : Control
     {
         _propsAtlas ??= GD.Load<Texture2D>("res://assets/art/interior/props_atlas.png");
         _propsAtlasBurnt ??= GD.Load<Texture2D>("res://assets/art/interior/props_atlas_burnt.png");
+        _paperTex ??= GD.Load<Texture2D>("res://assets/art/ui/paper_burnt_v1.png");
+        // v3.84：柜门 / 画心裁片直接取同一张背景贴图，不新增美术资产
+        _roomTex = GD.Load<Texture2D>(_room.Type switch
+        {
+            RoomType.CommOutpost => "res://assets/art/interior/comm_outpost.png",
+            RoomType.BurntWarehouse => "res://assets/art/interior/burnt_warehouse.png",
+            _ => "res://assets/art/interior/residence.png",
+        });
         _title = new Label
         {
             // 预览场景传入的标题已含「屋内」，游戏内传入的是屋名；避免叠成「· 屋内 · 屋内」
@@ -686,17 +914,33 @@ public partial class InteriorForeground : Control
         // 1) 门
         DrawDoor(W, H, _room.WorldTime);
 
-        // 2) 逐家具分层：先画被它遮挡的地落物 → 家具主体（含凹洞）→ 已开容器的露出物 → 家具前脸（盖住未开藏匿物）
+        // 2) v3.84 逐家具分层：地落物 → 暗格（开门后遮住背景柜门）→ 全部藏匿物（左右错位）
+        //    → 柜门/画心裁片。裁片在最上层：关闭时完全盖住暗格与物件 ⇒ 「不开就看不见」；
+        //      OpenT 平移 + 淡出 ⇒ 开门过程中渐渐看见里面的子弹/手榴弹/遗书。
+        //    旧版 Find() 只画第一件，一个柜子藏多件时后面几件永远不出现。
         foreach (var f in _room.Furniture)
         {
             foreach (var it in _room.Items)
                 if (it.Mode == RoomItemMode.FloorDrop && OccludedBy(f, it))
                     DrawDropItem(it);
             DrawFurnitureBody(f, _room.WorldTime);
-            var hidden = _room.Items.Find(it => it.ContainerId == f.Id);
-            if (hidden != null && f.OpenT > 0.05f)
-                DrawItem(hidden, f.RecessPos(),
-                    _room.NearIndex >= 0 && _room.Items[_room.NearIndex] == hidden, f.OpenT);
+            if (f.OpenT > 0.05f)
+            {
+                int total = 0;
+                foreach (var it in _room.Items)
+                    if (it.Mode == RoomItemMode.Container && it.ContainerId == f.Id) total++;
+                int k = 0;
+                foreach (var it in _room.Items)
+                {
+                    if (it.Mode != RoomItemMode.Container || it.ContainerId != f.Id) continue;
+                    Vector2 p = f.RecessPos() + new Vector2(
+                        (k - (total - 1) * 0.5f) * 38f, (k % 2 == 0 ? 0f : 7f));
+                    bool near = _room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count
+                                && _room.Items[_room.NearIndex] == it;
+                    DrawItem(it, p, near, f.OpenT);
+                    k++;
+                }
+            }
             DrawFurnitureFront(f, _room.WorldTime);
         }
 
@@ -799,11 +1043,22 @@ public partial class InteriorForeground : Control
         DrawColoredPolygon(pts, col);
     }
 
-    /// <summary>家具凹洞（藏匿点）矩形，按类型给尺寸。</summary>
+    /// <summary>
+    /// v3.84 暗格矩形：按背景家具真实体量给尺寸，能并排放 2 件 34–52px 小件。
+    /// 旧版一律 48×42，两件必然重叠；柜门宽 138px 却只开 48px 的洞也不合比例。
+    /// 仓库沿用 v3.82 已验收的小凹洞（焦黑柜/灶另有 BurntFront 前脸盖着）。
+    /// </summary>
     private Rect2 RecessRect(Furniture f)
     {
-        float w = f.Type switch { FurnitureType.Cabinet => 48f, FurnitureType.PictureFrame => 46f, FurnitureType.Stove => 46f, _ => 52f };
-        float h = f.Type switch { FurnitureType.Cabinet => 42f, FurnitureType.PictureFrame => 42f, FurnitureType.Stove => 22f, _ => 26f };
+        if (IsBurnt)
+        {
+            float bw = f.Type switch { FurnitureType.Cabinet => 48f, FurnitureType.PictureFrame => 46f, FurnitureType.Stove => 46f, _ => 52f };
+            float bh = f.Type switch { FurnitureType.Cabinet => 42f, FurnitureType.PictureFrame => 42f, FurnitureType.Stove => 22f, _ => 26f };
+            Vector2 bc = f.RecessPos();
+            return new Rect2(bc.X - bw / 2f, bc.Y - bh / 2f, bw, bh);
+        }
+        float w = f.Type switch { FurnitureType.Cabinet => 110f, FurnitureType.PictureFrame => 100f, FurnitureType.Stove => 76f, _ => 106f };
+        float h = f.Type switch { FurnitureType.Cabinet => 82f, FurnitureType.PictureFrame => 86f, FurnitureType.Stove => 40f, _ => 44f };
         Vector2 c = f.RecessPos();
         return new Rect2(c.X - w / 2f, c.Y - h / 2f, w, h);
     }
@@ -833,9 +1088,35 @@ public partial class InteriorForeground : Control
     /// </summary>
     private void DrawFurnitureBody(Furniture f, WorldClock.Phase t)
     {
-        // v3.81：家具主体不再用 HandRect 几何色块 —— 背景贴图已自带手绘木桌 / 木柜 / 砖灶 / 画框。
-        // 只留一处低对比暗腔，标出「可翻找」位置，保住藏匿玩法的可读性。
-        DrawRect(RecessRect(f), new Color(0.10f, 0.08f, 0.07f, 0.50f));
+        if (IsBurnt)
+        {
+            // v3.82 焦黑仓库：保持已验收的低对比暗腔，本轮不动
+            DrawRect(RecessRect(f), new Color(0.10f, 0.08f, 0.07f, 0.50f));
+            return;
+        }
+        // v3.84 完好房间：只在柜门 / 画心开始让位后才出现暗格。
+        // 【不用纯色黑块】第一版真帧里不透明 DrawRect 读成「柜门上贴了块黑补丁」，
+        // 既难看又违背「场景实体不用程序化色块」的红线。改为：把暗格对应的那块
+        // **同一张背景贴图**重新采样、压暗 modulate —— 木纹 / 墙纹 / 砖缝都还在，
+        // 只是变暗，读作「柜子里 / 墙洞里是暗的」，零新增美术资产。
+        if (f.OpenT <= 0.02f || _roomTex == null) return;
+        var r = RecessRect(f);
+        // canvas → 贴图像素（BgRect 的逆运算）
+        var src = new Rect2(
+            (r.Position.X + InteriorRoom.BgCropX) / InteriorRoom.BgScale,
+            r.Position.Y / InteriorRoom.BgScale,
+            r.Size.X / InteriorRoom.BgScale,
+            r.Size.Y / InteriorRoom.BgScale);
+        float a = Mathf.Clamp(f.OpenT, 0f, 1f);
+        bool mirror = _room.Type == RoomType.Residence && _room.Variant != 0;
+        if (mirror)
+            DrawSetTransformMatrix(new Transform2D(
+                new Vector2(-1f, 0f), new Vector2(0f, 1f), new Vector2(952f, 0f)));
+        // 压暗幅度收敛成「淡墨阴影」，不读作黑补丁；笔触仍可见
+        DrawTextureRectRegion(_roomTex, r, src, new Color(0.60f, 0.53f, 0.45f, a));
+        if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
+        // 一圈细墨线标出暗格边界（交互提示层，不是场景实体）
+        DrawRect(r, new Color(0.28f, 0.21f, 0.15f, 0.45f * a), false, 1.3f);
     }
 
     /// <summary>
@@ -844,8 +1125,7 @@ public partial class InteriorForeground : Control
     /// </summary>
     private void DrawFurnitureFront(Furniture f, WorldClock.Phase t)
     {
-        // v3.82：焚毁仓库 → 焦黑橱柜 / 塌半边砖灶，按家具真实体量画（站在地板上）。
-        // 背景贴图只有一张方桌，柜与灶不补实体就只剩小贴纸浮在半空。
+        // v3.82 焚毁仓库 → 焦黑橱柜 / 塌半边砖灶，按家具真实体量画；本轮保持不动。
         if (IsBurnt && _propsAtlasBurnt != null && BurntFront.TryGetValue(f.Type, out var b))
         {
             var br = FrontRect(f);
@@ -862,30 +1142,42 @@ public partial class InteriorForeground : Control
             return;
         }
 
-        // v3.81：住家 / 机房背景自带手绘家具，前脸只画局部抽屉 / 柜门。
-        var r = RecessRect(f);
+        // v3.84 住家 / 通信据点：柜门、画心、抽屉、灶面从**同一张背景贴图**裁出，
+        // 按 BgRect 1:1 画回原处（关闭时与背景像素完全重合，不再有 v3.81 那种
+        // 48×42 小贴片浮在桌面 / 凳子上）；OpenT 时整块平移 + 淡出 = 开柜 / 掀画动画。
+        if (_roomTex == null || !FrontSrc.TryGetValue((_room.Type, f.Type), out var src)) return;
+        var dst = BgRect(src);
         Vector2 off = f.Type switch
         {
-            FurnitureType.Cabinet => new Vector2(f.HalfW() * 1.3f * f.OpenT, 0f),
-            FurnitureType.PictureFrame => new Vector2(0f, -r.Size.Y * 1.05f * f.OpenT),
-            _ => new Vector2(0f, r.Size.Y * 0.9f * f.OpenT),
+            FurnitureType.PictureFrame => new Vector2(0f, -dst.Size.Y * 0.94f * f.OpenT), // 向上掀起
+            FurnitureType.Cabinet => new Vector2(dst.Size.X * 0.88f * f.OpenT, 0f),      // 向右拉开
+            FurnitureType.Desk => new Vector2(0f, dst.Size.Y * 1.6f * f.OpenT),          // 抽屉抽出
+            _ => new Vector2(dst.Size.X * 0.82f * f.OpenT, 0f),                          // 灶面挪开
         };
-        var fr = new Rect2(r.Position.X + off.X, r.Position.Y + off.Y, r.Size.X, r.Size.Y);
-        var tex = Atlas;
-        if (tex != null)
+        var moved = new Rect2(dst.Position + off, dst.Size);
+        float alpha = 1f - Mathf.Clamp(f.OpenT * 1.1f, 0f, 0.94f);
+        bool mirror = _room.Type == RoomType.Residence && _room.Variant != 0;
+        if (mirror)
+            DrawSetTransformMatrix(new Transform2D(
+                new Vector2(-1f, 0f), new Vector2(0f, 1f), new Vector2(952f, 0f)));
+        DrawTextureRectRegion(_roomTex, moved, src, new Color(1f, 1f, 1f, alpha));
+        if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
+
+        // 未开且靠近：细墨线四角，提示「这里能翻」（交互层，不是场景实体美术）
+        if (!f.Opened && _room.NearFurniture >= 0 && _room.NearFurniture < _room.Furniture.Count
+            && _room.Furniture[_room.NearFurniture] == f)
         {
-            int tile = f.Type switch
+            var q = RecessRect(f);
+            float l = q.Position.X - 10f, rr = q.Position.X + q.Size.X + 10f;
+            float tp = q.Position.Y - 10f, bt = q.Position.Y + q.Size.Y + 10f;
+            float[] xs = { l, rr, l, rr }, ys = { tp, tp, bt, bt },
+                     sx = { 1f, -1f, 1f, -1f }, sy = { 1f, 1f, -1f, -1f };
+            var col = new Color(0.99f, 0.93f, 0.76f, 0.85f);
+            for (int k = 0; k < 4; k++)
             {
-                FurnitureType.PictureFrame => 3,   // 卷轴挂画
-                FurnitureType.Stove => 8,          // 砖灶
-                _ => 0,                            // 木柜
-            };
-            var src = new Rect2((tile % 4) * 160f, (tile / 4) * 120f, 160f, 120f);
-            DrawTextureRectRegion(tex, fr, src);
-        }
-        else
-        {
-            DrawRect(fr, new Color(0.34f, 0.24f, 0.16f, 0.85f));
+                Line(new Vector2(xs[k], ys[k]), new Vector2(xs[k] + 13f * sx[k], ys[k]), 1.6f, col);
+                Line(new Vector2(xs[k], ys[k]), new Vector2(xs[k], ys[k] + 13f * sy[k]), 1.6f, col);
+            }
         }
     }
 
@@ -949,23 +1241,50 @@ public partial class InteriorForeground : Control
                 DrawColoredPolygon(GlowPoly(p, 30f * i + 10f), new Color(0.99f, 0.86f, 0.55f, pulse / i));
         }
 
-        // v3.82：贴图裁片 + 按物件体量分级（v3.81 曾把 11 种物件一律压成 68x56）。
-        // src 宽高比与 dst 严格一致 ⇒ 不拉伸；Surface 大件底边自动贴地，不穿地板。
-        var tex = Atlas;
-        if (tex != null)
+        // v3.84：仓库沿用 v3.82 已验收的大件表；完好房间改用 38–52px 小件表 + 多贴图源。
+        // src 与 dst 同比 ⇒ 不拉伸；Surface 物件底边贴 GroundY（背景真实地板线），不再浮在墙上。
+        bool drawn = false;
+        if (IsBurnt)
         {
-            var s = PropSpec.TryGetValue(it.Kind, out var got)
-                ? got : (tile: 11, w: 68f, sy: 0f, sh: 120f);
-            float w = s.w;
-            float h = w * s.sh / 160f;
-            float cy = it.Mode == RoomItemMode.Surface
-                ? Mathf.Min(p.Y, InteriorRoom.FloorY - h / 2f)
-                : p.Y;
-            var src = new Rect2((s.tile % 4) * 160f, (s.tile / 4) * 120f + s.sy, 160f, s.sh);
-            var dst = new Rect2(p.X - w / 2f, cy - h / 2f, w, h);
-            DrawTextureRectRegion(tex, dst, src, new Color(1f, 1f, 1f, a));
+            var tex = Atlas;
+            if (tex != null)
+            {
+                var s = PropSpecBurnt.TryGetValue(it.Kind, out var got)
+                    ? got : (tile: 11, w: 68f, sy: 0f, sh: 120f);
+                float w = s.w;
+                float h = w * s.sh / 160f;
+                float cy = it.Mode == RoomItemMode.Surface
+                    ? Mathf.Min(p.Y, InteriorRoom.FloorY - h / 2f)
+                    : p.Y;
+                var src = new Rect2((s.tile % 4) * 160f, (s.tile / 4) * 120f + s.sy, 160f, s.sh);
+                var dst = new Rect2(p.X - w / 2f, cy - h / 2f, w, h);
+                DrawTextureRectRegion(tex, dst, src, new Color(1f, 1f, 1f, a));
+                drawn = true;
+            }
         }
         else
+        {
+            var s = IntactSpec.TryGetValue(it.Kind, out var got)
+                ? got : (sheet: 0, sx: 480, sy: 240, sw: 160, sh: 120, w: 44f);
+            Texture2D t = s.sheet switch { 1 => _propsAtlasBurnt, 2 => _paperTex, _ => _propsAtlas };
+            if (t != null)
+            {
+                float w = s.w;
+                float h = w * s.sh / s.sw;
+                float cy = it.Mode == RoomItemMode.Surface
+                    ? Mathf.Min(p.Y, InteriorRoom.GroundY - h / 2f)
+                    : p.Y;
+                var src = new Rect2(s.sx, s.sy, s.sw, s.sh);
+                var dst = new Rect2(p.X - w / 2f, cy - h / 2f, w, h);
+                // 旧纸中心偏亮，在这间暖褐屋子里压到米黄，避免白得像 UI 贴片
+                var mod = s.sheet == 2
+                    ? new Color(0.76f, 0.70f, 0.60f, a)
+                    : new Color(1f, 1f, 1f, a);
+                DrawTextureRectRegion(t, dst, src, mod);
+                drawn = true;
+            }
+        }
+        if (!drawn)
         {
             // 兜底：仅当贴图未导入时才走旧程序化绘制
             switch (it.Kind)
@@ -1304,6 +1623,15 @@ public partial class InteriorForeground : Control
             text = $"E · 查看「{_room.Items[_room.NearIndex].Label}」";
             var it = _room.Items[_room.NearIndex];
             pos = new Vector2(Mathf.Clamp(it.Pos.X - 110f, 90f, W - 240f), it.Pos.Y - 92f);
+        }
+        else if (_room.NearFurniture >= 0 && _room.NearFurniture < _room.Furniture.Count)
+        {
+            // v3.84：未开的柜 / 挂画 / 抽屉 / 灶膛，先提示「拉开 / 掀起」，
+            // 而不是直接写里面有什么 —— 里面的东西必须翻开后才让玩家知道。
+            var f = _room.Furniture[_room.NearFurniture];
+            text = $"E · {_room.FurnitureVerb(_room.NearFurniture)}";
+            pos = new Vector2(Mathf.Clamp(f.Center.X - 110f, 90f, W - 240f),
+                              Mathf.Clamp(f.Center.Y - 112f, 58f, H - 150f));
         }
         else
         {

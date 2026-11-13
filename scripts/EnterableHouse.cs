@@ -681,8 +681,14 @@ public partial class HouseInteriorUi : CanvasLayer
             if (Input.IsActionJustPressed("interact"))
             {
                 if (_explore.AtDoor) { Close(); return; }
+                // v3.84：一次 E 只做一件事。能搜的物件优先；没有可搜物件时，
+                // 若站在未翻开的柜 / 挂画 / 抽屉 / 灶膛前，这次 E 就是「开柜门 / 掀挂画」。
+                // v3.71~v3.83 OpenNearbyFurniture() 全仓零调用点，柜门在游戏里永远打不开，
+                // 只有截图场景靠强制 Opened=true 才看得到藏匿物 —— 这里把交互链路接上。
                 if (_explore.NearIndex >= 0 && _explore.NearIndex < _spots.Count)
                     OnSpot(_spots[_explore.NearIndex]);
+                else
+                    _explore.OpenNearbyFurniture();
             }
             if (Input.IsActionJustPressed("pause")) { Close(); return; }
         }
