@@ -1180,7 +1180,9 @@ public partial class InteriorForeground : Control
         float rx = winX + winW * 0.5f - 22f;
         float blx0 = lx, brx0 = rx;                         // 顶边左右
         float blx1 = lx + dx - 18f, brx1 = rx + dx + 18f;   // 底边左右（随光束方向偏移）
-        int rows = 40;
+        // v3.90：提高光束密度并加大相邻格重叠，消除 40×10 离散格在墙上显出的「网格」观感，
+        // 让光带读成连续柔和的透光，而非细线方格。
+        int rows = 64;
         for (int i = 0; i < rows; i++)
         {
             float f = (i + 0.5f) / rows;
@@ -1188,16 +1190,16 @@ public partial class InteriorForeground : Control
             float tr = (y - topY) / (InteriorRoom.FloorY - topY);
             float xl = Mathf.Lerp(blx0, blx1, tr);
             float xr = Mathf.Lerp(brx0, brx1, tr);
-            float dxw = (xr - xl) / 10f;
-            for (int j = 0; j < 10; j++)
+            float dxw = (xr - xl) / 18f;
+            for (int j = 0; j < 18; j++)
             {
-                float g = (j + 0.5f) / 10f;
+                float g = (j + 0.5f) / 18f;
                 float d = Mathf.Abs(g - 0.5f) * 2f;          // 0=中轴 1=边
                 float a = pal.Beam.A * (1f - d * d)            // 横向羽化：中亮边淡
                                  * (1f - 0.25f * Mathf.Abs(2f * f - 1f)); // 顶/底再稍淡
-                if (a <= 0.012f) continue;
+                if (a <= 0.008f) continue;
                 float x = xl + (xr - xl) * g;
-                DrawRect(new Rect2(x, y, dxw + 1f, (InteriorRoom.FloorY - topY) / rows + 1f),
+                DrawRect(new Rect2(x, y, dxw + 3f, (InteriorRoom.FloorY - topY) / rows + 3f),
                     new Color(pal.Beam.R, pal.Beam.G, pal.Beam.B, a));
             }
         }
@@ -1267,35 +1269,26 @@ public partial class InteriorForeground : Control
     /// </summary>
     private void DrawFurnitureBody(Furniture f, WorldClock.Phase t)
     {
-        if (IsBurnt)
-        {
-            // v3.82 焦黑仓库：保持已验收的低对比暗腔，本轮不动
-            DrawRect(RecessRect(f), new Color(0.10f, 0.08f, 0.07f, 0.50f));
-            return;
-        }
-        // v3.84 完好房间：只在柜门 / 画心开始让位后才出现暗格。
-        // 【不用纯色黑块】第一版真帧里不透明 DrawRect 读成「柜门上贴了块黑补丁」，
-        // 既难看又违背「场景实体不用程序化色块」的红线。改为：把暗格对应的那块
-        // **同一张背景贴图**重新采样、压暗 modulate —— 木纹 / 墙纹 / 砖缝都还在，
-        // 只是变暗，读作「柜子里 / 墙洞里是暗的」，零新增美术资产。
-        if (f.OpenT <= 0.02f || _roomTex == null) return;
+        // v3.90 暗格：复用 v3.86 已验收的淡墨软阴影贴图（contact_shadow）以深墨棕压暗采样，
+        // 画成「带柔和边缘的凹陷暗腔」，取代旧版的纯色硬边矩形 / 平贴重采样色块
+        // （用户与 ViewImage 均判读为「墙上贴了块方块、无凹陷感」）。零新增美术资产。
+        if (f.OpenT <= 0.02f) return;
         var r = RecessRect(f);
-        // canvas → 贴图像素（BgRect 的逆运算）
-        var src = new Rect2(
-            (r.Position.X + InteriorRoom.BgCropX) / InteriorRoom.BgScale,
-            r.Position.Y / InteriorRoom.BgScale,
-            r.Size.X / InteriorRoom.BgScale,
-            r.Size.Y / InteriorRoom.BgScale);
         float a = Mathf.Clamp(f.OpenT, 0f, 1f);
-        bool mirror = _room.Type == RoomType.Residence && _room.Variant != 0;
-        if (mirror)
-            DrawSetTransformMatrix(new Transform2D(
-                new Vector2(-1f, 0f), new Vector2(0f, 1f), new Vector2(952f, 0f)));
-        // 压暗幅度收敛成「淡墨阴影」，不读作黑补丁；笔触仍可见
-        DrawTextureRectRegion(_roomTex, r, src, new Color(0.60f, 0.53f, 0.45f, a));
-        if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
-        // 一圈细墨线标出暗格边界（交互提示层，不是场景实体）
-        DrawRect(r, new Color(0.28f, 0.21f, 0.15f, 0.45f * a), false, 1.3f);
+        const float inset = 0.16f;
+        var inner = new Rect2(r.Position + r.Size * inset, r.Size * (1f - 2f * inset));
+        if (_shadowTex != null)
+        {
+            // 外圈柔和暗腔（边缘化进墙面），内圈再压一层加深中心 ⇒ 读作凹陷的洞
+            DrawTextureRect(_shadowTex, r, false, new Color(0.11f, 0.08f, 0.06f, 0.85f * a));
+            DrawTextureRect(_shadowTex, inner, false, new Color(0.07f, 0.05f, 0.04f, 0.70f * a));
+        }
+        else
+        {
+            // 兜底（仅贴图未导入时走程序化，保持软边：两圈渐淡矩形）
+            DrawRect(r, new Color(0.12f, 0.09f, 0.07f, 0.45f * a));
+            DrawRect(inner, new Color(0.08f, 0.06f, 0.05f, 0.45f * a));
+        }
     }
 
     /// <summary>
@@ -1372,7 +1365,9 @@ public partial class InteriorForeground : Control
     /// </summary>
     private void DrawItemCore(RoomItem it, Vector2 p, bool near, float reveal, bool floorShadow)
     {
-        float a = (it.Done ? 0.55f : 1f) * reveal;
+        // v3.90：移除「已点击 / 已搜」物品的 0.55 半透明幽灵态（用户：淡化 + 亮光看着怪）。
+        // 已搜状态改由文本日志（RefreshResult）承载；物品本体永远以完整不透明度绘制。
+        float a = 1f * reveal;
         float seed = StrHash(it.SpotId);
 
         if (floorShadow)
@@ -1436,10 +1431,8 @@ public partial class InteriorForeground : Control
                 var mod = s.sheet == 2
                     ? new Color(0.70f, 0.64f, 0.55f, a)
                     : new Color(0.86f, 0.79f, 0.68f, a);
-                // 暗格里没有光：柜内 / 画后露出的物件再压 18%，读起来是「藏在暗处」，
-                // 而不是一块比背景亮的贴片。
-                if (it.Mode == RoomItemMode.Container)
-                    mod = new Color(mod.R * 0.82f, mod.G * 0.82f, mod.B * 0.82f, mod.A);
+                // v3.90：暗格已改为柔和凹陷暗腔，物件直接以正常亮度落在暗腔里即可读清，
+                // 不再额外压暗（旧版 0.82 在暗腔里会糊成一团、且让藏物像浮贴的亮块）。
                 DrawTextureRectRegion(t, dst, src, mod);
                 drawn = true;
             }
