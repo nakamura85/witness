@@ -558,15 +558,63 @@ public partial class InteriorForeground : Control
     private static readonly Color Red = new(0.62f, 0.21f, 0.16f);
     private static readonly Color Night = InkStyle.Night;
 
-    // v3.81：物品贴图集 —— 从 residence / comm_outpost 同源钢笔淡彩·水墨室内贴图裁片，
-    // 4x3 共 12 格（每格 160x120）。替换 v3.70 起的 DrawRect/HandRect 几何色块物件，
-    // 让前景物品与背景贴图同一支笔（用户 2026-11-13「谁跟你说要程序化」）。
+    // =====================================================================
+    // v3.82 道具贴图（贴图资产，不是运行时程序化绘制）
+    // ---------------------------------------------------------------------
+    // _propsAtlas      : 住家 / 通信据点 —— 完好家具（v3.81 原图集，不动）
+    // _propsAtlasBurnt : 焚毁仓库 —— 从 burnt_warehouse.png 同源裁片 + 焦化残件（新增，
+    //                    不覆盖原图集；原图集里的木柜 / 砖灶 / 竹箩 / 茶壶全是完好鲜亮的，
+    //                    叠到焦黑废墟上就成了亮橙色小贴纸）
+    // 用户 2026-11-13：「因为你给的图片是烧坏的房子，那些橱柜或者灶子等等物品
+    // 应该有烧坏的迹象和款式，还有各自的尺寸也没有把握好」
+    //   ⇒ ① 按 RoomType 分流图集；② 每类物件给独立尺寸，不再一律 68x56。
+    // =====================================================================
     private static Texture2D _propsAtlas;
-    private static readonly System.Collections.Generic.Dictionary<string, int> PropTile = new()
+    private static Texture2D _propsAtlasBurnt;
+
+    private bool IsBurnt => _room.Type == RoomType.BurntWarehouse;
+    /// <summary>焚毁仓库专用图集缺失时自动回退到原图集，绝不黑屏。</summary>
+    private Texture2D Atlas => (IsBurnt && _propsAtlasBurnt != null) ? _propsAtlasBurnt : _propsAtlas;
+
+    /// <summary>
+    /// v3.82 每类物件的目标宽度（房间画布 px）。高度由裁片比例自动推导 h = w * sh / 160，
+    /// 保证 160x120 格永不被拉变形。
+    /// 基准：画布 952x612，背景里那张方桌约 290px 宽 ≈ 120cm ⇒ 1px ≈ 0.41cm。
+    ///   L 大件 96–132px ≈ 40–55cm（木箱 / 灰堆 / 电台 / 电闸）
+    ///   M 中件 60–74px ≈ 25–30cm（弹药箱 / 医药包 / 纱布 / 手榴弹）
+    ///   S 小件 44–46px ≈ 18–19cm（信 / 遗书 / 便条）
+    /// 极值验算：最大 ash = 132x42.9，最小 clue = 44x33；
+    ///   面积比 (132*42.9)/(44*33) ≈ 3.90×（v3.81 统一 68x56 时为 1.00×，全无主次）；
+    ///   单件最宽 132/952 = 13.9% 画布宽，不遮挡窗与房梁。
+    /// ash 只取格子中段 52px 扁条（灰堆摊在地上，不该是 4:3 的方块）。
+    /// </summary>
+    private static readonly Dictionary<string, (int tile, float w, float sy, float sh)> PropSpec = new()
     {
-        { "chest", 0 }, { "ammo", 1 }, { "grenade", 2 }, { "letter", 3 },
-        { "will", 4 }, { "clue", 5 }, { "gauze", 6 }, { "medkit", 7 },
-        { "ash", 8 }, { "power", 9 }, { "radio", 10 },
+        { "chest",   (0, 108f,  0f, 120f) },
+        { "ammo",    (1,  74f,  0f, 120f) },
+        { "grenade", (2,  60f,  0f, 120f) },
+        { "letter",  (3,  46f,  0f, 120f) },
+        { "will",    (4,  46f,  0f, 120f) },
+        { "clue",    (5,  44f,  0f, 120f) },
+        { "gauze",   (6,  62f,  0f, 120f) },
+        { "medkit",  (7,  70f,  0f, 120f) },
+        { "ash",     (8, 132f, 38f,  52f) },
+        { "power",   (9,  96f,  0f, 120f) },
+        { "radio",  (10, 112f,  0f, 120f) },
+    };
+
+    /// <summary>
+    /// v3.82 焚毁仓库家具前脸：(格号, 目标宽, 目标高, srcX, srcY, srcW, srcH)。
+    /// src 与 dst 宽高比严格一致 ⇒ 不拉伸；柜 / 灶底边落在 FloorY，站得住。
+    /// 背景贴图里只有一张方桌，没有橱柜和砖灶 —— 这两件必须补出实体，
+    /// 否则只剩 v3.81 的 48x42 小贴纸浮在半空（用户说的「款式 / 尺寸没把握好」）。
+    /// </summary>
+    private static readonly Dictionary<FurnitureType, (int tile, float w, float h, float sx, float sy, float sw, float sh)> BurntFront = new()
+    {
+        { FurnitureType.Cabinet,      (12, 116f, 152f, 34f,  0f,  92f, 120f) },
+        { FurnitureType.Stove,        (13, 120f,  92f, 20f, 14f, 120f,  92f) },
+        { FurnitureType.Desk,         (14,  64f,  30f, 48f, 45f,  64f,  30f) },
+        { FurnitureType.PictureFrame, (15,  60f,  84f, 50f,  0f,  60f,  84f) },
     };
 
     public InteriorForeground(InteriorRoom room)
@@ -578,6 +626,7 @@ public partial class InteriorForeground : Control
     public override void _Ready()
     {
         _propsAtlas ??= GD.Load<Texture2D>("res://assets/art/interior/props_atlas.png");
+        _propsAtlasBurnt ??= GD.Load<Texture2D>("res://assets/art/interior/props_atlas_burnt.png");
         _title = new Label
         {
             // 预览场景传入的标题已含「屋内」，游戏内传入的是屋名；避免叠成「· 屋内 · 屋内」
@@ -795,8 +844,25 @@ public partial class InteriorForeground : Control
     /// </summary>
     private void DrawFurnitureFront(Furniture f, WorldClock.Phase t)
     {
-        // v3.81：盖板改同源贴图裁片（画框→卷轴/地图、柜/桌→木柜、炉→砖灶），
-        // 翻开位移 off 原样保留，不再是几何色块 + 卡通高光。
+        // v3.82：焚毁仓库 → 焦黑橱柜 / 塌半边砖灶，按家具真实体量画（站在地板上）。
+        // 背景贴图只有一张方桌，柜与灶不补实体就只剩小贴纸浮在半空。
+        if (IsBurnt && _propsAtlasBurnt != null && BurntFront.TryGetValue(f.Type, out var b))
+        {
+            var br = FrontRect(f);
+            Vector2 bOff = f.Type switch
+            {
+                FurnitureType.Cabinet => new Vector2(b.w * 1.05f * f.OpenT, 0f),
+                FurnitureType.PictureFrame => new Vector2(0f, -b.h * 1.05f * f.OpenT),
+                _ => new Vector2(0f, b.h * 0.90f * f.OpenT),
+            };
+            var bfr = new Rect2(br.Position.X + bOff.X, br.Position.Y + bOff.Y, br.Size.X, br.Size.Y);
+            var bsrc = new Rect2((b.tile % 4) * 160f + b.sx,
+                                 (b.tile / 4) * 120f + b.sy, b.sw, b.sh);
+            DrawTextureRectRegion(_propsAtlasBurnt, bfr, bsrc);
+            return;
+        }
+
+        // v3.81：住家 / 机房背景自带手绘家具，前脸只画局部抽屉 / 柜门。
         var r = RecessRect(f);
         Vector2 off = f.Type switch
         {
@@ -805,7 +871,8 @@ public partial class InteriorForeground : Control
             _ => new Vector2(0f, r.Size.Y * 0.9f * f.OpenT),
         };
         var fr = new Rect2(r.Position.X + off.X, r.Position.Y + off.Y, r.Size.X, r.Size.Y);
-        if (_propsAtlas != null)
+        var tex = Atlas;
+        if (tex != null)
         {
             int tile = f.Type switch
             {
@@ -814,12 +881,22 @@ public partial class InteriorForeground : Control
                 _ => 0,                            // 木柜
             };
             var src = new Rect2((tile % 4) * 160f, (tile / 4) * 120f, 160f, 120f);
-            DrawTextureRectRegion(_propsAtlas, fr, src);
+            DrawTextureRectRegion(tex, fr, src);
         }
         else
         {
             DrawRect(fr, new Color(0.34f, 0.24f, 0.16f, 0.85f));
         }
+    }
+
+    /// <summary>v3.82 烧毁家具前脸矩形：柜 / 灶底边贴地板，桌抽屉沿用凹洞位。</summary>
+    private Rect2 FrontRect(Furniture f)
+    {
+        if (!BurntFront.TryGetValue(f.Type, out var b)) return RecessRect(f);
+        float cy = (f.Type == FurnitureType.Cabinet || f.Type == FurnitureType.Stove)
+            ? InteriorRoom.FloorY - b.h / 2f
+            : f.RecessPos().Y;
+        return new Rect2(f.Center.X - b.w / 2f, cy - b.h / 2f, b.w, b.h);
     }
 
     /// <summary>v3.71 用户诉求④：地落物 —— 接触阴影落在地面、随离地高度缩放；本体由 DrawItemCore 画。</summary>
@@ -872,14 +949,21 @@ public partial class InteriorForeground : Control
                 DrawColoredPolygon(GlowPoly(p, 30f * i + 10f), new Color(0.99f, 0.86f, 0.55f, pulse / i));
         }
 
-        // v3.81：物件本体改同源贴图裁片（不再是程序化几何色块）。
-        // 图集取自用户认可的钢笔淡彩·水墨室内贴图，与背景同一支笔。
-        if (_propsAtlas != null)
+        // v3.82：贴图裁片 + 按物件体量分级（v3.81 曾把 11 种物件一律压成 68x56）。
+        // src 宽高比与 dst 严格一致 ⇒ 不拉伸；Surface 大件底边自动贴地，不穿地板。
+        var tex = Atlas;
+        if (tex != null)
         {
-            int tile = PropTile.TryGetValue(it.Kind, out int idx) ? idx : 11;
-            var src = new Rect2((tile % 4) * 160f, (tile / 4) * 120f, 160f, 120f);
-            var dst = new Rect2(p.X - 34f, p.Y - 28f, 68f, 56f);
-            DrawTextureRectRegion(_propsAtlas, dst, src, new Color(1f, 1f, 1f, a));
+            var s = PropSpec.TryGetValue(it.Kind, out var got)
+                ? got : (tile: 11, w: 68f, sy: 0f, sh: 120f);
+            float w = s.w;
+            float h = w * s.sh / 160f;
+            float cy = it.Mode == RoomItemMode.Surface
+                ? Mathf.Min(p.Y, InteriorRoom.FloorY - h / 2f)
+                : p.Y;
+            var src = new Rect2((s.tile % 4) * 160f, (s.tile / 4) * 120f + s.sy, 160f, s.sh);
+            var dst = new Rect2(p.X - w / 2f, cy - h / 2f, w, h);
+            DrawTextureRectRegion(tex, dst, src, new Color(1f, 1f, 1f, a));
         }
         else
         {
