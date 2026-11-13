@@ -14,14 +14,17 @@ public partial class IntroOverlay : CanvasLayer
     private Action _onDone;
     private float _t;
     private bool _armed;
+    private ColorRect _bg;
+    private float _fadeA = 0.94f;
+    private bool _dismissing;
 
     public IntroOverlay() { Layer = 30; }
 
     public override void _Ready()
     {
-        var bg = new ColorRect { Color = new Color(0.055f, 0.05f, 0.045f, 0.94f) };
-        bg.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        AddChild(bg);
+        _bg = new ColorRect { Color = new Color(0.055f, 0.05f, 0.045f, 0.94f) };
+        _bg.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        AddChild(_bg);
 
         var center = new CenterContainer();
         center.SetAnchorsPreset(Control.LayoutPreset.FullRect);
@@ -76,13 +79,24 @@ public partial class IntroOverlay : CanvasLayer
     public override void _Process(double delta)
     {
         if (!Visible) return;
+        // v3.91：幕间黑屏淡出，而非瞬间消失——消除「回车一闪」（暗→亮硬切读成闪屏）。
+        if (_dismissing)
+        {
+            _fadeA = Mathf.Max(0f, _fadeA - (float)delta * 3.4f); // ≈0.28s 淡出
+            _bg.Color = new Color(0.055f, 0.05f, 0.045f, _fadeA);
+            if (_fadeA <= 0.004f)
+            {
+                Visible = false;
+                _onDone?.Invoke();
+                _onDone = null;
+            }
+            return;
+        }
         _t += (float)delta;
         if (!_armed && _t > 0.35f) _armed = true; // 防止同帧残留按键跳过
         if (_armed && Input.IsActionJustPressed("advance"))
         {
-            Visible = false;
-            _onDone?.Invoke();
-            _onDone = null;
+            _dismissing = true; // 改为淡出，不再瞬间消失
         }
     }
 }

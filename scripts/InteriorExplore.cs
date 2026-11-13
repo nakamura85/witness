@@ -1149,70 +1149,31 @@ public partial class InteriorForeground : Control
     /// 修正：① 光束移到真实窗户所在侧；② 整体光晕改为「靠窗渐亮、向阴影侧 smoothstep
     /// 衰减到 0」的局部光照，阴影侧不再被提亮（背景贴图本身已画好暗部）。
     /// </summary>
+    // v3.91：窗光重做——删掉「墙上窗投光束平行四边形 + 地面矩形光斑」。
+    // 这两块落在墙/地上的、边界清晰的浅色光形，在 v3.89/3.90 被反复判读成
+    // 「淡化格子 / 浮贴方块」，用户明确「很不合理」。背景贴图本身已画好窗光与暗部，
+    // 不再叠第二层离散光形。仅保留极淡的近窗竖向渐变（靠窗微亮、向阴影侧 smoothstep 归零），
+    // 且整段用 0.5× 压暗，确保只是「空气里有光」的暗示，绝不是一块可见的亮斑/网格。
     private void DrawWindowLight(float W, float H, WorldClock.Phase t)
     {
         var pal = WorldClock.For(t);
         // 所有室内背景贴图的窗户/受光面都在左侧；仅住家 variant!=0 因贴图 FlipH 镜像，窗户转到右侧。
         bool rightWin = (_room.Type == RoomType.Residence && _room.Variant != 0);
         float winX = rightWin ? W * 0.74f : W * 0.30f;   // 窗户中心 x（背景贴图实测受光侧）
-        float winY = 56f;
-        float winW = 150f;
-        float topY = winY + 116f;                          // 窗台下沿（光束起点）
-        float dx = rightWin ? -48f : 48f;                 // 光束落地相对顶端的水平偏移（左窗→右下，右窗→左下）
 
-        // 1) 局部光晕：仅在受光侧（窗户附近）做柔和的水平渐变提亮，绝不整屏均匀提亮。
-        //    用若干竖直细条，alpha 由窗户向阴影侧 smoothstep 衰减到 ~0，保留背景本身画好的暗部。
-        int strips = 56;
+        // 局部光晕：仅在受光侧（窗户附近）做柔和的水平渐变提亮，绝不整屏均匀提亮、
+        // 也绝不在墙/地上画任何离散光形。竖直细条只按 x 渐变，纵向无分条 ⇒ 读不出网格。
+        int strips = 48;
         float colW = W / strips + 1f;
         for (int i = 0; i < strips; i++)
         {
             float x = i * colW;
             float d = rightWin ? (x - winX) / (W - winX) : (winX - x) / winX;
             d = Mathf.Clamp(d, 0f, 1f);
-            float a = pal.RoomWash.A * (1f - Mathf.SmoothStep(0f, 1f, d) * 0.94f);
-            if (a <= 0.004f) continue;
+            float a = pal.RoomWash.A * 0.5f * (1f - Mathf.SmoothStep(0f, 1f, d) * 0.96f);
+            if (a <= 0.003f) continue;
             DrawRect(new Rect2(x, 0f, colW, H),
                 new Color(pal.RoomWash.R, pal.RoomWash.G, pal.RoomWash.B, a));
-        }
-
-        // 2) 窗投到地面的光束：平行四边形，水平方向做羽化（避免硬边读成贴上去的矩形）。
-        float lx = winX - winW * 0.5f + 22f;
-        float rx = winX + winW * 0.5f - 22f;
-        float blx0 = lx, brx0 = rx;                         // 顶边左右
-        float blx1 = lx + dx - 18f, brx1 = rx + dx + 18f;   // 底边左右（随光束方向偏移）
-        // v3.90：提高光束密度并加大相邻格重叠，消除 40×10 离散格在墙上显出的「网格」观感，
-        // 让光带读成连续柔和的透光，而非细线方格。
-        int rows = 64;
-        for (int i = 0; i < rows; i++)
-        {
-            float f = (i + 0.5f) / rows;
-            float y = topY + (InteriorRoom.FloorY - topY) * f;
-            float tr = (y - topY) / (InteriorRoom.FloorY - topY);
-            float xl = Mathf.Lerp(blx0, blx1, tr);
-            float xr = Mathf.Lerp(brx0, brx1, tr);
-            float dxw = (xr - xl) / 18f;
-            for (int j = 0; j < 18; j++)
-            {
-                float g = (j + 0.5f) / 18f;
-                float d = Mathf.Abs(g - 0.5f) * 2f;          // 0=中轴 1=边
-                float a = pal.Beam.A * (1f - d * d)            // 横向羽化：中亮边淡
-                                 * (1f - 0.25f * Mathf.Abs(2f * f - 1f)); // 顶/底再稍淡
-                if (a <= 0.008f) continue;
-                float x = xl + (xr - xl) * g;
-                DrawRect(new Rect2(x, y, dxw + 3f, (InteriorRoom.FloorY - topY) / rows + 3f),
-                    new Color(pal.Beam.R, pal.Beam.G, pal.Beam.B, a));
-            }
-        }
-        // v3.86 地面光斑：同用那张淡墨晕染贴图上色，不再运行时画椭圆。
-        // 贴图自带 ≤0.44 的软 alpha，故把 Beam 的 alpha 补 2.2 倍维持原有明度；位置随光束落地中心移动。
-        if (_shadowTex != null)
-        {
-            float bcx = (lx + rx) * 0.5f + dx;
-            DrawTextureRect(_shadowTex,
-                new Rect2(bcx - 96f, InteriorRoom.FloorY - 16f, 192f, 40f),
-                false,
-                new Color(pal.Beam.R, pal.Beam.G, pal.Beam.B,
-                          Mathf.Min(1f, pal.Beam.A * 2.2f)));
         }
     }
 
@@ -1236,12 +1197,12 @@ public partial class InteriorForeground : Control
             Vector2 bc = f.RecessPos();
             return new Rect2(bc.X - bw / 2f, bc.Y - bh / 2f, bw, bh);
         }
-        // v3.86 用户原话：「前面的挂画一定要刚刚好遮到暗格才能是暗格哦」。
-        // 旧版以家具 Center 另画一个固定 100x86 矩形，与柜门/画心裁片毫无绑定：
-        // 通信据点抽屉暗格 y[439,483] 整个露在抽屉面 y[375,413] 下面；
-        // 住家挂画暗格左右只剩 3.55px 边距 —— 掀开画看到的是飘在墙中间的小洞，不像暗格。
-        // 现在暗格直接由前脸裁片内缩推导，四周至少留 8px，Recess ⊂ Front 恒成立。
-        return RecessForCover(CoverRect(_room.Type, f.Type));
+        // v3.91 关键修正：暗格改为覆盖「整片前脸」，而非内缩小框。
+        // 根因：背景贴图本身就把挂画 / 柜门 / 抽屉画在墙上（前脸裁片就是从背景同一处切的），
+        // 旧版只挖一个内缩小暗格，翻开后四周会露出背景里那幅「关着的」家具原画
+        // —— 正是用户说的「翻开后还是看到挂画 / 柜门」。整片覆盖才能把背景原画遮掉，
+        // 露出真正的暗腔。藏匿物坐标仍由 RecessCenterMirrored（内缩框中心 = 整片中心）决定，不受影响。
+        return CoverRect(_room.Type, f.Type);
     }
 
     /// <summary>判断地落物是否被某家具前脸遮挡（其 x 落在家具前脸水平范围内、且低于台面 → 藏在家具后面）。</summary>
@@ -1275,19 +1236,24 @@ public partial class InteriorForeground : Control
         if (f.OpenT <= 0.02f) return;
         var r = RecessRect(f);
         float a = Mathf.Clamp(f.OpenT, 0f, 1f);
-        const float inset = 0.16f;
+        const float inset = 0.14f;
         var inner = new Rect2(r.Position + r.Size * inset, r.Size * (1f - 2f * inset));
+
+        // v3.91 关键修正：暗格必须先以「近乎不透明」的暗腔盖住背景里那幅关着的家具原画
+        // （背景贴图本身就把挂画 / 柜门 / 抽屉画在墙上，前脸裁片就是从背景同一处切的）。
+        // 旧版只用半透明 soft-shadow（中心暗、四周全透）去遮，结果背景原画从边缘 + 半透明处透出来，
+        // 用户就会看到「翻开后挂画 / 柜门还在」。
+        // 现在：三层嵌套暗矩形做不透明基底（边缘→中心渐不透明，读作凹陷的洞，彻底遮掉背景原画），
+        // 再叠 soft-shadow 贴图只做深度暗示，不再承担「遮背景」职责。
+        const float cr = 0.10f, cg = 0.07f, cb = 0.05f;
+        DrawRect(r,                                   new Color(cr, cg, cb, 0.94f * a));
+        DrawRect(new Rect2(r.Position + r.Size * 0.05f, r.Size * 0.90f), new Color(cr, cg, cb, 0.98f * a));
+        DrawRect(inner,                              new Color(0.08f, 0.06f, 0.04f, 1.00f * a));
         if (_shadowTex != null)
         {
-            // 外圈柔和暗腔（边缘化进墙面），内圈再压一层加深中心 ⇒ 读作凹陷的洞
-            DrawTextureRect(_shadowTex, r, false, new Color(0.11f, 0.08f, 0.06f, 0.85f * a));
-            DrawTextureRect(_shadowTex, inner, false, new Color(0.07f, 0.05f, 0.04f, 0.70f * a));
-        }
-        else
-        {
-            // 兜底（仅贴图未导入时走程序化，保持软边：两圈渐淡矩形）
-            DrawRect(r, new Color(0.12f, 0.09f, 0.07f, 0.45f * a));
-            DrawRect(inner, new Color(0.08f, 0.06f, 0.05f, 0.45f * a));
+            // soft-shadow 只做柔腔深度（中心压暗），叠在不透明基底上，绝不靠它去遮背景
+            DrawTextureRect(_shadowTex, r,     false, new Color(0.05f, 0.035f, 0.025f, 0.50f * a));
+            DrawTextureRect(_shadowTex, inner, false, new Color(0.03f, 0.02f, 0.015f, 0.50f * a));
         }
     }
 
@@ -1314,25 +1280,70 @@ public partial class InteriorForeground : Control
             return;
         }
 
-        // v3.84 住家 / 通信据点：柜门、画心、抽屉、灶面从**同一张背景贴图**裁出，
-        // 按 BgRect 1:1 画回原处（关闭时与背景像素完全重合，不再有 v3.81 那种
-        // 48×42 小贴片浮在桌面 / 凳子上）；OpenT 时整块平移 + 淡出 = 开柜 / 掀画动画。
+        // v3.91 室内开合重做（用户 2026-11-13：挂画翻开应「卷起、只露暗格」；
+        // 柜门翻开应「门可见地旋开、直接看到柜内」；抽屉拉开应「面板抽出、露内腔」，
+        // 而非「整块平移移走、藏物再淡入闪现」）。全部用背景裁片做资源（零新增资产），
+        // 靠变换表现开合，门/画/抽屉仍是其原本的贴图，只是以正确方式被打开。
         if (_roomTex == null || !FrontSrc.TryGetValue((_room.Type, f.Type), out var src)) return;
         var dst = BgRect(src);
-        Vector2 off = f.Type switch
-        {
-            FurnitureType.PictureFrame => new Vector2(0f, -dst.Size.Y * 0.94f * f.OpenT), // 向上掀起
-            FurnitureType.Cabinet => new Vector2(dst.Size.X * 0.88f * f.OpenT, 0f),      // 向右拉开
-            FurnitureType.Desk => new Vector2(0f, dst.Size.Y * 1.6f * f.OpenT),          // 抽屉抽出
-            _ => new Vector2(dst.Size.X * 0.82f * f.OpenT, 0f),                          // 灶面挪开
-        };
-        var moved = new Rect2(dst.Position + off, dst.Size);
-        float alpha = 1f - Mathf.Clamp(f.OpenT * 1.1f, 0f, 0.94f);
+        float ot = f.OpenT;
         bool mirror = _room.Type == RoomType.Residence && _room.Variant != 0;
-        if (mirror)
-            DrawSetTransformMatrix(new Transform2D(
-                new Vector2(-1f, 0f), new Vector2(0f, 1f), new Vector2(952f, 0f)));
-        DrawTextureRectRegion(_roomTex, moved, src, new Color(1f, 1f, 1f, alpha));
+        var mirrorM = new Transform2D(new Vector2(-1f, 0f), new Vector2(0f, 1f), new Vector2(952f, 0f));
+
+        if (f.Type == FurnitureType.PictureFrame)
+        {
+            // 卷轴从下往上卷：仍可见比例 = 1-ot，画心顶部锚定，底部随卷起上升；
+            // ot→1 时整幅卷起、只留暗格（暗格由 DrawFurnitureBody 已画在底层）。
+            if (mirror) DrawSetTransformMatrix(mirrorM);
+            float h = dst.Size.Y * (1f - ot);
+            if (h > 1f)
+            {
+                var dDst = new Rect2(dst.Position.X, dst.Position.Y, dst.Size.X, h);
+                var dSrc = new Rect2(src.Position.X, src.Position.Y, src.Size.X, src.Size.Y * (1f - ot));
+                DrawTextureRectRegion(_roomTex, dDst, dSrc, new Color(1f, 1f, 1f, 1f));
+                // 卷口画轴端（圆），暗示已卷起，而非整块消失
+                DrawCircle(new Vector2(dst.Position.X + dst.Size.X * 0.5f, dst.Position.Y + h),
+                           dst.Size.X * 0.15f, new Color(0.40f, 0.31f, 0.22f, 0.95f));
+            }
+            if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
+            return;
+        }
+
+        if (f.Type == FurnitureType.Cabinet)
+        {
+            // 柜门绕左合页旋开（门保持不透明、始终可见），露出柜内暗腔与藏物。
+            float ang = ot * Mathf.DegToRad(100f);
+            Vector2 hinge = new Vector2(dst.Position.X, dst.Position.Y);
+            var rp = hinge.Rotated(ang);
+            var rot = new Transform2D(ang, hinge - rp);
+            var m = mirror ? mirrorM * rot : rot;
+            DrawSetTransformMatrix(m);
+            DrawTextureRectRegion(_roomTex, dst, src, new Color(1f, 1f, 1f, 1f));
+            DrawSetTransformMatrix(Transform2D.Identity);
+            return;
+        }
+
+        if (f.Type == FurnitureType.Desk)
+        {
+            // 抽屉面板向下抽出，露出柔和的抽屉内腔（接触阴影贴图，不画硬边矩形）；
+            // 藏物落在内腔（由中层已画），不再是「移走再淡入」。
+            if (mirror) DrawSetTransformMatrix(mirrorM);
+            float pull = dst.Size.Y * 1.05f * ot;
+            if (_shadowTex != null)
+            {
+                var cav = new Rect2(dst.Position.X, dst.Position.Y - dst.Size.Y * 0.15f, dst.Size.X, dst.Size.Y * 1.2f);
+                DrawTextureRect(_shadowTex, cav, false, new Color(0.16f, 0.12f, 0.09f, 0.7f * ot));
+            }
+            var dDst = new Rect2(dst.Position.X, dst.Position.Y + pull, dst.Size.X, dst.Size.Y);
+            DrawTextureRectRegion(_roomTex, dDst, src, new Color(1f, 1f, 1f, 1f));
+            if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
+            return;
+        }
+
+        // 灶面：保持平移掀开（非门非卷轴），但不淡出，避免「闪现」
+        if (mirror) DrawSetTransformMatrix(mirrorM);
+        var sDst = new Rect2(dst.Position.X + dst.Size.X * 0.82f * ot, dst.Position.Y, dst.Size.X, dst.Size.Y);
+        DrawTextureRectRegion(_roomTex, sDst, src, new Color(1f, 1f, 1f, 1f));
         if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
 
         // v3.85：删掉「未开且靠近」时画在柜门/画心上的亮黄四角线。

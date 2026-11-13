@@ -1983,11 +1983,9 @@ public partial class N918Level : Node2D
 
     private void Artillery(float strength)
     {
-        // v3.51: was full-strength flash + 0.7s+0.2 shake. The full-screen
-        // warm wash at 0.4-0.65 alpha read as a screen fault every time a
-        // wave spawned (user report 2026-10-31). Halved flash, softer jolt:
-        // a distant shell you feel, not a screen you distrust.
-        _flashA = Mathf.Max(_flashA, strength * 0.55f);
+        // v3.91：对齐江桥关卡 v3.58 的「无全屏闪」原则——爆炸不再叠加 _flashA（全屏暖罩），
+        // 只在 v3.51 已降到的强度内保留 Shake 体感，避免任何「一闪」被误读成屏幕故障。
+        // 玩家中弹的 0.15 微闪（OnPlayerHit）仍保留作为受伤反馈，不受此改动影响。
         Shake(0.45f * strength + 0.1f);
         // 远处的雪雾
         _snow.Burst();
