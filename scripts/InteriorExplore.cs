@@ -211,7 +211,24 @@ public partial class InteriorRoom : Control
     public int NearIndex = -1;
     /// <summary>v3.71 最近的可翻找家具（关闭且含藏匿物）。</summary>
     public int NearFurniture = -1;
-    public bool AtDoor => PlayerX <= 82f;
+
+    /// <summary>
+    /// v3.85 指针（鼠标）在房间画布内的本地坐标；(-1,-1) = 没有有效指针。
+    /// 用户诉求：「鼠标点到挂画时候是有提示按 E 可以掀起来……如果鼠标没有选中就没有提示」。
+    /// 旧版只有 A/D 水平扫视，判定只看 |x - PlayerX|：挂画在 y≈220 根本无法被「指向」，
+    /// 而柜子 112px 的横向半径又让准星停在柜前一大片都算命中 ⇒ 提示看起来常驻。
+    /// 现在改成 X+Y 双轴矩形命中，指针移开就没有任何提示。
+    /// </summary>
+    public Vector2 Pointer = new(-1f, -1f);
+    public bool PointerActive => Pointer.X >= 0f && Pointer.Y >= 0f;
+    /// <summary>真实游戏自动读鼠标；截图场景置 false，避免 headless 的 (0,0) 误命中。</summary>
+    public bool AutoMouse = true;
+    /// <summary>鼠标静止超过该秒数后回落 A/D 准星，键盘玩家不会被锁死。</summary>
+    public const float PointerIdleTimeout = 0.6f;
+    private float _pointerIdle = 99f;
+    private Vector2 _lastMouse = new(-1f, -1f);
+
+    public bool AtDoor => (PointerActive ? Pointer.X : PlayerX) <= 82f;
     /// <summary>v3.70：进入室内自动切换第一视角（隐藏走动小人，改画准星扫视）。默认开启。</summary>
     public bool FirstPerson = true;
 
@@ -287,13 +304,43 @@ public partial class InteriorRoom : Control
     }
 
     /// <summary>由 HouseInteriorUi._Process 驱动：走动、靠近判定、掉落物理、重绘。</summary>
-    public void Step(float dt, float dir)
+    public void Step(float dt, float dir, Vector2? pointer = null)
     {
         if (_fg == null) return;
         float W = Size.X > 0f ? Size.X : 952f;
+
+        // ---- v3.85 指针来源优先级：截图强制 > 真实鼠标 > 超时回落 A/D 准星 ----
+        if (pointer.HasValue)
+        {
+            Pointer = pointer.Value;
+            _pointerIdle = 0f;
+        }
+        else if (AutoMouse && GetViewport() != null)
+        {
+            Vector2 global = GetViewport().GetMousePosition();
+            if (GetGlobalRect().HasPoint(global))
+            {
+                if (global.DistanceTo(_lastMouse) > 0.5f)
+                {
+                    Pointer = GetLocalMousePosition();
+                    _lastMouse = global;
+                    _pointerIdle = 0f;
+                }
+                else _pointerIdle += dt;
+            }
+            else { Pointer = new Vector2(-1f, -1f); _pointerIdle += dt; }
+        }
+        else _pointerIdle += dt;
+        if (!pointer.HasValue && _pointerIdle > PointerIdleTimeout)
+            Pointer = new Vector2(-1f, -1f);
+
         if (Mathf.Abs(dir) > 0.01f)
         {
-            PlayerX = Mathf.Clamp(PlayerX + dir * 205f * dt, 54f, W - 52f);
+            // 鼠标模式下 A/D 移动指针（保持 y），键盘模式下移动小人；两套输入不打架
+            if (PointerActive)
+                Pointer = new Vector2(Mathf.Clamp(Pointer.X + dir * 205f * dt, 54f, W - 52f), Pointer.Y);
+            else
+                PlayerX = Mathf.Clamp(PlayerX + dir * 205f * dt, 54f, W - 52f);
             _walkT += dt * 9f;
             _facing = dir > 0f ? 1f : -1f;
         }
@@ -305,9 +352,10 @@ public partial class InteriorRoom : Control
         // 掉落物理（实时下落 / 回弹 / 静止）
         PhysicsStep(dt);
 
-        // 最近可搜查物件：Container 物件需家具已开才能搜；FloorDrop 需已静止；已 Done 跳过
+        // v3.85 最近可搜查物件：Container 需家具已开、FloorDrop 需静止；
+        // 命中必须是「指针真的落在这件东西上」，不再是一整条水平带。
         NearIndex = -1;
-        float best = 56f;
+        float best = float.MaxValue;
         for (int i = 0; i < Items.Count; i++)
         {
             var it = Items[i];
@@ -318,18 +366,45 @@ public partial class InteriorRoom : Control
                 if (f == null || !f.Opened) continue;
             }
             if (it.Mode == RoomItemMode.FloorDrop && !it.Settled) continue;
-            float d = Mathf.Abs(it.Pos.X - PlayerX);
+            if (!HitItem(it)) continue;
+            float d = PointerActive ? Pointer.DistanceTo(it.Pos) : Mathf.Abs(it.Pos.X - PlayerX);
             if (d < best) { best = d; NearIndex = i; }
         }
 
-        // v3.84 最近可翻找家具：必须「未开 + 里面还有没搜过的物件」，判定半径按家具体量给，
-        // 柜门宽约 140px，旧版统一 74px 会让人站在柜前却翻不开。
+        // v3.85 最近可翻找家具：未开 + 里面还有未搜物件 + 指针落在柜门/画心裁片矩形内。
         NearFurniture = -1;
         float bestF = float.MaxValue;
         for (int i = 0; i < Furniture.Count; i++)
         {
             var f = Furniture[i];
             if (f.Opened || !HasClosedContents(f)) continue;
+            if (!HitFurniture(f)) continue;
+            float d = PointerActive ? Pointer.DistanceTo(f.Center) : Mathf.Abs(f.Center.X - PlayerX);
+            if (d < bestF) { bestF = d; NearFurniture = i; }
+        }
+
+        _fg.WalkPhase = _walkT;
+        _fg.Facing = _facing;
+        _fg.QueueRedraw();
+    }
+
+    /// <summary>
+    /// v3.85 物件命中框：X±30 / Y±34。最小 38px 小件外留 11px 容差，
+    /// 既能点到又不会「站在半米外就冒提示」；无指针时回落旧的水平 56px 判定。
+    /// </summary>
+    private bool HitItem(RoomItem it)
+        => PointerActive
+            ? Mathf.Abs(Pointer.X - it.Pos.X) <= 30f && Mathf.Abs(Pointer.Y - it.Pos.Y) <= 34f
+            : Mathf.Abs(it.Pos.X - PlayerX) < 56f;
+
+    /// <summary>
+    /// v3.85 家具命中框：直接复用前景柜门/画心裁片在画布上的真实矩形，
+    /// 画心是竖长条、柜门是竖矩形，必须按各自形状命中，不用 88~112px 横向大半径。
+    /// </summary>
+    private bool HitFurniture(Furniture f)
+    {
+        if (!PointerActive)
+        {
             float reach = f.Type switch
             {
                 FurnitureType.Cabinet => 112f,
@@ -337,13 +412,19 @@ public partial class InteriorRoom : Control
                 FurnitureType.PictureFrame => 92f,
                 _ => 88f,
             };
-            float d = Mathf.Abs(f.Center.X - PlayerX);
-            if (d < reach && d < bestF) { bestF = d; NearFurniture = i; }
+            return Mathf.Abs(f.Center.X - PlayerX) < reach;
         }
-
-        _fg.WalkPhase = _walkT;
-        _fg.Facing = _facing;
-        _fg.QueueRedraw();
+        if (InteriorForeground.FrontSrc.TryGetValue((Type, f.Type), out var src))
+        {
+            var r = InteriorForeground.BgRect(src);
+            // 住家镜像 variant：画布左右翻转，命中框同步翻
+            if (Type == RoomType.Residence && Variant != 0)
+                r = new Rect2(952f - r.Position.X - r.Size.X, r.Position.Y, r.Size);
+            return r.HasPoint(Pointer);
+        }
+        // 仓库 / 无裁片家具：退回暗格矩形外扩 12px
+        float hw = f.HalfW() + 12f, hh = 46f;
+        return Mathf.Abs(Pointer.X - f.Center.X) <= hw && Mathf.Abs(Pointer.Y - f.RecessPos().Y) <= hh;
     }
 
     /// <summary>v3.71 实时掉落积分：重力 + 地板/家具顶碰撞 + 回弹衰减，落到合理处并静止。</summary>
@@ -815,7 +896,7 @@ public partial class InteriorForeground : Control
     /// 零新增美术资产、零运行时程序化场景实体、零拉伸（src 与 dst 同比）。
     /// 源矩形来自 previews/grid_residence.png / grid_comm_outpost.png 逐格核对。
     /// </summary>
-    private static readonly Dictionary<(RoomType, FurnitureType), Rect2> FrontSrc = new()
+    public static readonly Dictionary<(RoomType, FurnitureType), Rect2> FrontSrc = new()
     {
         { (RoomType.Residence, FurnitureType.Cabinet),       new Rect2(1060, 520, 180, 250) },
         { (RoomType.Residence, FurnitureType.PictureFrame),  new Rect2( 190,  60, 140, 460) },
@@ -828,7 +909,7 @@ public partial class InteriorForeground : Control
     };
 
     /// <summary>贴图像素矩形 → 房间画布矩形（与 InteriorBackdrop 的 KeepAspectCovered 同一换算）。</summary>
-    private static Rect2 BgRect(Rect2 src) => new(
+    public static Rect2 BgRect(Rect2 src) => new(
         src.Position.X * InteriorRoom.BgScale - InteriorRoom.BgCropX,
         src.Position.Y * InteriorRoom.BgScale,
         src.Size.X * InteriorRoom.BgScale,
@@ -871,12 +952,14 @@ public partial class InteriorForeground : Control
 
         _hint = new Label
         {
-            Text = "A / D 或 ← / → 环视屋内　·　准星对准物件按 E 搜寻　·　移到门口按 E 离开",
+            Text = "鼠标指向物件 / 柜门 / 挂画 按 E 互动　·　A / D 或 ← / → 也可环视　·　移到门口按 E 离开",
             HorizontalAlignment = HorizontalAlignment.Center,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        _hint.AddThemeFontSizeOverride("font_size", 14);
-        _hint.AddThemeColorOverride("font_color", new Color(0.98f, 0.91f, 0.75f));
+        // v3.85 淡化成淡墨小字：它只是操作说明，不能读成「常驻的 E 提示」；
+        // 命中时由 RefreshPrompt 整行隐藏，画面里只留那张 E 纸条。
+        _hint.AddThemeFontSizeOverride("font_size", 12);
+        _hint.AddThemeColorOverride("font_color", new Color(0.70f, 0.64f, 0.54f, 0.78f));
         _hint.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
         _hint.OffsetTop = -36;
         _hint.OffsetBottom = -8;
@@ -980,18 +1063,20 @@ public partial class InteriorForeground : Control
         }
     }
 
-    /// <summary>接触阴影：硬边压扁椭圆（手绘，带轻微抖动），不用柔边羽化。</summary>
+    /// <summary>
+    /// v3.85 接触阴影：三层淡墨递减做软边，让小件「坐进」背景里。
+    /// 旧版 6 顶点不透明多边形（0.42a）读作「物件底下垫了块硬纸片」，是格格不入的主因之一。
+    /// 这只是表现层的投影，不是场景实体；物件本体仍是同源贴图裁片。
+    /// </summary>
     private void DrawContactShadow(Vector2 p, float a)
     {
-        DrawColoredPolygon(new[]
+        for (int i = 3; i >= 1; i--)
         {
-            new Vector2(p.X - 26f, p.Y + 20f),
-            new Vector2(p.X - 12f, p.Y + 15f),
-            new Vector2(p.X + 12f, p.Y + 15f),
-            new Vector2(p.X + 26f, p.Y + 20f),
-            new Vector2(p.X + 18f, p.Y + 25f),
-            new Vector2(p.X - 18f, p.Y + 25f),
-        }, new Color(0.10f, 0.08f, 0.06f, 0.42f * a));
+            float k = i / 3f;
+            DrawFlatEllipse(new Vector2(p.X, p.Y + 20f + i * 1.2f),
+                25f * (0.55f + 0.45f * k), 7.5f * (0.5f + 0.5f * k),
+                new Color(0.16f, 0.12f, 0.09f, 0.12f * a / k));
+        }
     }
 
     // =====================================================================
@@ -1163,22 +1248,10 @@ public partial class InteriorForeground : Control
         DrawTextureRectRegion(_roomTex, moved, src, new Color(1f, 1f, 1f, alpha));
         if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
 
-        // 未开且靠近：细墨线四角，提示「这里能翻」（交互层，不是场景实体美术）
-        if (!f.Opened && _room.NearFurniture >= 0 && _room.NearFurniture < _room.Furniture.Count
-            && _room.Furniture[_room.NearFurniture] == f)
-        {
-            var q = RecessRect(f);
-            float l = q.Position.X - 10f, rr = q.Position.X + q.Size.X + 10f;
-            float tp = q.Position.Y - 10f, bt = q.Position.Y + q.Size.Y + 10f;
-            float[] xs = { l, rr, l, rr }, ys = { tp, tp, bt, bt },
-                     sx = { 1f, -1f, 1f, -1f }, sy = { 1f, 1f, -1f, -1f };
-            var col = new Color(0.99f, 0.93f, 0.76f, 0.85f);
-            for (int k = 0; k < 4; k++)
-            {
-                Line(new Vector2(xs[k], ys[k]), new Vector2(xs[k] + 13f * sx[k], ys[k]), 1.6f, col);
-                Line(new Vector2(xs[k], ys[k]), new Vector2(xs[k], ys[k] + 13f * sy[k]), 1.6f, col);
-            }
-        }
+        // v3.85：删掉「未开且靠近」时画在柜门/画心上的亮黄四角线。
+        // 用户要的是「只有鼠标选中才有 E 提示，没选中就没有任何提示」，
+        // 且这些亮线压在背景贴图上又是一层格格不入的 UI 标记。
+        // 现在唯一的命中反馈就是 RefreshPrompt 的 E 纸条；柜门与挂画本身保持原画。
     }
 
     /// <summary>v3.82 烧毁家具前脸矩形：柜 / 灶底边贴地板，桌抽屉沿用凹洞位。</summary>
@@ -1198,22 +1271,10 @@ public partial class InteriorForeground : Control
         DrawItemCore(it, it.Pos, near, 1f, true);
     }
 
-    /// <summary>关键物（真实烈士信/遗书）微光：不刺眼的暖光脉冲，画在物件之前（被物件压住，只剩光晕）。</summary>
-    private Vector2[] GlowPoly(Vector2 c, float r)
-    {
-        int seg = 18;
-        var pts = new Vector2[seg];
-        for (int i = 0; i < seg; i++)
-        {
-            float ang = i * Mathf.Tau / seg;
-            pts[i] = new Vector2(c.X + Mathf.Cos(ang) * r, c.Y + Mathf.Sin(ang) * r * 0.7f);
-        }
-        return pts;
-    }
-
     /// <summary>
     /// 物件绘制核心。origin=绘制中心；reveal=开启淡入(0..1)；floorShadow=true 时阴影画在地面（地落物）。
-    /// v3.71：关键物未搜前画一抹随低频 sin 脉冲的暖光，提醒但不刺眼。
+    /// v3.85：near 参数仅保留签名兼容，不再在物件本体上画任何命中标记 ——
+    /// 「选中才有提示」统一由 RefreshPrompt 的 E 纸条承担；微光 / 十字星 / 斜杠 / 四角框全部删除。
     /// </summary>
     private void DrawItemCore(RoomItem it, Vector2 p, bool near, float reveal, bool floorShadow)
     {
@@ -1225,21 +1286,15 @@ public partial class InteriorForeground : Control
             float above = InteriorRoom.FloorY - it.Pos.Y;
             float k = Mathf.Clamp(1f - above / 220f, 0.15f, 1f);
             DrawFlatEllipse(new Vector2(it.Pos.X, InteriorRoom.FloorY + 18f),
-                20f * (0.45f + 0.55f * k), 7f, new Color(0.10f, 0.08f, 0.06f, 0.42f * k));
+                20f * (0.45f + 0.55f * k), 7f, new Color(0.14f, 0.11f, 0.08f, 0.20f * k));
         }
         else
         {
             DrawContactShadow(p, a);
         }
 
-        // 关键物微光（仅真实烈士姓名信/遗书，未搜前）
-        if (it.Key && !it.Done)
-        {
-            float g = (float)(Time.GetTicksMsec() % 1600) / 1600f;
-            float pulse = 0.10f + 0.07f * (0.5f + 0.5f * Mathf.Sin(g * Mathf.Tau));
-            for (int i = 3; i >= 1; i--)
-                DrawColoredPolygon(GlowPoly(p, 30f * i + 10f), new Color(0.99f, 0.86f, 0.55f, pulse / i));
-        }
+        // v3.85：删掉关键物的三层暖光脉冲。用户要的是「融入背景」，
+        // 发光晕圈只会让小件读成 UI 图标 / 贴纸；关键与否改由搜刮后的文本承载。
 
         // v3.84：仓库沿用 v3.82 已验收的大件表；完好房间改用 38–52px 小件表 + 多贴图源。
         // src 与 dst 同比 ⇒ 不拉伸；Surface 物件底边贴 GroundY（背景真实地板线），不再浮在墙上。
@@ -1276,10 +1331,15 @@ public partial class InteriorForeground : Control
                     : p.Y;
                 var src = new Rect2(s.sx, s.sy, s.sw, s.sh);
                 var dst = new Rect2(p.X - w / 2f, cy - h / 2f, w, h);
-                // 旧纸中心偏亮，在这间暖褐屋子里压到米黄，避免白得像 UI 贴片
+                // v3.85 融入背景：完好房间的小件统一压到与墙面/木器同一暖褐调，
+                // 不再用原色 (1,1,1) 直接贴上去；旧纸再压一档，避免白得像 UI 贴片。
                 var mod = s.sheet == 2
-                    ? new Color(0.76f, 0.70f, 0.60f, a)
-                    : new Color(1f, 1f, 1f, a);
+                    ? new Color(0.70f, 0.64f, 0.55f, a)
+                    : new Color(0.86f, 0.79f, 0.68f, a);
+                // 暗格里没有光：柜内 / 画后露出的物件再压 18%，读起来是「藏在暗处」，
+                // 而不是一块比背景亮的贴片。
+                if (it.Mode == RoomItemMode.Container)
+                    mod = new Color(mod.R * 0.82f, mod.G * 0.82f, mod.B * 0.82f, mod.A);
                 DrawTextureRectRegion(t, dst, src, mod);
                 drawn = true;
             }
@@ -1304,32 +1364,11 @@ public partial class InteriorForeground : Control
             }
         }
 
-        // 未搜过：物件上方一颗卡通高光十字星（不是文字标签）
-        if (!it.Done)
-        {
-            float t = (float)(Time.GetTicksMsec() % 1400) / 1400f;
-            float s = 4f + Mathf.Sin(t * Mathf.Tau) * 1.4f;
-            Line(new Vector2(p.X + 22f, p.Y - 26f - s), new Vector2(p.X + 22f, p.Y - 26f + s), 2f, PaperLit);
-            Line(new Vector2(p.X + 22f - s, p.Y - 26f), new Vector2(p.X + 22f + s, p.Y - 26f), 2f, PaperLit);
-        }
-        else
-        {
-            // 已翻过：硬边斜杠 + 变暗，不留可点击的标签
-            Line(new Vector2(p.X - 18f, p.Y - 18f), new Vector2(p.X + 18f, p.Y + 18f), 2.4f,
-                new Color(0.30f, 0.24f, 0.18f, a));
-        }
-
-        // 靠近：四角漫画分格标记（不画整圈红框，免得压住物件与小人）
-        if (near)
-        {
-            float l = p.X - 30f, r = p.X + 30f, t = p.Y - 34f, b = p.Y + 26f;
-            float[] xs = { l, r, l, r }, ys = { t, t, b, b }, sx = { 1f, -1f, 1f, -1f }, sy = { 1f, 1f, -1f, -1f };
-            for (int k = 0; k < 4; k++)
-            {
-                Line(new Vector2(xs[k], ys[k]), new Vector2(xs[k] + 14f * sx[k], ys[k]), 3f, PaperLit);
-                Line(new Vector2(xs[k], ys[k]), new Vector2(xs[k], ys[k] + 14f * sy[k]), 3f, PaperLit);
-            }
-        }
+        // v3.85 用户原话：「如果鼠标没有选中就没有提示」「看起来融入背景不然格格不入」。
+        // 旧版每个未搜物件都常驻一颗脉动亮白十字星、已搜画硬边斜杠、命中再叠 3px 亮白四角框，
+        // 三样都是画在物件本体上的 UI 标记 —— 正是「贴纸感」的来源，全部删除。
+        // 选中时的唯一反馈是 RefreshPrompt 画的那张 E 提示纸条；物件本身永远只有贴图 + 接触阴影。
+        // （已搜物件靠 a = 0.55 自然变暗，不再画斜杠。）
 
         // 长按进度（撬箱 / 合闸 / 发报）：硬边实色条
         if (it.Progress > 0f)
@@ -1588,14 +1627,16 @@ public partial class InteriorForeground : Control
     /// </summary>
     private void DrawReticle(float W, float H)
     {
-        float x = _room.PlayerX;
-        // 靠近物件时准星落到该物件高度，否则停在房间中上部扫视
-        float y = H * 0.50f;
-        if (_room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count)
+        // v3.85：有鼠标指针时准星跟随鼠标（X+Y 都能动），才能真正「指向挂画」；
+        // 无指针时回落旧的 A/D 水平扫视。指针模式下不画整条竖直引导线，免得画面读成 UI。
+        bool ptr = _room.PointerActive;
+        float x = ptr ? _room.Pointer.X : _room.PlayerX;
+        float y = ptr ? _room.Pointer.Y : H * 0.50f;
+        if (!ptr && _room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count)
             y = _room.Items[_room.NearIndex].Pos.Y;
 
-        // 竖直扫视引导线（淡）
-        Line(new Vector2(x, H * 0.10f), new Vector2(x, H * 0.92f), 1.4f, new Color(0.99f, 0.94f, 0.80f, 0.20f));
+        if (!ptr)
+            Line(new Vector2(x, H * 0.10f), new Vector2(x, H * 0.92f), 1.4f, new Color(0.99f, 0.94f, 0.80f, 0.20f));
 
         // 准星：墨圈 + 内圈淡光 + 四向刻线 + 高光点
         float r = 13f;
@@ -1611,6 +1652,13 @@ public partial class InteriorForeground : Control
     // ---------- 提示牌 / 结果条 ----------
     private void RefreshPrompt(float W, float H)
     {
+        // v3.85：没指向任何东西时只留一行淡墨操作说明；一旦命中就把它收起来，
+        // 屏幕上唯一的反馈是贴着物件的那张 E 纸条。
+        bool hovered = _room.AtDoor
+            || (_room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count)
+            || (_room.NearFurniture >= 0 && _room.NearFurniture < _room.Furniture.Count);
+        _hint.Visible = !hovered;
+
         string text;
         Vector2 pos;
         if (_room.AtDoor)
@@ -1622,7 +1670,10 @@ public partial class InteriorForeground : Control
         {
             text = $"E · 查看「{_room.Items[_room.NearIndex].Label}」";
             var it = _room.Items[_room.NearIndex];
-            pos = new Vector2(Mathf.Clamp(it.Pos.X - 110f, 90f, W - 240f), it.Pos.Y - 92f);
+            // v3.85 提示牌贴着指针，不再固定在物件上方一大截
+            var anchor = _room.PointerActive ? _room.Pointer : it.Pos;
+            pos = new Vector2(Mathf.Clamp(anchor.X - 110f, 90f, W - 240f),
+                              Mathf.Clamp(anchor.Y - 72f, 58f, H - 150f));
         }
         else if (_room.NearFurniture >= 0 && _room.NearFurniture < _room.Furniture.Count)
         {
@@ -1630,8 +1681,9 @@ public partial class InteriorForeground : Control
             // 而不是直接写里面有什么 —— 里面的东西必须翻开后才让玩家知道。
             var f = _room.Furniture[_room.NearFurniture];
             text = $"E · {_room.FurnitureVerb(_room.NearFurniture)}";
-            pos = new Vector2(Mathf.Clamp(f.Center.X - 110f, 90f, W - 240f),
-                              Mathf.Clamp(f.Center.Y - 112f, 58f, H - 150f));
+            var anchor = _room.PointerActive ? _room.Pointer : f.Center;
+            pos = new Vector2(Mathf.Clamp(anchor.X - 110f, 90f, W - 240f),
+                              Mathf.Clamp(anchor.Y - 72f, 58f, H - 150f));
         }
         else
         {

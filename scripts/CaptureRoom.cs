@@ -21,6 +21,11 @@ public partial class CaptureRoom : Node
     private int _stage;
     /// <summary>v3.84：>=0 时每帧把家具 OpenT 钉住，才能拍到开门动画的中间帧。</summary>
     private float _holdOpenT = -1f;
+    /// <summary>
+    /// v3.85：模拟鼠标指针的画布坐标。null = 回落 A/D 准星；具体坐标 = 指针指向某物 / 空白。
+    /// 用来拍「鼠标指向挂画 → 出现 E 提示但柜门画心仍关着」与「指针移开 → 零提示」两类帧。
+    /// </summary>
+    private Vector2? _holdPointer = null;
     private static string Dir => ProjectSettings.GlobalizePath("res://_shots");
 
     public override void _Ready()
@@ -46,7 +51,7 @@ public partial class CaptureRoom : Node
     /// v3.71~v3.83 这里无条件把家具全设 Opened=true，藏匿时序从来没被截图验证过。
     /// </summary>
     private void BuildRoom(RoomType type, int variant, int seed, string titleText, float openT,
-        IEnumerable<RoomItem> realItems = null)
+        IEnumerable<RoomItem> realItems = null, Vector2? pointer = null)
     {
         // v3.71 用户诉求③：CaptureRoom 造的都是九一八的屋（夜袭），窗光设为月光
         WorldClock.Time = WorldClock.Phase.Day;
@@ -90,6 +95,10 @@ public partial class CaptureRoom : Node
         _room.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         content.AddChild(_room);
         _room.QueueRedraw();
+        // v3.85：headless 没有真实鼠标，GetMousePosition 会返回 (0,0) 误命中；
+        // 截图场景一律关掉自动鼠标，改由 _holdPointer 显式喂指针。
+        _room.AutoMouse = false;
+        _holdPointer = pointer;
         // v3.84 三态：0=柜门/挂画关着（暗格与藏匿物完全不可见）、0.55=开门动画中、1=全开
         _holdOpenT = openT;
         foreach (var f in _room.Furniture) { f.Opened = openT > 0f; f.OpenT = openT; }
@@ -111,7 +120,7 @@ public partial class CaptureRoom : Node
     {
         _t += (float)delta;
         // v3.70：第一视角下不再让小人走动；准星固定在第一个物件上扫视
-        _room?.Step((float)delta, 0f);
+        _room?.Step((float)delta, 0f, _holdPointer);
         // Step() 会把 OpenT 往 1 推进；钉回目标值才能稳定拍到 0 / 0.55 / 1 三态
         if (_holdOpenT >= 0f && _room != null)
             foreach (var f in _room.Furniture) f.OpenT = _holdOpenT;
@@ -173,14 +182,56 @@ public partial class CaptureRoom : Node
                 _stage = 8;
                 break;
             case 8 when _t > 9.0f:
-                SaveShot("room_09_realloot_path.png");
+                SaveShot("room_09_realloot_path.png", () =>
+                    // v3.85 关闭态 + 鼠标指向地图挂画：应出现「E · 掀起挂画」，
+                    // 但挂画仍挂着、暗格与里面的物件完全不可见。
+                    BuildRoom(RoomType.CommOutpost, 0, 19310920,
+                        "通信据点 · 无线电发信机 · 屋内", 0f, null,
+                        HitCenter(RoomType.CommOutpost, FurnitureType.PictureFrame)));
                 _stage = 9;
                 break;
-            case 9 when _t > 9.9f:
+            case 9 when _t > 10.0f:
+                SaveShot("room_10_pointer_picture.png", () =>
+                    // 指向木柜：应出现「E · 拉开柜门」，柜门仍关着。
+                    BuildRoom(RoomType.CommOutpost, 0, 19310920,
+                        "通信据点 · 无线电发信机 · 屋内", 0f, null,
+                        HitCenter(RoomType.CommOutpost, FurnitureType.Cabinet)));
+                _stage = 10;
+                break;
+            case 10 when _t > 11.0f:
+                SaveShot("room_11_pointer_cabinet.png", () =>
+                    // 指向空白墙面：指针在画面里但没选中任何东西 ⇒ 零提示、零高亮。
+                    BuildRoom(RoomType.CommOutpost, 0, 19310920,
+                        "通信据点 · 无线电发信机 · 屋内", 0f, null,
+                        new Vector2(500f, 110f)));
+                _stage = 11;
+                break;
+            case 11 when _t > 12.0f:
+                SaveShot("room_12_no_pointer.png", () =>
+                    // 住家卷轴挂画同样验证一次（两张圈注图里的一张）
+                    BuildRoom(RoomType.Residence, 0, 19310918,
+                        "柳条湖边的小屋 · 屋内", 0f, null,
+                        HitCenter(RoomType.Residence, FurnitureType.PictureFrame)));
+                _stage = 12;
+                break;
+            case 12 when _t > 13.0f:
+                SaveShot("room_13_residence_pointer.png");
+                _stage = 13;
+                break;
+            case 13 when _t > 13.9f:
                 GD.Print("CAPTURE_ROOM done");
                 GetTree().Quit();
                 break;
         }
+    }
+
+    /// <summary>v3.85：取柜门 / 画心裁片在画布上的中心，模拟「鼠标正好指在这件东西上」。</summary>
+    private static Vector2 HitCenter(RoomType type, FurnitureType ft)
+    {
+        if (!InteriorForeground.FrontSrc.TryGetValue((type, ft), out var src))
+            return new Vector2(500f, 300f);
+        var r = InteriorForeground.BgRect(src);
+        return r.Position + r.Size * 0.5f;
     }
 
     private async void SaveShot(string name, Action onSaved = null)
