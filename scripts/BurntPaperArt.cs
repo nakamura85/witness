@@ -5,22 +5,114 @@ using Godot;
 namespace Witness;
 
 /// <summary>
-/// v3.68 手绘上色漫画风「真实纸张 · 少许烧毁」绘制原语。
+/// v3.83 纸张 UI：钢笔淡彩 / 水墨手绘的「旧纸」贴图绘制原语。
 ///
-/// 取代 v3.67 及以前的 PanelContainer + StyleBoxFlat「对话格子」。
-/// 规则严格走 scripts/InkStyle.cs：
-///   • 3px 深墨棕粗描边；base → shadow → highlight 三档平涂，无插值渐变；
-///   • 卡通高光是短直线 / 小圆点，不是模糊光晕；接触阴影是硬边压扁块；
-///   • 纸张边缘是手绘撕裂锯齿，局部焦褐碳化带、烧穿小洞、翻卷角、折痕、灰烬点。
+/// ★ 风格定调（用户 2026-11-13 亲自纠正，v3.81 起全作品唯一美术锚点）：
+///   细而不均、随形体断续的墨线；斑驳罩染、有渐层与笔触；柔和淡墨阴影。
+///   **不是**赛璐璐漫画风，**不是** 3px 均匀粗描边 + 三档硬边平涂。
+///   实现手段是 PNG 贴图资产，不是运行时程序化几何色块。
 ///
-/// 「纸张不要全部都一样」：seed 决定焦边落在哪条边、缺口深度、洞数与位置、
-/// 纸色微差、卷角方向、折痕位置、灰烬散布，因此每一份记录长得都不一样。
-/// seed 由调用方用「日期 + 标题」的稳定哈希生成，同一份记录每次打开一致。
+/// 纸张（用户参考第二张图）＝ 米黄斑驳渐层 + 满纸揉皱折痕 +
+///   四周一圈不规则锯齿状焦边（纸色 → 浅褐 → 深褐 → 炭黑）；
+///   **没有**工整硬边框、**没有**规整的圆形烧穿孔、**没有**卷角三角。
+///   这跟 v3.68~v3.82「规整矩形 + 几个圆烧孔 + 暗红横线」的打印证书感是两回事。
+///
+/// 「纸张不要全部都一样」：seed 决定使用 3 张焦边变体中的哪一张，
+///   同一份记录（日期 + 标题哈希）每次打开一致。
+/// 贴图资产由 tools/bridge_restyle/make_burnt_paper_textures.py 生成，可复现。
+/// DrawSheetLegacy 是被否决的旧画法，仅作贴图缺失时的兜底。
 /// </summary>
 public static class BurntPaperArt
 {
     private static readonly Color Ink = InkStyle.InkColor;
     private static readonly Color InkSoft = InkStyle.InkSoft;
+
+    // =====================================================================
+    // v3.83 纸张贴图（贴图资产，不是运行时程序化几何色块）
+    // ---------------------------------------------------------------------
+    // 用户 2026-11-13：「那些留言或者纸条的或者纸张的我都希望那个风格可以
+    // 参考第二张这样的美术画风哦 跟你理解的烧坏的纸张不同」
+    //   被否定的旧理解 = 规整矩形 + 3px 均匀粗墨框 + 三档平涂 + 圆形烧穿孔
+    //                    （读起来像打印表格 / 证书）
+    //   用户参考图     = 米黄斑驳渐层 + 满纸揉皱折痕 + 四周不规则锯齿焦边
+    //                    （纸色→浅褐→深褐→炭黑），无硬边框、无规整圆孔
+    // 实现：离线脚本自绘的 PNG 贴图（原创造纹，不复制带水印的图库素材），
+    //       运行时用 DrawTextureRectRegion 做九宫格采样；中心格 1:1 平铺，
+    //       所以任意面板尺寸都不会把纸纹拉伸变形。
+    // 样式仍按 seed 分流 3 张变体，保持「纸张不要全部都一样」。
+    // =====================================================================
+    private const float SheetSrc = 384f;   // paper_burnt_v*.png 边长
+    private const float SheetEdge = 80f;   // 该图九宫格边距（源像素）
+    public const float SlipSrcSize = 256f; // paper_slip.png 边长（PaperSlip 共用同一约定）
+    public const float SlipEdgeSize = 32f; // 该图九宫格边距（源像素）
+
+    private static Texture2D[] _sheets;
+
+    private static Texture2D[] Sheets
+    {
+        get
+        {
+            if (_sheets != null) return _sheets;
+            _sheets = new[]
+            {
+                GD.Load<Texture2D>("res://assets/art/ui/paper_burnt_v1.png"),
+                GD.Load<Texture2D>("res://assets/art/ui/paper_burnt_v2.png"),
+                GD.Load<Texture2D>("res://assets/art/ui/paper_burnt_v3.png"),
+            };
+            return _sheets;
+        }
+    }
+
+    /// <summary>
+    /// 九宫格贴图绘制：四角固定、四边沿单轴拉伸、中心格拉伸。
+    /// 9 块都取自同一张连续图，边界像素天然连续 —— 不采用「中心格平铺」，
+    /// 因为中心裁块自身不具周期性，平铺会在纸面上留下淡矩形接缝（v3.83 首轮真帧实测）。
+    /// 代价是纸纹随笔画面板尺寸略有横向拉伸；低频斑驳水渍被拉长后反而更像旧纸。
+    /// </summary>
+    public static void DrawNine(CanvasItem c, Texture2D tex, Rect2 r,
+        float srcSize, float srcEdge, float edge)
+    {
+        if (tex == null || r.Size.X < 24f || r.Size.Y < 24f) return;
+        float W = r.Size.X, H = r.Size.Y;
+        float e = Mathf.Min(edge, Mathf.Min(W * 0.22f, H * 0.22f));
+        float C = srcSize - 2f * srcEdge;
+        if (C <= 0f) return;
+        float x = r.Position.X, y = r.Position.Y;
+        float x1 = x + e, y1 = y + e;
+        float cw = W - 2f * e, ch = H - 2f * e;
+
+        void Blit(Rect2 src, Rect2 dst) => c.DrawTextureRectRegion(tex, dst, src);
+
+        // 四角：源 srcEdge² → 目标 e²（焦角，压缩不影响读感）
+        Blit(new Rect2(0, 0, srcEdge, srcEdge), new Rect2(x, y, e, e));
+        Blit(new Rect2(srcSize - srcEdge, 0, srcEdge, srcEdge), new Rect2(x + W - e, y, e, e));
+        Blit(new Rect2(0, srcSize - srcEdge, srcEdge, srcEdge), new Rect2(x, y + H - e, e, e));
+        Blit(new Rect2(srcSize - srcEdge, srcSize - srcEdge, srcEdge, srcEdge),
+             new Rect2(x + W - e, y + H - e, e, e));
+
+        // 四边：整段一次拉伸（不循环平铺 → 无接缝）
+        Blit(new Rect2(srcEdge, 0, C, srcEdge), new Rect2(x1, y, cw, e));
+        Blit(new Rect2(srcEdge, srcSize - srcEdge, C, srcEdge), new Rect2(x1, y + H - e, cw, e));
+        Blit(new Rect2(0, srcEdge, srcEdge, C), new Rect2(x, y1, e, ch));
+        Blit(new Rect2(srcSize - srcEdge, srcEdge, srcEdge, C), new Rect2(x + W - e, y1, e, ch));
+        // 中心：整块一次拉伸，与四边共用同一张连续图的边界像素
+        Blit(new Rect2(srcEdge, srcEdge, C, C), new Rect2(x1, y1, cw, ch));
+    }
+
+    /// <summary>
+    /// v3.83 主入口：贴图化旧纸。seed 决定用哪张焦边变体，burn 决定焦边可见厚度。
+    /// 贴图缺失时自动回退到 v3.82 的程序化绘制，绝不出现空白面板。
+    /// </summary>
+    public static void DrawSheet(CanvasItem c, Rect2 r, int seed, float burn = 0.6f)
+    {
+        var arr = Sheets;
+        var tex = arr[(seed & 0x7fffffff) % arr.Length];
+        if (tex == null) { DrawSheetLegacy(c, r, seed, burn); return; }
+        // e 上限 42px：BurntPaperPanel 的 ContentMargin 为 48/48/42/46，
+        // 焦边不会啃到正文（极值验算：burn=1.0 → 44 → 截断 42）。
+        float edge = Mathf.Clamp(30f + burn * 14f, 24f, 42f);
+        DrawNine(c, tex, r, SheetSrc, SheetEdge, edge);
+    }
 
     /// <summary>稳定哈希（FNV-1a），不用 string.GetHashCode（.NET 每次进程会随机化）。</summary>
     public static int StableHash(string s)
@@ -134,10 +226,11 @@ public static class BurntPaperArt
     }
 
     /// <summary>
-    /// 画一整张「少许烧毁」的漫画风纸。r 为纸的外接矩形（尺寸由内容撑开）。
-    /// 会留出 ~46px 的安全文字区，调用方把文字放在内缩后的区域即可。
+    /// v3.82 及以前的「三档平涂 + 圆形烧穿孔」画法 —— 已被用户否定的旧理解。
+    /// 仅在 v3.83 贴图资产加载失败时作为兜底调用，正常路径不会执行。
+    /// 保留它是为了让整套改动一行可回退，不是继续沿用这套观感。
     /// </summary>
-    public static void DrawSheet(CanvasItem c, Rect2 r, int seed, float burn = 0.6f)
+    private static void DrawSheetLegacy(CanvasItem c, Rect2 r, int seed, float burn = 0.6f)
     {
         if (r.Size.X < 60f || r.Size.Y < 60f) return;
         var rng = NewRng(seed);
@@ -327,8 +420,8 @@ public static class BurntPaperArt
 }
 
 /// <summary>
-/// 一张「真实纸张」容器：PanelContainer 只负责撑尺寸，所有可见外观由 _Draw 画出来。
-/// 子节点（文字/按钮）叠在纸之上，内边距留给焦边，保证文字不压到烧痕。
+/// 一张「真实纸张」容器：PanelContainer 只负责撑尺寸，可见外观由 _Draw 用贴图绘制。
+/// 子节点（文字/按钮）叠在纸之上，48/48/42/46 的内边距留给焦边，保证文字不被烧痕啃到。
 /// </summary>
 public partial class BurntPaperPanel : PanelContainer
 {
@@ -365,48 +458,57 @@ public partial class BurntPaperPanel : PanelContainer
     }
 }
 
-/// <summary>纸张上的手绘墨线分隔（不是一条 CSS 式的直线）。</summary>
+/// <summary>
+/// v3.83 纸上的钢笔分隔线：细（1.1~1.7px）、不均、随形体断续，
+/// 不再是 v3.68 那条 3px 均匀粗墨线 + 焦褐端点圆点（属被否决的漫画风定调）。
+/// </summary>
 public partial class InkRule : Control
 {
     public override void _Draw()
     {
         if (Size.X < 20f) return;
         float y = Size.Y * 0.5f;
-        int n = Mathf.Max(4, (int)(Size.X / 60f));
-        var pts = new List<Vector2>();
+        int n = Mathf.Max(10, (int)(Size.X / 26f));
+        var col = new Color(0.29f, 0.22f, 0.16f, 0.62f);
+        bool hasPrev = false;
+        Vector2 prev = Vector2.Zero;
         for (int i = 0; i <= n; i++)
         {
             float t = (float)i / n;
-            pts.Add(new Vector2(Size.X * t, y + (H(i * 3.1f, 17) - 0.5f) * 2.6f));
+            var p = new Vector2(Size.X * t, y + (H(i * 2.7f, 17) - 0.5f) * 2.2f);
+            // 约 1/8 的段故意断笔，线随形体断续而不是一根印刷直线
+            if (hasPrev && H(i * 1.7f, 31) > 0.12f)
+                DrawLine(prev, p, col, 1.1f + H(i * 3.3f, 7) * 0.6f, true);
+            prev = p;
+            hasPrev = true;
         }
-        DrawPolyline(pts.ToArray(), InkStyle.InkColor, 3f, true);
-        // 焦褐端点，像墨线被火燎过
-        DrawCircle(new Vector2(Size.X - 2f, y), 3f, new Color(0.42f, 0.26f, 0.14f));
-        DrawCircle(new Vector2(4f, y), 2f, InkStyle.InkColor);
     }
 
     private static float H(float n, int seed) => BurntPaperArt.H(n, seed);
 }
 
-/// <summary>漫画风纸签按钮：米黄土实色 + 3px 深墨棕粗框 + 硬投影。</summary>
+/// <summary>
+/// v3.83 纸签按钮：收敛成 1px 细墨线 + 淡墨软投影，
+/// 与旧纸贴图同调；保留按钮的可点击识别度，不再是 3px 均匀粗框的漫画风纸牌。
+/// </summary>
 public static class PaperButtonStyle
 {
     public static void Apply(Button b)
     {
         var normal = new StyleBoxFlat
         {
-            BgColor = new Color(0.92f, 0.85f, 0.68f),
-            BorderColor = InkStyle.InkColor,
-            BorderWidthLeft = 3, BorderWidthRight = 3, BorderWidthTop = 3, BorderWidthBottom = 3,
+            BgColor = new Color(0.91f, 0.84f, 0.70f, 0.96f),
+            BorderColor = new Color(0.42f, 0.32f, 0.22f, 0.85f),
+            BorderWidthLeft = 1, BorderWidthRight = 1, BorderWidthTop = 1, BorderWidthBottom = 1,
             ContentMarginLeft = 16, ContentMarginRight = 16,
             ContentMarginTop = 6, ContentMarginBottom = 6,
-            ShadowColor = new Color(0.10f, 0.08f, 0.06f, 0.75f),
-            ShadowSize = 4, ShadowOffset = new Vector2(4, 4),
+            ShadowColor = new Color(0.12f, 0.09f, 0.06f, 0.28f),
+            ShadowSize = 2, ShadowOffset = new Vector2(2, 2),
         };
         var hover = (StyleBoxFlat)normal.Duplicate();
-        hover.BgColor = new Color(0.99f, 0.94f, 0.80f);
+        hover.BgColor = new Color(0.97f, 0.92f, 0.79f, 0.98f);
         var pressed = (StyleBoxFlat)normal.Duplicate();
-        pressed.BgColor = new Color(0.80f, 0.72f, 0.55f);
+        pressed.BgColor = new Color(0.82f, 0.74f, 0.58f, 0.98f);
         pressed.ShadowOffset = new Vector2(1, 1);
         b.AddThemeStyleboxOverride("normal", normal);
         b.AddThemeStyleboxOverride("hover", hover);
@@ -418,14 +520,27 @@ public static class PaperButtonStyle
 }
 
 /// <summary>
-/// 屋内小提示牌用的「矮纸条」：同样手绘漫画风撕边 + 局部焦角，
-/// 但高度只有 30px 左右，用于替换米黄矩形标签牌。
+/// v3.83 屋内小提示牌用的「矮纸条」：与大纸同一套旧纸质感
+/// （米黄揉皱纸纹 + 上下细窄不规则焦边），只是九宫格边距更薄。
+/// 高度只有 30~56px，运行时走 paper_slip.png 贴图；贴图缺失时回退旧画法。
 /// </summary>
 public static class PaperSlip
 {
+    private static Texture2D _slipTex;
+
     public static void Draw(CanvasItem c, Rect2 r, int seed)
     {
         if (r.Size.X < 40f || r.Size.Y < 12f) return;
+        _slipTex ??= GD.Load<Texture2D>("res://assets/art/ui/paper_slip.png");
+        if (_slipTex != null)
+        {
+            // 极值验算：H=32 → e=min(9, 7.68, W*0.12)=7.68px；
+            // H=56 → e=min(9, 13.44, …)=9px。焦边不会吃掉纸条上的文字行。
+            float e = Mathf.Min(9f, Mathf.Min(r.Size.Y * 0.24f, r.Size.X * 0.12f));
+            BurntPaperArt.DrawNine(c, _slipTex, r,
+                BurntPaperArt.SlipSrcSize, BurntPaperArt.SlipEdgeSize, e);
+            return;
+        }
         BurntPaperArt.Palette(seed, out var paper, out var shade, out var lit);
         var rng = new RandomNumberGenerator();
         rng.Seed = (ulong)((seed & 0x7fffffff) + 19311104u);
