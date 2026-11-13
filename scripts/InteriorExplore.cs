@@ -1141,38 +1141,77 @@ public partial class InteriorForeground : Control
     /// 画在背景之上、家具之下：窗外晕染（天空/地面/月或日）+ 房间光晕 + 地面光束（+夜：月与星）。
     /// 取色全部来自 WorldClock.For(t)，与关卡全局时辰联动。
     /// </summary>
+    /// <summary>
+    /// v3.89 窗光修正（用户 2026-11-13：阴影区被凭空打亮、右侧灶台烟囱一带浮空亮块）。
+    /// 根因：旧版把光束死钉在 wx=0.66W（右侧），但三张室内背景贴图的窗户/受光面都在
+    /// 左侧（仅住家 variant!=0 因 FlipH 镜像转到右侧），等于在阴影侧凭空打光；
+    /// 且全屏 RoomWash 均匀提亮，把本该暗的角落也提亮。
+    /// 修正：① 光束移到真实窗户所在侧；② 整体光晕改为「靠窗渐亮、向阴影侧 smoothstep
+    /// 衰减到 0」的局部光照，阴影侧不再被提亮（背景贴图本身已画好暗部）。
+    /// </summary>
     private void DrawWindowLight(float W, float H, WorldClock.Phase t)
     {
         var pal = WorldClock.For(t);
-        float wx = W * 0.66f, wy = 54f, ww = 150f, wh = 118f;
+        // 所有室内背景贴图的窗户/受光面都在左侧；仅住家 variant!=0 因贴图 FlipH 镜像，窗户转到右侧。
+        bool rightWin = (_room.Type == RoomType.Residence && _room.Variant != 0);
+        float winX = rightWin ? W * 0.74f : W * 0.30f;   // 窗户中心 x（背景贴图实测受光侧）
+        float winY = 56f;
+        float winW = 150f;
+        float topY = winY + 116f;                          // 窗台下沿（光束起点）
+        float dx = rightWin ? -48f : 48f;                 // 光束落地相对顶端的水平偏移（左窗→右下，右窗→左下）
 
-        // v3.80（用户反馈 #6「这个根本不需要吧」+ 全局画风一致红线）：移除原先浮在
-        // 右上墙面的「浅黄 2×2 方格 + 悬空圆盘」纯色窗框。它读起来像 UI 调试格子、
-        // 与整体手绘上色漫画风冲突；房间左上已有手绘漫画风木格窗承担「有窗」信息。
-        // v3.71 已确认的「窗光随时辰」功能核心保留：改为画外高窗透入的时辰光晕 +
-        // 地面光束表达（颜色仍由 WorldClock.For(t) 联动，夜偏冷 / 晨昏偏暖），不回退功能。
-
-        // 房间整体光晕（低 alpha，叠在背景上，不覆盖家具/物件）
-        DrawRect(new Rect2(0, 0, W, H), pal.RoomWash);
-
-        // 窗投到地面的光束（平行四边形：上端窄、落地宽；半透明）
-        float lx = wx + 24f, rx = wx + ww - 24f;
-        var beam = new Vector2[]
+        // 1) 局部光晕：仅在受光侧（窗户附近）做柔和的水平渐变提亮，绝不整屏均匀提亮。
+        //    用若干竖直细条，alpha 由窗户向阴影侧 smoothstep 衰减到 ~0，保留背景本身画好的暗部。
+        int strips = 56;
+        float colW = W / strips + 1f;
+        for (int i = 0; i < strips; i++)
         {
-            new Vector2(lx, wy + wh),
-            new Vector2(rx, wy + wh),
-            new Vector2(rx + 46f, InteriorRoom.FloorY),
-            new Vector2(lx - 34f, InteriorRoom.FloorY),
-        };
-        DrawColoredPolygon(beam, pal.Beam);
+            float x = i * colW;
+            float d = rightWin ? (x - winX) / (W - winX) : (winX - x) / winX;
+            d = Mathf.Clamp(d, 0f, 1f);
+            float a = pal.RoomWash.A * (1f - Mathf.SmoothStep(0f, 1f, d) * 0.94f);
+            if (a <= 0.004f) continue;
+            DrawRect(new Rect2(x, 0f, colW, H),
+                new Color(pal.RoomWash.R, pal.RoomWash.G, pal.RoomWash.B, a));
+        }
+
+        // 2) 窗投到地面的光束：平行四边形，水平方向做羽化（避免硬边读成贴上去的矩形）。
+        float lx = winX - winW * 0.5f + 22f;
+        float rx = winX + winW * 0.5f - 22f;
+        float blx0 = lx, brx0 = rx;                         // 顶边左右
+        float blx1 = lx + dx - 18f, brx1 = rx + dx + 18f;   // 底边左右（随光束方向偏移）
+        int rows = 40;
+        for (int i = 0; i < rows; i++)
+        {
+            float f = (i + 0.5f) / rows;
+            float y = topY + (InteriorRoom.FloorY - topY) * f;
+            float tr = (y - topY) / (InteriorRoom.FloorY - topY);
+            float xl = Mathf.Lerp(blx0, blx1, tr);
+            float xr = Mathf.Lerp(brx0, brx1, tr);
+            float dxw = (xr - xl) / 10f;
+            for (int j = 0; j < 10; j++)
+            {
+                float g = (j + 0.5f) / 10f;
+                float d = Mathf.Abs(g - 0.5f) * 2f;          // 0=中轴 1=边
+                float a = pal.Beam.A * (1f - d * d)            // 横向羽化：中亮边淡
+                                 * (1f - 0.25f * Mathf.Abs(2f * f - 1f)); // 顶/底再稍淡
+                if (a <= 0.012f) continue;
+                float x = xl + (xr - xl) * g;
+                DrawRect(new Rect2(x, y, dxw + 1f, (InteriorRoom.FloorY - topY) / rows + 1f),
+                    new Color(pal.Beam.R, pal.Beam.G, pal.Beam.B, a));
+            }
+        }
         // v3.86 地面光斑：同用那张淡墨晕染贴图上色，不再运行时画椭圆。
-        // 贴图自带 ≤0.44 的软 alpha，故把 Beam 的 alpha 补 2.2 倍维持原有明度。
+        // 贴图自带 ≤0.44 的软 alpha，故把 Beam 的 alpha 补 2.2 倍维持原有明度；位置随光束落地中心移动。
         if (_shadowTex != null)
+        {
+            float bcx = (lx + rx) * 0.5f + dx;
             DrawTextureRect(_shadowTex,
-                new Rect2((lx + rx) / 2f + 6f - 96f, InteriorRoom.FloorY - 16f, 192f, 40f),
+                new Rect2(bcx - 96f, InteriorRoom.FloorY - 16f, 192f, 40f),
                 false,
                 new Color(pal.Beam.R, pal.Beam.G, pal.Beam.B,
                           Mathf.Min(1f, pal.Beam.A * 2.2f)));
+        }
     }
 
     // v3.86：DrawFlatEllipse 已删除 —— 接触阴影、地落阴影、地面光斑全部改贴图采样。
