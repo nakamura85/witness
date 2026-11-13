@@ -262,6 +262,10 @@ public partial class N918Level : Node2D
     private static Font _signFont;
     // v3.81：柳条湖木牌板身贴图 —— 从 door_leaf_burnt.png 裁片提取，与房屋/铁轨同一支笔
     private static Texture2D _signWoodTex;
+    // v3.87：南满铁路里程标贴图 —— 同源 door_leaf_burnt.png 裁片去饱和压成风化石面，
+    // 按真实矮方柱形制 + 全局钢笔淡彩风格生成（见 tools/bridge_restyle/make_kilometer_post.py）。
+    // 取代 3811-3825 原有的纯程序化白块（规整矩形 + 工整黑框 + 三条等距横线）。
+    private static Texture2D _kilometerTex;
 
     public N918Level(Main main) { _main = main; }
 
@@ -3787,13 +3791,13 @@ public partial class N918Level : Node2D
         /// 史料边界：1931.9.18 柳条湖事件是南满铁路沈阳以北一段路轨被炸，
         /// 现场为铁路路基与旱地，无冰封江面、无铁桥、无江桥式雪原战壕。
         /// 江桥关卡继续使用 DrawTrenchLines（雪原战壕）与冰封江面，两关不再同款。
-        /// 风格走 InkStyle / MangaPropArt 的粗墨描边 + 三档硬边平涂。
+        /// 柳条湖木牌（v3.81）与南满铁路里程标（v3.87）均改为同源钢笔淡彩贴图资产，
+        /// 与房屋 / 铁轨同一支笔；不再是 InkStyle / MangaPropArt 的粗墨描边 + 三档硬边平涂。
         /// </summary>
         private void DrawRailEmbankment()
         {
             var ink = new Color(0.14f, 0.10f, 0.08f, 0.92f);
             var stone = new Color(0.84f, 0.81f, 0.73f, 0.96f);
-            var stoneShade = new Color(0.58f, 0.55f, 0.48f, 0.96f);
             var wood = new Color(0.62f, 0.44f, 0.24f, 0.96f);
 
             // 路基护坡：铁轨下方一道硬边斜切土带（不是雪坎）
@@ -3808,20 +3812,20 @@ public partial class N918Level : Node2D
                     ink, 2.4f, false);
             }
 
-            // 南满铁路里程碑：白石碑 + 深墨刻度 + 硬边暗部 + 石面纹理（手绘漫画风，不再像平板方块）
-            for (float x = 520f; x < WorldW; x += 620f)
+            // 南满铁路里程碑（v3.87）：矮方石柱，按真实形制 + 全局钢笔淡彩风格重绘为贴图资产。
+            // 取代原 3811-3825 的程序化白块（规整矩形 + 工整黑框 + 三条等距横线，读作打印表格）。
+            // 贴图本身已含风化斑驳、断续墨线轮廓与接地淡墨阴影，运行时只做 DrawTextureRect，零程序化几何。
+            _kilometerTex ??= GD.Load<Texture2D>("res://assets/art/props/railway_kilometer_post.png");
+            if (_kilometerTex != null)
             {
-                DrawRect(new Rect2(x, GroundY + 12f, 24f, 46f), stone);
-                DrawRect(new Rect2(x, GroundY + 44f, 24f, 14f), stoneShade);
-                // 石面竖向裂纹（硬边，不走插值）
-                DrawLine(new Vector2(x + 8f, GroundY + 16f), new Vector2(x + 10f, GroundY + 44f), stoneShade, 1.2f, false);
-                DrawLine(new Vector2(x + 16f, GroundY + 18f), new Vector2(x + 14f, GroundY + 44f), stoneShade, 1.0f, false);
-                // 左侧高光（卡通短直线）
-                DrawLine(new Vector2(x + 3f, GroundY + 16f), new Vector2(x + 3f, GroundY + 42f), new Color(0.96f, 0.95f, 0.90f), 1.4f, false);
-                DrawRect(new Rect2(x, GroundY + 12f, 24f, 46f), ink, false, 3f);
-                for (int k = 0; k < 3; k++)
-                    DrawLine(new Vector2(x + 6f, GroundY + 22f + k * 8f),
-                        new Vector2(x + 18f, GroundY + 22f + k * 8f), ink, 2f, false);
+                for (float x = 520f; x < WorldW; x += 620f)
+                    DrawTextureRect(_kilometerTex, new Rect2(x, GroundY + 12f, 24f, 46f), false);
+            }
+            else
+            {
+                // 贴图缺失兜底：保持原白块轮廓，避免整列标记消失
+                for (float x = 520f; x < WorldW; x += 620f)
+                    DrawRect(new Rect2(x, GroundY + 12f, 24f, 46f), stone);
             }
 
             // 柳条湖爆破点地名木牌：立在断轨缺口旁，点出事件地点（手绘漫画风：木纹 + 硬边墨线 + 高光 + 手写感刻字）
