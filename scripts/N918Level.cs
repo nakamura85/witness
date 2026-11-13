@@ -2500,13 +2500,35 @@ public partial class N918Level : Node2D
             for (int i = 0; i < bands; i++)
             {
                 float t = (i + 0.5f) / bands;
-                DrawRect(new Rect2(-1400f, y + i * bh, WorldW + 3800f, bh + 0.7f),
-                    from.Lerp(to, t));
-            }
+            DrawRect(new Rect2(-1400f, y + i * bh, WorldW + 3800f, bh + 0.7f),
+                from.Lerp(to, t));
         }
+    }
 
-        // —— 中景：雪原、村落、电报杆、树线、烟 ——
-        private void DrawMid()
+    // 地面顶边溶解：照 MeltFoot 的思路，在实心带顶边(世界 560)之上叠一段
+    // 细条淡入。最上面的 band alpha 趋近 0，所以顶边是"化进去"而不是"切下去"——
+    // 那条横贯全屏的生硬直线就消失了。每条 y 再做一点正弦抖动，让过渡不死板。
+    // v3.88: 这正是对玩家圈出的"铁线网"那道线的修正（其实不是铁线网，是
+    // 雪原地平线被画成了尺子直的实心矩形上缘）。
+    private void MeltTop(Color snow)
+    {
+        const int bands = 16;
+        const float bottom = 560f;   // 与地面实心带顶边对齐
+        const float h = 16f;         // 向上溶解的高度
+        const float top = bottom - h;
+        for (int i = 0; i < bands; i++)
+        {
+            float t = (i + 0.5f) / bands;   // 0=最上(最淡) 1=最下(接实心带)
+            float a = Mathf.SmoothStep(0f, 1f, t);
+            if (a <= 0.004f) continue;
+            float wob = Mathf.Sin(i * 1.3f) * 0.6f;
+            DrawRect(new Rect2(-1400f, top + i * (h / bands) + wob, WorldW + 3800f, h / bands + 0.7f),
+                new Color(snow, a));
+        }
+    }
+
+    // —— 中景：雪原、村落、电报杆、树线、烟 ——
+    private void DrawMid()
         {
             var snow = new Color(0.62f, 0.55f, 0.37f);
 
@@ -2520,7 +2542,14 @@ public partial class N918Level : Node2D
             // 90px instead of 60 — no leftover bright ledge above the plain.
             // v3.13: that single gradient rect is gone (see MeltFoot below) —
             // its top edge was the hard line across the screen.
+            // v3.88: the solid band's OWN top edge (world y=560) is still a
+            // ruler-straight line across the whole screen — the "铁线网" the
+            // player circled. MeltTop() dissolves it: 16 thin bands above 560,
+            // each its own alpha on a smoothstep, topmost ~0, so the edge melts
+            // into the snow plain instead of cutting across. Not barbed wire —
+            // N918 has no barbed wire code at all; it was the horizon line.
             DrawRect(Full(-1400, 560, 258), snow);
+            MeltTop(snow);
 
             // 雪原起伏的亮边与投影
             // v2.9: tone it down. At 0.65 alpha this crest also ran as a
