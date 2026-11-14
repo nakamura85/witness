@@ -923,11 +923,11 @@ public partial class InteriorForeground : Control
     /// </summary>
     public static readonly Dictionary<(RoomType, FurnitureType), Rect2> FrontSrc = new()
     {
-        { (RoomType.Residence, FurnitureType.Cabinet),       new Rect2(1060, 520, 180, 250) },
+        { (RoomType.Residence, FurnitureType.Cabinet),       new Rect2(1060, 520, 86, 250) },
         { (RoomType.Residence, FurnitureType.PictureFrame),  new Rect2( 190,  60, 140, 460) },
         { (RoomType.Residence, FurnitureType.Desk),          new Rect2( 410, 525, 360,  55) },
         { (RoomType.Residence, FurnitureType.Stove),         new Rect2( 790, 555, 140, 205) },
-        { (RoomType.CommOutpost, FurnitureType.Cabinet),      new Rect2(1060, 460, 180, 250) },
+        { (RoomType.CommOutpost, FurnitureType.Cabinet),      new Rect2(1060, 460, 86, 250) },
         { (RoomType.CommOutpost, FurnitureType.PictureFrame), new Rect2( 100, 120, 220, 280) },
         { (RoomType.CommOutpost, FurnitureType.Desk),         new Rect2( 400, 490, 360,  50) },
         { (RoomType.CommOutpost, FurnitureType.Stove),        new Rect2( 790, 500, 140, 200) },
@@ -1094,7 +1094,9 @@ public partial class InteriorForeground : Control
                 if (FrontSrc.TryGetValue((_room.Type, f.Type), out var dsrc))
                 {
                     var dd = BgRect(dsrc);
-                    p.Y += dd.Size.Y * 1.05f * f.OpenT;
+                    float pull = dd.Size.Y * 1.6f * f.OpenT;
+                    float boxH = dd.Size.Y * 1.35f;
+                    p.Y = dd.Position.Y + pull + boxH * 0.43f;   // 落在抽屉盒内底（与前面板抽出的抽屉盒对齐）
                 }
             }
             bool near = _room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count
@@ -1402,15 +1404,22 @@ public partial class InteriorForeground : Control
 
         if (f.Type == FurnitureType.Cabinet)
         {
-            // v3.93 双开门：两扇门各自以外侧合页为轴，向左右展开（左门往左、右门往右），
-            // 中部露出暗腔 + 隔板，物品落底层。参考中式两门对开柜（中缝居中、内部隔板两层）。
-            // 门板取自背景裁片左 / 右半（即原本画在墙上的那两扇门），旋开后门面木纹 / 把手都在。
+            // v3.94 中式双开门老柜子：两扇门各自以「外侧合页」为轴，向两侧平开、平露柜内。
+            // 门板取自背景裁片左右两半（均为柜门木面，已收紧 FrontSrc 到真实木门宽度，无墙色混入）；
+            // 全开时整片门板平移到柜体外侧、中部完整露出暗腔 + 隔板，物品落底层。
+            // 参考：中式两门对开柜（中缝居中、内设隔板两层）。
             float doorW = dst.Size.X * 0.5f;
-            float open = doorW * 0.66f * ot;       // 门向外伸出的量（左门向左、右门向右）
-            float w = doorW * (1f - 0.32f * ot);   // 略压缩读成透视，避免门板仍占满整片
-            Rect2 dstL = new Rect2(dst.Position.X - open, dst.Position.Y, w, dst.Size.Y);
+            float x0 = dst.Position.X;
+            float x1 = dst.Position.X + dst.Size.X;
+            // 左门：合页在 x0（左外缘），自由边从 x0+doorW（关）摆到 x0-doorW（全开，柜体左侧外）
+            float freeXL = x0 + doorW - ot * (2f * doorW);
+            // 右门：合页在 x1（右外缘），自由边从 x1-doorW（关）摆到 x1+doorW（全开，柜体右侧外）
+            float freeXR = x1 - doorW + ot * (2f * doorW);
+            float wL = Mathf.Abs(freeXL - x0), xL = Mathf.Min(x0, freeXL);
+            float wR = Mathf.Abs(freeXR - x1), xR = Mathf.Min(x1, freeXR);
+            Rect2 dstL = new Rect2(xL, dst.Position.Y, wL, dst.Size.Y);
             Rect2 srcL = new Rect2(src.Position.X, src.Position.Y, src.Size.X * 0.5f, src.Size.Y);
-            Rect2 dstR = new Rect2(dst.Position.X + doorW + open, dst.Position.Y, w, dst.Size.Y);
+            Rect2 dstR = new Rect2(xR, dst.Position.Y, wR, dst.Size.Y);
             Rect2 srcR = new Rect2(src.Position.X + src.Size.X * 0.5f, src.Position.Y, src.Size.X * 0.5f, src.Size.Y);
             DrawSetTransformMatrix(mirror ? mirrorM : Transform2D.Identity);
             DrawTextureRectRegion(_roomTex, dstL, srcL, new Color(1f, 1f, 1f, 1f));
@@ -1421,17 +1430,30 @@ public partial class InteriorForeground : Control
 
         if (f.Type == FurnitureType.Desk)
         {
-            // 抽屉面板向下抽出，露出柔和的抽屉内腔（接触阴影贴图，不画硬边矩形）；
-            // 藏物落在内腔（由中层已画），不再是「移走再淡入」。
+            // v3.94 抽屉：面板向下抽出，露出桌体被抽走后的暗腔 + 抽出的抽屉盒（前面板 + 内底 + 拉环），
+            // 物品落进抽屉盒内底（参考用户给的「拉出抽屉、物品放在抽屉内」实拍图）。
             if (mirror) DrawSetTransformMatrix(mirrorM);
-            float pull = dst.Size.Y * 1.05f * ot;
-            if (_shadowTex != null)
-            {
-                var cav = new Rect2(dst.Position.X, dst.Position.Y - dst.Size.Y * 0.15f, dst.Size.X, dst.Size.Y * 1.2f);
-                DrawTextureRect(_shadowTex, cav, false, new Color(0.16f, 0.12f, 0.09f, 0.7f * ot));
-            }
-            var dDst = new Rect2(dst.Position.X, dst.Position.Y + pull, dst.Size.X, dst.Size.Y);
+            float pull = dst.Size.Y * 1.6f * ot;          // 抽屉抽出的位移
+            float boxH = dst.Size.Y * 1.35f;             // 抽屉盒高度
+            float x = dst.Position.X, y0 = dst.Position.Y, w = dst.Size.X;
+            // 1) 桌体被抽走后留下的暗腔（抽屉原本所在），读作「抽屉拉出来后的空缺」
+            DrawRect(new Rect2(x, y0, w, pull), new Color(0.08f, 0.06f, 0.04f, 0.9f * ot));
+            // 2) 抽出的抽屉盒：前面板 = 背景裁片（桌裙）下移 pull
+            var dDst = new Rect2(x, y0 + pull, w, boxH);
             DrawTextureRectRegion(_roomTex, dDst, src, new Color(1f, 1f, 1f, 1f));
+            // 抽屉盒顶沿（一条略深的木色横带，区分「抽屉面」与上方暗腔）
+            DrawRect(new Rect2(x, y0 + pull, w, Mathf.Max(2f, boxH * 0.06f)), new Color(0.30f, 0.22f, 0.15f, 0.9f * ot));
+            // 抽屉内底（盒内偏上的一条暗带，读作抽屉底面，物品落其上）
+            DrawRect(new Rect2(x + w * 0.07f, y0 + pull + boxH * 0.22f, w * 0.86f, boxH * 0.42f),
+                      new Color(0.11f, 0.08f, 0.05f, 0.6f * ot));
+            // 拉环（抽屉面中央的小圆环），明确这是「可拉出的抽屉」
+            float knobY = y0 + pull + boxH * 0.62f;
+            DrawCircle(new Vector2(x + w * 0.5f, knobY), Mathf.Max(2.5f, boxH * 0.07f), new Color(0.18f, 0.13f, 0.09f, 0.9f * ot));
+            DrawCircle(new Vector2(x + w * 0.5f, knobY), Mathf.Max(1.2f, boxH * 0.035f), new Color(0.40f, 0.30f, 0.20f, 0.9f * ot));
+            // 盒底接触阴影
+            if (_shadowTex != null)
+                DrawTextureRect(_shadowTex, new Rect2(x, y0 + pull + boxH, w, boxH * 0.4f), false,
+                                new Color(0.05f, 0.035f, 0.025f, 0.45f * ot));
             if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
             return;
         }
