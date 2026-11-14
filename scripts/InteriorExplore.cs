@@ -883,17 +883,17 @@ public partial class InteriorForeground : Control
     /// </summary>
     private static readonly Dictionary<string, (int sheet, int sx, int sy, int sw, int sh, float w)> IntactSpec = new()
     {
-        { "chest",   (0, 168,  10, 145, 100, 52f) },  // tile1 单个木箱
-        { "ammo",    (0, 326,  20, 140,  90, 44f) },  // tile2 小木箱
-        { "grenade", (0, 486, 246, 140,  80, 40f) },  // tile11 木箱组里的单个
-        { "letter",  (2,  96,  96, 192, 140, 42f) },  // 揉皱旧纸（v3.83 同源资产）
-        { "will",    (2,  96,  96, 192, 140, 42f) },
-        { "clue",    (2,  96,  96, 192, 140, 38f) },
-        { "gauze",   (0, 486, 126, 148,  70, 44f) },  // tile7 竹箩上沿（浅色编织，读作卷布）
-        { "medkit",  (0, 326, 246, 148,  90, 46f) },  // tile10 侧面木箱
-        { "ash",     (1,   0, 278, 160,  52, 50f) },  // v3.82 已验收的灰堆扁条
-        { "power",   (0, 166, 246, 150, 110, 48f) },  // tile9 电表
-        { "radio",   (0, 326, 246, 150, 110, 50f) },  // tile10 电台
+        { "chest",   (0, 168,  10, 145, 100, 62f) },  // tile1 单个木箱（v3.95 放大 ~1.18x）
+        { "ammo",    (0, 326,  20, 140,  90, 52f) },  // tile2 小木箱
+        { "grenade", (0, 486, 246, 140,  80, 48f) },  // tile11 木箱组里的单个
+        { "letter",  (2,  96,  96, 192, 140, 50f) },  // 揉皱旧纸（v3.83 同源资产）
+        { "will",    (2,  96,  96, 192, 140, 50f) },
+        { "clue",    (2,  96,  96, 192, 140, 46f) },
+        { "gauze",   (0, 486, 126, 148,  70, 52f) },  // tile7 竹箩上沿（浅色编织，读作卷布）
+        { "medkit",  (0, 326, 246, 148,  90, 54f) },  // tile10 侧面木箱
+        { "ash",     (1,   0, 278, 160,  52, 59f) },  // v3.82 已验收的灰堆扁条
+        { "power",   (0, 166, 246, 150, 110, 56f) },  // tile9 电表
+        { "radio",   (0, 326, 246, 150, 110, 59f) },  // tile10 电台
     };
 
     /// <summary>v3.84 信件类用的揉皱旧纸贴图（v3.83 资产，不新增美术）。</summary>
@@ -1049,59 +1049,24 @@ public partial class InteriorForeground : Control
         //    → 柜门/画心裁片。裁片在最上层：关闭时完全盖住暗格与物件 ⇒ 「不开就看不见」；
         //      OpenT 平移 + 淡出 ⇒ 开门过程中渐渐看见里面的子弹/手榴弹/遗书。
         //    旧版 Find() 只画第一件，一个柜子藏多件时后面几件永远不出现。
-        var openItems = new List<(Furniture f, RoomItem it, int k, int total)>();
+        // 逐家具分层：地落物 → 暗格（开门后露出的内部）→（柜子藏匿物，画在前脸之下）
+        // → 前脸（柜门 / 抽屉 / 挂画 / 灶面）→（抽屉 / 仓库藏匿物，画在前脸之上，落进开口内）。
+        // v3.95 关键修复：柜子藏匿物移到前脸之下 ⇒ 关门时前脸完整盖住、开门（门平移出框）后才露出，
+        // 不再「门没开却透出内部物品」（用户 #9）。抽屉 / 仓库藏匿物仍画在前脸之上，
+        // 落进抽出的抽屉盒 / 焦黑柜开口内（抽屉内物品可见，#6）。
         foreach (var f in _room.Furniture)
         {
             foreach (var it in _room.Items)
                 if (it.Mode == RoomItemMode.FloorDrop && OccludedBy(f, it))
                     DrawDropItem(it);
             DrawFurnitureBody(f, _room.WorldTime);
-            if (f.OpenT > 0.05f)
-            {
-                int total = 0;
-                foreach (var it in _room.Items)
-                    if (it.Mode == RoomItemMode.Container && it.ContainerId == f.Id) total++;
-                int k = 0;
-                foreach (var it in _room.Items)
-                {
-                    if (it.Mode != RoomItemMode.Container || it.ContainerId != f.Id) continue;
-                    openItems.Add((f, it, k, total));
-                    k++;
-                }
-            }
+            // 柜子：藏匿物画在柜门之下 —— 关门时前脸盖住、开门后露出（#9 修复）
+            if (!IsBurnt && f.Type == FurnitureType.Cabinet && f.OpenT > 0.05f)
+                DrawContainerItems(f);
             DrawFurnitureFront(f, _room.WorldTime);
-        }
-        // 容器物件统一画在最上层（门 / 抽屉 / 灶面之后），保证「开后才看见、且不被前脸盖住」。
-        // v3.93：柜子物件落底层（隔板以下）、桌子物件随抽屉下移落进抽屉内。
-        foreach (var (f, it, k, total) in openItems)
-        {
-            Vector2 rc = IsBurnt
-                ? RecessRect(f).GetCenter()
-                : InteriorForeground.RecessCenterMirrored(_room.Type, _room.Variant, f.Type);
-            int rows = Mathf.CeilToInt(total / 2f);
-            Vector2 p = rc + new Vector2(
-                (k % 2 == 0 ? -19f : 19f),
-                (k / 2 - (rows - 1) * 0.5f) * 30f);
-            // 柜子：物品落底层（隔板以下），不顶第二层底
-            if (!IsBurnt && f.Type == FurnitureType.Cabinet)
-            {
-                var cov = CoverRect(_room.Type, f.Type);
-                p.Y = rc.Y + cov.Size.Y * 0.24f;
-            }
-            // 桌子：抽屉抽出后，物品落进抽出的抽屉内（随抽屉下移）
-            if (!IsBurnt && f.Type == FurnitureType.Desk)
-            {
-                if (FrontSrc.TryGetValue((_room.Type, f.Type), out var dsrc))
-                {
-                    var dd = BgRect(dsrc);
-                    float pull = dd.Size.Y * 1.6f * f.OpenT;
-                    float boxH = dd.Size.Y * 1.35f;
-                    p.Y = dd.Position.Y + pull + boxH * 0.43f;   // 落在抽屉盒内底（与前面板抽出的抽屉盒对齐）
-                }
-            }
-            bool near = _room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count
-                        && _room.Items[_room.NearIndex] == it;
-            DrawItem(it, p, near, f.OpenT);
+            // 抽屉 / 仓库：藏匿物画在前脸之上（抽屉盒 / 焦黑柜开口内），落进开口（#6）
+            if ((IsBurnt || (!IsBurnt && f.Type == FurnitureType.Desk)) && f.OpenT > 0.05f)
+                DrawContainerItems(f);
         }
 
         // 3) 不被遮挡的地落物（画在最前）
@@ -1121,6 +1086,56 @@ public partial class InteriorForeground : Control
         // 靠近物件 / 门口时的漫画风小提示牌（米黄土实色 + 3px 深墨棕粗框 + 硬投影）
         RefreshPrompt(W, H);
         RefreshResult(W, H);
+    }
+
+    /// <summary>
+    /// v3.95：画某家具内的藏匿物。柜子调用时在「前脸之下」（关门被盖住）；抽屉 / 仓库调用时
+    /// 在「前脸之上」（落进抽出的抽屉盒 / 焦黑柜开口内）。两件按物件实际绘制宽度左右错位，
+    /// 单件居中，避免放大后重叠。
+    /// </summary>
+    private void DrawContainerItems(Furniture f)
+    {
+        int total = 0;
+        foreach (var it in _room.Items)
+            if (it.Mode == RoomItemMode.Container && it.ContainerId == f.Id) total++;
+        int k = 0;
+        foreach (var it in _room.Items)
+        {
+            if (it.Mode != RoomItemMode.Container || it.ContainerId != f.Id) continue;
+            Vector2 rc = IsBurnt
+                ? RecessRect(f).GetCenter()
+                : InteriorForeground.RecessCenterMirrored(_room.Type, _room.Variant, f.Type);
+            // 两件按实际绘制宽度左右错位，单件居中；多件折行
+            float w = IntactSpec.TryGetValue(it.Kind, out var sp) ? sp.w : 44f;
+            int rows = Mathf.CeilToInt(total / 2f);
+            float spread = total <= 1 ? 0f : Mathf.Max(20f, w * 0.58f);
+            Vector2 p = rc + new Vector2((k % 2 == 0 ? -spread : spread),
+                                         (k / 2 - (rows - 1) * 0.5f) * 30f);
+            // 柜子：物品落底层（隔板以下），不顶第二层底
+            if (!IsBurnt && f.Type == FurnitureType.Cabinet)
+            {
+                var cov = CoverRect(_room.Type, f.Type);
+                p.Y = rc.Y + cov.Size.Y * 0.24f;
+            }
+            // 桌子：物品落进 apron 中央挖出的抽屉口内（与 DrawFurnitureFront 同参）
+            if (!IsBurnt && f.Type == FurnitureType.Desk)
+            {
+                if (FrontSrc.TryGetValue((_room.Type, f.Type), out var dsrc))
+                {
+                    var dd = BgRect(dsrc);
+                    float ix = dd.Position.X + dd.Size.X * 0.16f;
+                    float iw = dd.Size.X * 0.68f;
+                    float iy = dd.Position.Y + dd.Size.Y * 0.10f;
+                    float ih = dd.Size.Y * 0.80f;
+                    p.X = ix + iw * 0.5f + (k % 2 == 0 ? -spread : spread);
+                    p.Y = iy + ih * 0.42f;
+                }
+            }
+            bool near = _room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count
+                        && _room.Items[_room.NearIndex] == it;
+            DrawItem(it, p, near, f.OpenT);
+            k++;
+        }
     }
 
     private void DrawDoor(float W, float H, WorldClock.Phase t)
@@ -1185,6 +1200,9 @@ public partial class InteriorForeground : Control
 
         // 局部光晕：仅在受光侧（窗户附近）做柔和的水平渐变提亮，绝不整屏均匀提亮、
         // 也绝不在墙/地上画任何离散光形。竖直细条只按 x 渐变，纵向无分条 ⇒ 读不出网格。
+        // v3.95：降低整体强度（0.5→0.18），只暗示「空气里有光」，绝不形成可见亮斑 / 网格；
+        // 且仅覆盖墙面区域（窗在上方），不向下刷亮地板，避免「怪怪的光」。
+        float lightH = H * 0.72f;
         int strips = 48;
         float colW = W / strips + 1f;
         for (int i = 0; i < strips; i++)
@@ -1192,9 +1210,9 @@ public partial class InteriorForeground : Control
             float x = i * colW;
             float d = rightWin ? (x - winX) / (W - winX) : (winX - x) / winX;
             d = Mathf.Clamp(d, 0f, 1f);
-            float a = pal.RoomWash.A * 0.5f * (1f - Mathf.SmoothStep(0f, 1f, d) * 0.96f);
+            float a = pal.RoomWash.A * 0.18f * (1f - Mathf.SmoothStep(0f, 1f, d) * 0.96f);
             if (a <= 0.003f) continue;
-            DrawRect(new Rect2(x, 0f, colW, H),
+            DrawRect(new Rect2(x, 0f, colW, lightH),
                 new Color(pal.RoomWash.R, pal.RoomWash.G, pal.RoomWash.B, a));
         }
     }
@@ -1296,9 +1314,11 @@ public partial class InteriorForeground : Control
                 float visibleH = pdst.Size.Y * (1f - f.OpenT);
                 var wallDst = new Rect2(pdst.Position.X, pdst.Position.Y + visibleH,
                                         pdst.Size.X, pdst.Size.Y - visibleH);
+                // v3.95：墙色遮罩改为不透明（alpha=1），彻底盖掉背景里那幅静止的画，
+                // 消除「挂画卷起后仍叠出双重像」的怪异感（用户 #5）。
                 Color wall = _room.Type == RoomType.CommOutpost
-                    ? new Color(0.49f, 0.366f, 0.253f, a)
-                    : new Color(0.47f, 0.358f, 0.248f, a);
+                    ? new Color(0.49f, 0.366f, 0.253f, 1f)
+                    : new Color(0.47f, 0.358f, 0.248f, 1f);
                 DrawRect(wallDst, wall);
             }
             DrawSmallNiche(r, a);
@@ -1329,7 +1349,10 @@ public partial class InteriorForeground : Control
             DrawRect(new Rect2(r.Position.X + r.Size.X * 0.06f, shelfY + sh, r.Size.X * 0.88f, sh * 0.6f),
                      new Color(0.04f, 0.03f, 0.02f, 0.8f * a));
         }
-        if (_shadowTex != null)
+        // v3.95：去掉把暗腔洗淡成「淡淡四方格」的接触阴影叠加（用户 #8：
+        // 「打开也不是这样一个四方格淡淡颜色来表示」）。暗腔保持实心深凹，读作真正敞开的柜内。
+        // 仅焚毁仓库（小暗洞）保留极轻的柔边，避免硬边方块感。
+        if (_shadowTex != null && IsBurnt)
         {
             DrawTextureRect(_shadowTex, r,     false, new Color(0.05f, 0.035f, 0.025f, 0.50f * a));
             DrawTextureRect(_shadowTex, inner, false, new Color(0.03f, 0.02f, 0.015f, 0.50f * a));
@@ -1418,42 +1441,41 @@ public partial class InteriorForeground : Control
             float wL = Mathf.Abs(freeXL - x0), xL = Mathf.Min(x0, freeXL);
             float wR = Mathf.Abs(freeXR - x1), xR = Mathf.Min(x1, freeXR);
             Rect2 dstL = new Rect2(xL, dst.Position.Y, wL, dst.Size.Y);
-            Rect2 srcL = new Rect2(src.Position.X, src.Position.Y, src.Size.X * 0.5f, src.Size.Y);
             Rect2 dstR = new Rect2(xR, dst.Position.Y, wR, dst.Size.Y);
-            Rect2 srcR = new Rect2(src.Position.X + src.Size.X * 0.5f, src.Position.Y, src.Size.X * 0.5f, src.Size.Y);
+            // v3.95：两扇门都取源图「受光」的左半扇（背景柜门木面本身左亮右暗），
+            // 右门再压一档微暗以读作对开门的另一扇，消除「一边太光一边淡淡」（用户 #3）。
+            Rect2 srcHalf = new Rect2(src.Position.X, src.Position.Y, src.Size.X * 0.5f, src.Size.Y);
             DrawSetTransformMatrix(mirror ? mirrorM : Transform2D.Identity);
-            DrawTextureRectRegion(_roomTex, dstL, srcL, new Color(1f, 1f, 1f, 1f));
-            DrawTextureRectRegion(_roomTex, dstR, srcR, new Color(1f, 1f, 1f, 1f));
+            DrawTextureRectRegion(_roomTex, dstL, srcHalf, new Color(1f, 1f, 1f, 1f));
+            DrawTextureRectRegion(_roomTex, dstR, srcHalf, new Color(0.90f, 0.87f, 0.82f, 1f));
             DrawSetTransformMatrix(Transform2D.Identity);
             return;
         }
 
         if (f.Type == FurnitureType.Desk)
         {
-            // v3.94 抽屉：面板向下抽出，露出桌体被抽走后的暗腔 + 抽出的抽屉盒（前面板 + 内底 + 拉环），
-            // 物品落进抽屉盒内底（参考用户给的「拉出抽屉、物品放在抽屉内」实拍图）。
+            // v3.95 抽屉：背景的桌/台本就是「素木桌 + 平 apron」，并没有独立抽屉面
+            // （FrontSrc 指向的正是那截平裙板）。所以不另画外凸的抽屉盒（会悬在桌下、错位），
+            // 而是把 apron 中央「挖」出一个朝内凹的抽屉口：保留两侧木边、口内为暗腔、
+            // 物品落进口内（见 DrawContainerItems）、下沿有拉环 ⇒ 读作「桌里的抽屉被拉开」。
             if (mirror) DrawSetTransformMatrix(mirrorM);
-            float pull = dst.Size.Y * 1.6f * ot;          // 抽屉抽出的位移
-            float boxH = dst.Size.Y * 1.35f;             // 抽屉盒高度
-            float x = dst.Position.X, y0 = dst.Position.Y, w = dst.Size.X;
-            // 1) 桌体被抽走后留下的暗腔（抽屉原本所在），读作「抽屉拉出来后的空缺」
-            DrawRect(new Rect2(x, y0, w, pull), new Color(0.08f, 0.06f, 0.04f, 0.9f * ot));
-            // 2) 抽出的抽屉盒：前面板 = 背景裁片（桌裙）下移 pull
-            var dDst = new Rect2(x, y0 + pull, w, boxH);
-            DrawTextureRectRegion(_roomTex, dDst, src, new Color(1f, 1f, 1f, 1f));
-            // 抽屉盒顶沿（一条略深的木色横带，区分「抽屉面」与上方暗腔）
-            DrawRect(new Rect2(x, y0 + pull, w, Mathf.Max(2f, boxH * 0.06f)), new Color(0.30f, 0.22f, 0.15f, 0.9f * ot));
-            // 抽屉内底（盒内偏上的一条暗带，读作抽屉底面，物品落其上）
-            DrawRect(new Rect2(x + w * 0.07f, y0 + pull + boxH * 0.22f, w * 0.86f, boxH * 0.42f),
-                      new Color(0.11f, 0.08f, 0.05f, 0.6f * ot));
-            // 拉环（抽屉面中央的小圆环），明确这是「可拉出的抽屉」
-            float knobY = y0 + pull + boxH * 0.62f;
-            DrawCircle(new Vector2(x + w * 0.5f, knobY), Mathf.Max(2.5f, boxH * 0.07f), new Color(0.18f, 0.13f, 0.09f, 0.9f * ot));
-            DrawCircle(new Vector2(x + w * 0.5f, knobY), Mathf.Max(1.2f, boxH * 0.035f), new Color(0.40f, 0.30f, 0.20f, 0.9f * ot));
-            // 盒底接触阴影
-            if (_shadowTex != null)
-                DrawTextureRect(_shadowTex, new Rect2(x, y0 + pull + boxH, w, boxH * 0.4f), false,
-                                new Color(0.05f, 0.035f, 0.025f, 0.45f * ot));
+            float x = dst.Position.X, y0 = dst.Position.Y, w = dst.Size.X, h = dst.Size.Y;
+            // 抽屉口：比 apron 窄、上下留木边
+            float ix = x + w * 0.16f, iw = w * 0.68f;
+            float iy = y0 + h * 0.10f, ih = h * 0.80f;
+            // 抽屉口暗腔（朝内凹的洞）
+            DrawRect(new Rect2(ix, iy, iw, ih), new Color(0.05f, 0.038f, 0.025f, 0.92f * ot));
+            DrawRect(new Rect2(ix + iw * 0.08f, iy + ih * 0.12f, iw * 0.84f, ih * 0.70f),
+                      new Color(0.025f, 0.018f, 0.012f, 0.95f * ot));
+            // 上沿木边高光 + 内底木色横带（物品落其上）
+            DrawRect(new Rect2(ix, iy, iw, ih * 0.06f), new Color(0.22f, 0.16f, 0.10f, 0.6f * ot));
+            DrawRect(new Rect2(ix + iw * 0.10f, iy + ih * 0.62f, iw * 0.80f, ih * 0.05f),
+                      new Color(0.20f, 0.15f, 0.10f, 0.85f * ot));
+            // 拉环（抽屉口下沿中央），明确这是「可拉开的抽屉」
+            float knobY = iy + ih * 0.90f;
+            float kr = Mathf.Max(2.5f, ih * 0.07f);
+            DrawCircle(new Vector2(x + w * 0.5f, knobY), kr, new Color(0.16f, 0.12f, 0.08f, 0.95f * ot));
+            DrawCircle(new Vector2(x + w * 0.5f, knobY), kr * 0.5f, new Color(0.42f, 0.32f, 0.22f, 0.95f * ot));
             if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
             return;
         }
