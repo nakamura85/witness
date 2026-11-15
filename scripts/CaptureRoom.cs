@@ -239,10 +239,37 @@ public partial class CaptureRoom : Node
                 _stage = 15;
                 break;
             case 15 when _t > 16.0f:
-                SaveShot("room_16_click_opened.png");
+                // v3.98：存完「指向挂画的全开态」后先切到住家 openT=0 关态，
+                // 为下面四张「命名与内容一一对应」的 B 方案验证帧铺路。
+                // （旧 stage 链靠 callback 延后切状态，文件名比内容晚一拍，容易误判关态。）
+                SaveShot("room_16_click_opened.png", () =>
+                    BuildRoom(RoomType.Residence, 0, 19310918, "v3.98 关态验证 · 住家", 0f));
                 _stage = 16;
                 break;
-            case 16 when _t > 16.9f:
+            case 16 when _t > 17.0f:
+                // v3.98 关态：住家 OpenT=0 —— 挂画完整、桌子无抽屉盒、柜门关闭。
+                SaveShot("v398_closed_residence.png", () =>
+                    BuildRoom(RoomType.Residence, 0, 19310918, "v3.98 全开验证 · 住家", 1f));
+                _stage = 17;
+                break;
+            case 17 when _t > 18.0f:
+                // v3.98 全开：住家 OpenT=1 —— 挂画卷起露壁龛、抽屉盒凸出、柜门旋开露内腔。
+                SaveShot("v398_open_residence.png", () =>
+                    BuildRoom(RoomType.CommOutpost, 0, 19310920, "v3.98 关态验证 · 通信据点", 0f));
+                _stage = 18;
+                break;
+            case 18 when _t > 19.0f:
+                // v3.98 关态：通信据点 OpenT=0 —— 同上三处隐藏。
+                SaveShot("v398_closed_comm.png", () =>
+                    BuildRoom(RoomType.CommOutpost, 0, 19310920, "v3.98 全开验证 · 通信据点", 1f));
+                _stage = 19;
+                break;
+            case 19 when _t > 20.0f:
+                // v3.98 全开：通信据点 OpenT=1。
+                SaveShot("v398_open_comm.png");
+                _stage = 20;
+                break;
+            case 20 when _t > 21.0f:
                 GD.Print("CAPTURE_ROOM done");
                 GetTree().Quit();
                 break;

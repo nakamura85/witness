@@ -975,6 +975,13 @@ public partial class InteriorForeground : Control
     /// <summary>v3.84 前景柜门裁片用的背景贴图（与 InteriorBackdrop 同一份资源，不新增资产）。</summary>
     private Texture2D _roomTex;
 
+    // v3.98：三张真实手绘开态贴图资产（用户拍板 B 方案，参考实物图生成、离线键透明入库）。
+    // 互动前不画（关态家具完整无缝），互动后才显现：壁龛在挂画后、抽屉从桌边凸出、柜内在柜门后。
+    // 全部为贴图资产，不再用 DrawRect 程序化平涂伪造开态内容（用户红线：实现必须是贴图资产）。
+    private static Texture2D _wallNicheTex;
+    private static Texture2D _drawerBoxTex;
+    private static Texture2D _cabinetInteriorTex;
+
     public InteriorForeground(InteriorRoom room)
     {
         _room = room;
@@ -988,6 +995,10 @@ public partial class InteriorForeground : Control
         _paperTex ??= GD.Load<Texture2D>("res://assets/art/ui/paper_burnt_v1.png");
         // v3.86：软阴影 / 地面光斑统一用同一张淡墨贴图，不再运行时画椭圆
         _shadowTex ??= GD.Load<Texture2D>("res://assets/art/interior/contact_shadow.png");
+        // v3.98：开态三张真实手绘贴图（壁龛 / 抽屉盒 / 柜内），缺文件时不画、保持关态完整
+        _wallNicheTex ??= GD.Load<Texture2D>("res://assets/art/interior/wall_niche.png");
+        _drawerBoxTex ??= GD.Load<Texture2D>("res://assets/art/interior/drawer_box.png");
+        _cabinetInteriorTex ??= GD.Load<Texture2D>("res://assets/art/interior/cabinet_interior.png");
         // v3.84：柜门 / 画心裁片直接取同一张背景贴图，不新增美术资产
         _roomTex = GD.Load<Texture2D>(_room.Type switch
         {
@@ -1117,17 +1128,16 @@ public partial class InteriorForeground : Control
                 var cov = CoverRect(_room.Type, f.Type);
                 p.Y = rc.Y + cov.Size.Y * 0.24f;
             }
-        // 桌子：物品落进被拉出的暗腔（桌裙上方那道缝），而非悬在桌面下 / 压在抽屉盒上。
+        // 桌子：物品落进被拉出的「抽屉盒内」（贴图盒中部），与 DeskBoxRect 共用同一几何。
             if (!IsBurnt && f.Type == FurnitureType.Desk)
             {
                 if (FrontSrc.TryGetValue((_room.Type, f.Type), out var dsrc))
                 {
                     var dd = BgRect(dsrc);
-                    float yTop = dd.Position.Y;                 // 桌裙上沿
                     float boxH = DeskPullH(f, dd);
-                    float dw = dd.Size.X;
-                    p.X = dd.Position.X + dw * 0.5f + (k % 2 == 0 ? -spread : spread);
-                    p.Y = yTop + boxH * 0.5f + (k / 2) * Mathf.Min(20f, boxH * 0.4f); // 落在暗腔中部
+                    var boxRect = DeskBoxRect(dd, boxH);
+                    p.X = boxRect.Position.X + boxRect.Size.X * 0.5f + (k % 2 == 0 ? -spread : spread);
+                    p.Y = boxRect.Position.Y + boxRect.Size.Y * 0.55f;   // 落在抽屉盒贴图内
                 }
             }
             bool near = _room.NearIndex >= 0 && _room.NearIndex < _room.Items.Count
@@ -1315,25 +1325,51 @@ public partial class InteriorForeground : Control
         return Mathf.Min(apronH * 0.9f * f.OpenT, InteriorRoom.FloorY - (dd.Position.Y + apronH) - 4f);
     }
 
-    /// <summary>v3.96：墙体凹陷小壁龛（挂画后暗格）。用「手绘墙纹理采样压暗」代替平涂墙色，
-    /// 保留裂纹/污渍手绘质感；上/左内沿淡墨柔影做出纵深；绝不平涂近黑方块（用户 #1）。</summary>
-    private void DrawPictureNiche(Rect2 r, float a, bool comm)
+    /// <summary>v3.98：拉出的抽屉盒贴图矩形。以桌宽为基准、按贴图比例(982×581)定高，
+    /// 底部不越过地板线；从桌裙下沿向下凸出 boxH。DrawFurnitureFront 与 DrawContainerItems 共用。</summary>
+    private Rect2 DeskBoxRect(Rect2 dd, float boxH)
     {
-        // 暗格 = 采样手绘墙纹理压暗 ~0.5（仍读作墙的暗部，但保留裂纹/污渍手绘质感，绝不平涂）
-        DrawTexRecess(r, WallPatchSrc(), 0.5f, a);
-        // 上沿 + 左沿内阴影（凹入纵深）；_shadowTex 本身是贴图资产，非平涂
-        if (_shadowTex != null)
+        const float texAspect = 581f / 982f;          // 贴图高/宽
+        float w = dd.Size.X;
+        float boxW = w * 1.06f;                        // 略宽于桌裙，读作「拉出的盒体」
+        float boxHeight = boxW * texAspect;
+        // 底部不越地板线：空间不足则整体收窄盒子
+        float maxBottom = InteriorRoom.FloorY - 2f;
+        float top = dd.Position.Y + boxH;
+        if (top + boxHeight > maxBottom)
         {
-            DrawTextureRect(_shadowTex, new Rect2(r.Position.X, r.Position.Y, r.Size.X, r.Size.Y * 0.5f),
-                            false, new Color(0.04f, 0.03f, 0.02f, 0.5f * a));
-            DrawTextureRect(_shadowTex, new Rect2(r.Position.X, r.Position.Y, r.Size.X * 0.5f, r.Size.Y),
-                            false, new Color(0.04f, 0.03f, 0.02f, 0.32f * a));
+            boxHeight = Mathf.Max(10f, maxBottom - top);
+            boxW = boxHeight / texAspect;
         }
-        // 下沿 + 右沿受光提亮（增强凹入感）：用同一墙纹理更亮的一截，避免平涂亮边
-        DrawTexRecess(new Rect2(r.Position.X, r.Position.Y + r.Size.Y * 0.88f, r.Size.X, r.Size.Y * 0.12f),
-                      WallPatchSrc(), 0.72f, 0.55f * a);
-        DrawTexRecess(new Rect2(r.Position.X + r.Size.X * 0.88f, r.Position.Y, r.Size.X * 0.12f, r.Size.Y),
-                      WallPatchSrc(), 0.72f, 0.5f * a);
+        float x = dd.Position.X + (w - boxW) * 0.5f;
+        return new Rect2(x, top, boxW, boxHeight);
+    }
+
+    /// <summary>v3.98：挂画后的壁龛 = 真实手绘贴图 wall_niche（互动卷起后显现，不再是程序化平涂方块）。
+    /// 用户拍板 B 方案：贴图铺在整幅画框背后、边缘渐隐融入手绘墙，龛口正对藏物落点。
+    /// 暗格藏 ≥2 件时在龛内叠一张缩小的 cabinet_interior 双格内衬 = 「里面有多样物品不止一样」。</summary>
+    private void DrawPictureNiche(Furniture f, Rect2 r, float a)
+    {
+        // 龛贴图铺在「整个画框」背后：wall_niche 自带墙面 + 凹龛，边缘已渐隐，
+        // 既能盖掉背景贴图里画死的静止画，又与四周手绘墙同笔触（用户：纯色 vs 手绘格格不入）。
+        if (FrontSrc.TryGetValue((_room.Type, FurnitureType.PictureFrame), out var psrc))
+        {
+            var frameDst = BgRect(psrc);
+            if (_wallNicheTex != null)
+                DrawTextureRect(_wallNicheTex, frameDst, false, new Color(1f, 1f, 1f, a));
+            else
+                DrawTexRecess(frameDst, WallPatchSrc(), 0.5f, a); // 贴图缺失兜底
+        }
+        // 多物品语义：暗格藏 ≥2 件 → 龛内叠缩小的双格柜内贴图，读作「多格、多样物品」。
+        int cnt = 0;
+        foreach (var it in _room.Items)
+            if (it.Mode == RoomItemMode.Container && it.ContainerId == f.Id) cnt++;
+        if (cnt >= 2 && _cabinetInteriorTex != null && _wallNicheTex != null)
+        {
+            var inner = new Rect2(r.Position.X + r.Size.X * 0.10f, r.Position.Y + r.Size.Y * 0.08f,
+                                  r.Size.X * 0.80f, r.Size.Y * 0.84f);
+            DrawTextureRect(_cabinetInteriorTex, inner, false, new Color(1f, 1f, 1f, 0.92f * a));
+        }
     }
 
     /// <summary>
@@ -1362,9 +1398,9 @@ public partial class InteriorForeground : Control
                 // 且与周围墙同质感（用户：纯色块与手绘墙格格不入）
                 DrawTexRecess(wallDst, WallPatchSrc(), 0.95f, 1f);
             }
-            // v3.96：暗格改画成「墙体凹陷的小壁龛」——底色取墙色压暗 ~45%（仍读作墙的暗部，
-            // 不再是与墙格格不入的近黑方块），上/左内沿淡墨柔影做出纵深；龛内藏匿物随后画进龛内。
-            DrawPictureNiche(r, a, _room.Type == RoomType.CommOutpost);
+            // v3.98：画后壁龛改用真实手绘贴图 wall_niche（互动卷起后随 OpenT 显现、边缘渐隐融入墙）；
+            // 暗格藏 ≥2 件时在龛内叠 cabinet_interior 双格内衬，表示「里面有多样物品不止一样」。
+            DrawPictureNiche(f, r, a);
             // 挂画卷起后，龛内藏匿物（信件/文件）露出来（用户 #1：暗格里要有物品，且不像黑块）
             if (f.OpenT > 0.05f) DrawContainerItems(f);
             return;
@@ -1378,20 +1414,20 @@ public partial class InteriorForeground : Control
         }
 
         // 柜子 / 桌子：暗腔=整片前脸（门 / 抽屉拉开后露出的内部）。
-        // 用家具自身木纹（采样 _roomTex 前脸区域）压暗作内壁，绝不平涂近黑方块（用户红线：贴图资产、不要程式化）。
-        if (FrontSrc.TryGetValue((_room.Type, f.Type), out var fsrc))
+        // v3.98 用户拍板 B 方案：柜内改用真实手绘贴图 cabinet_interior（带背墙/侧壁进深/带厚度隔板），
+        // 不再是程序化压暗木纹 / 平涂层板（用户：程序化看着怪、不符合实物家具逻辑）。
+        if (!IsBurnt && f.Type == FurnitureType.Cabinet && _cabinetInteriorTex != null)
         {
-            DrawTexRecess(r, fsrc, 0.32f, a);            // 内壁 = 家具自身木纹压暗（深木柜内 / 抽屉内壁）
-            if (!IsBurnt && f.Type == FurnitureType.Cabinet)
-            {
-                // 隔板：把柜内分成上下两层（同一木纹、略亮一档，读作搁板）
-                float shelfY = r.Position.Y + r.Size.Y * 0.52f;
-                float sh = Mathf.Max(3f, r.Size.Y * 0.035f);
-                DrawTexRecess(new Rect2(r.Position.X + r.Size.X * 0.06f, shelfY, r.Size.X * 0.88f, sh),
-                              fsrc, 0.55f, 0.95f * a);
-                DrawTexRecess(new Rect2(r.Position.X + r.Size.X * 0.06f, shelfY + sh, r.Size.X * 0.88f, sh * 0.6f),
-                              fsrc, 0.18f, 0.85f * a);
-            }
+            // v3.98 收口：cabinet_interior 自带完整木框 + 背板 + 中间隔板层，必须铺满「整个柜体前脸 dst」，
+            // 而不是内缩的小暗格 r —— 否则门推开后中间只露出一条窄缝，读不出「柜内有隔板分层」。
+            // 轻压 0.92 与两侧暖棕门板拉开层次，但不压死（贴图自带深色背板已足够深）。
+            var cabDst = FrontSrc.TryGetValue((_room.Type, f.Type), out var csrc) ? BgRect(csrc) : r;
+            DrawTextureRect(_cabinetInteriorTex, cabDst, false, new Color(0.92f, 0.92f, 0.92f, a));
+        }
+        else if (FrontSrc.TryGetValue((_room.Type, f.Type), out var fsrc))
+        {
+            // 桌子 / 焚毁仓库兜底：采样自身木纹压暗作内壁（仍贴图、非平涂）
+            DrawTexRecess(r, fsrc, 0.30f, a);
         }
         else
         {
@@ -1475,64 +1511,68 @@ public partial class InteriorForeground : Control
 
         if (f.Type == FurnitureType.Cabinet)
         {
-            // 双开门「向外推开」：两扇门各以柜体外侧竖直边为铰链向外旋开。
-            // 正投影下，旋开门面的水平宽度 = 门宽 × cos(θ)（门板越开越窄、像真正转开的门），
-            // 铰链边固定在柜体左右外缘，中间露出柜内暗腔与藏物；门面取自柜体自身木纹（贴图，非平涂）。
-            // 这比 v3.96「整扇门平移到侧面」（用户：看起来怪怪的）自然，也符合「一左一右往外拉、中间露柜内」。
+            // v3.98 收口：双开门绕「各自外侧竖直边」向柜体外推开。此前 theta 只到 55°、门板原地投影变窄，
+            // 中间只裂一条缝、整张柜内贴图被两侧门板盖住 ⇒ 读成「柜门没开」。改为：
+            //   ① 铰链在柜体左右外缘 x0 / x1，门板随开度向柜体「外侧」平移（左门往左、右门往右）；
+            //   ② 门板按 cos(θ) 收窄（90° 时正投影宽≈0），满开 θ≈88°，两扇门基本移出柜体宽之外；
+            //   ③ 门板来自柜体自身木纹裁片（贴图，非平涂），露出的是铺满 dst 的 cabinet_interior（带隔板）。
+            // 结果：关态两扇门并拢盖住整片柜面；开态两扇门推到柜体两侧外，中间整片带隔板的柜内可见。
             float doorW = dst.Size.X * 0.5f;
             float h = dst.Size.Y;
             float yTop = dst.Position.Y;
             float x0 = dst.Position.X;              // 左门外铰链（柜体左缘）
             float x1 = dst.Position.X + dst.Size.X; // 右门外铰链（柜体右缘）
-            float theta = ot * 1.36f;               // 满开≈78°；不取 90° 以免门面压成 0
+            // 满开≈62°：cos≈0.47，两扇门在柜体左右外侧各留约半个门宽可见 ⇒ 读出「一左一右两扇门」；
+            // 同时门板已平移到柜体轮廓外，中间整片柜内敞开（含隔板），不被门盖住。
+            float theta = ot * 1.08f;
             float c = Mathf.Cos(theta);
+            float swing = doorW * ot * 0.72f;       // 门板向柜体外侧平移量：满开时门内缘退到柜体外，柜内整片露出
             Rect2 srcL = new Rect2(src.Position.X, src.Position.Y, src.Size.X * 0.5f, src.Size.Y);
             Rect2 srcR = new Rect2(src.Position.X + src.Size.X * 0.5f, src.Position.Y, src.Size.X * 0.5f, src.Size.Y);
             var m = mirror ? mirrorM : Transform2D.Identity;
             DrawSetTransformMatrix(m);
-            // 左门：铰链固定于 x0，投影宽度 doorW*c（向 x0 右侧收缩）
-            DrawTextureRectRegion(_roomTex, new Rect2(x0, yTop, doorW * c, h), srcL, new Color(1f, 1f, 1f, 1f));
-            // 右门：铰链固定于 x1，投影宽度 doorW*c（向 x1 左侧收缩）
-            DrawTextureRectRegion(_roomTex, new Rect2(x1 - doorW * c, yTop, doorW * c, h), srcR, new Color(1f, 1f, 1f, 1f));
+            // 左门：铰链 x0，向左侧外平移 swing，投影宽 doorW*c（贴着外缘逐渐转没）
+            DrawTextureRectRegion(_roomTex, new Rect2(x0 - swing, yTop, doorW * c, h), srcL, new Color(1f, 1f, 1f, 1f));
+            // 右门：铰链 x1，向右侧外平移 swing，投影宽 doorW*c
+            DrawTextureRectRegion(_roomTex, new Rect2(x1 + swing - doorW * c, yTop, doorW * c, h), srcR, new Color(1f, 1f, 1f, 1f));
             DrawSetTransformMatrix(Transform2D.Identity);
-            // 门内沿一道薄阴影缝（门与柜内之间，强化「已推开」）
+            // 门内沿暗边（门板厚度）：旋开时门板侧面露出一抹暗边，强化「立体门板已推开」
             if (ot > 0.02f)
             {
-                float gap = Mathf.Max(1f, doorW * c * 0.12f);
-                DrawRect(new Rect2(x0 + doorW * c - gap, yTop, gap, h), new Color(0.05f, 0.035f, 0.025f, 0.5f * ot));
-                DrawRect(new Rect2(x1 - doorW * c, yTop, gap, h),       new Color(0.05f, 0.035f, 0.025f, 0.5f * ot));
+                float edge = Mathf.Max(1.5f, doorW * c * 0.12f);
+                DrawRect(new Rect2(x0 - swing + doorW * c - edge, yTop, edge, h), new Color(0.18f, 0.12f, 0.08f, 0.7f * ot));
+                DrawRect(new Rect2(x1 + swing - doorW * c, yTop, edge, h),        new Color(0.18f, 0.12f, 0.08f, 0.7f * ot));
             }
             return;
         }
 
         if (f.Type == FurnitureType.Desk)
         {
-            // 桌子在背景贴图里只有「桌裙挡板带」、没有独立抽屉面（无把手）。
-            // 不能用程序化盒子伪造抽屉（用户：盒子画风/角度/颜色都跟手绘桌不一致）。
-            // 正确「拉开」= 把桌子自身的桌裙挡板纹理向下平移，露出上方一道内壁暗腔、物品落进暗腔；
-            // 全程用桌子自己的贴图，角度/颜色/画风与桌体严格一致。
+            // v3.98 用户拍板 B 方案：抽屉 = 真实手绘贴图 drawer_box（立体木盒：顶板受光/侧板压暗/正面横木纹+圆拉手），
+            // 互动拉开后才从桌子边缘向外凸出显现。关态 OpenT≈0 时不画 ⇒ 桌子完整无缝（互动前隐藏）。
+            // 不再用「桌裙下移 + 程序化亮边/侧影/拉手」伪造——那套画风/角度与手绘桌不一致（用户明确否掉）。
             if (mirror) DrawSetTransformMatrix(mirrorM);
             float x = dst.Position.X;
-            float yTop = dst.Position.Y;          // 桌裙上沿（原贴图位置）
+            float yTop = dst.Position.Y;          // 桌裙上沿（抽屉槽口）
             float w = dst.Size.X;
-            float apronH = dst.Size.Y;            // 桌裙自身高度
-            float boxH = DeskPullH(f, dst);       // 下拉量（与 DrawContainerItems 同参）
-            // ① 抽屉内壁暗腔：盖住原桌裙位置 + 下拉露出的缝。桌子自身裙边在贴图里本就是深棕（≈0.4 亮度），
-            //    因此暗腔必须压到近黑（≈0.10）才能与原裙边拉开层次，形成「亮桌面 → 近黑内腔 → 棕色抽屉前脸」
-            //    的清晰三段，一眼读出「抽屉被拉出、露出深凹内腔」。若只用 0.2 会与原裙边同暗、糊成一片。
-            DrawTexRecess(new Rect2(x, yTop, w, apronH + boxH), src, 0.10f, ot);
-            // ② 内腔顶/侧柔影：用接触阴影贴图资产（非平涂色块）卖出「凹进去」的纵深，
-            //    与手绘桌的软阴影同源，绝不出现程式化硬边方框。
-            if (_shadowTex != null)
+            float boxH = DeskPullH(f, dst);       // 抽屉拉出量（与 DrawContainerItems 同参）
+            if (_drawerBoxTex != null && ot > 0.02f)
             {
-                DrawTextureRect(_shadowTex, new Rect2(x, yTop, w, boxH * 0.55f), false, new Color(0.02f, 0.015f, 0.01f, 0.6f * ot));
-                DrawTextureRect(_shadowTex, new Rect2(x, yTop, w * 0.10f, boxH), false, new Color(0.02f, 0.015f, 0.01f, 0.5f * ot));
-                DrawTextureRect(_shadowTex, new Rect2(x + w * 0.90f, yTop, w * 0.10f, boxH), false, new Color(0.02f, 0.015f, 0.01f, 0.5f * ot));
+                // ① 桌体上的抽屉槽口：采样自身桌裙纹理压暗，读作「抽屉从这里抽出」（贴图资产、非平涂）
+                DrawTexRecess(new Rect2(x, yTop, w, Mathf.Max(6f, boxH * 0.5f)), src, 0.16f, ot);
+                // ② 拉出的抽屉盒：从桌裙下沿向外凸出（贴图 982×581，保持比例、底部不越地板线），
+                //    矩形由 DeskBoxRect 统一推导，与 DrawContainerItems 物品落点共用同一几何。
+                var boxRect = DeskBoxRect(dst, boxH);
+                DrawTextureRect(_drawerBoxTex, boxRect, false,
+                                new Color(1f, 1f, 1f, Mathf.Clamp(ot * 1.4f, 0f, 1f)));
             }
-            // ③ 抽屉前脸 = 桌子自身桌裙纹理，向下平移 boxH（仍是桌子自己的贴图，角度/颜色/画风严格一致）
-            DrawTextureRectRegion(_roomTex, new Rect2(x, yTop + boxH, w, apronH), src, new Color(1f, 1f, 1f, 1f));
-            // ④ 桌裙与原桌体之间的暗缝（分离感，让前脸像被拉出）
-            DrawRect(new Rect2(x, yTop + apronH - 1f, w, 2f), new Color(0.04f, 0.03f, 0.02f, 0.85f * ot));
+            else
+            {
+                // 贴图缺失兜底：仍用桌裙自身纹理下移 + 内腔，绝不凭空程序化木盒
+                float apronH = dst.Size.Y;
+                DrawTexRecess(new Rect2(x, yTop, w, boxH), src, 0.14f, ot);
+                DrawTextureRectRegion(_roomTex, new Rect2(x, yTop + boxH, w, apronH), src, new Color(1f, 1f, 1f, 1f));
+            }
             if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
             return;
         }
