@@ -981,6 +981,10 @@ public partial class InteriorForeground : Control
     private static Texture2D _wallNicheTex;
     private static Texture2D _drawerBoxTex;
     private static Texture2D _cabinetInteriorTex;
+    // v4.00：纯洞体贴图（从 wall_niche 抠掉外围浅米墙底纸，只留墙上凿出的洞）。
+    // 用户反馈：整张 wall_niche 铺上去=暖黄墙上贴了块浅米方格，违背「暗格是墙上凿的洞、跟墙一体」。
+    // 纯洞贴图直接嵌进真实墙（墙由 wallDst 1:1 采样相邻墙补齐），读作一体墙洞、无方格边。
+    private static Texture2D _wallHoleTex;
 
     public InteriorForeground(InteriorRoom room)
     {
@@ -997,6 +1001,7 @@ public partial class InteriorForeground : Control
         _shadowTex ??= GD.Load<Texture2D>("res://assets/art/interior/contact_shadow.png");
         // v3.98：开态三张真实手绘贴图（壁龛 / 抽屉盒 / 柜内），缺文件时不画、保持关态完整
         _wallNicheTex ??= GD.Load<Texture2D>("res://assets/art/interior/wall_niche.png");
+        _wallHoleTex ??= GD.Load<Texture2D>("res://assets/art/interior/wall_niche_hole.png");
         _drawerBoxTex ??= GD.Load<Texture2D>("res://assets/art/interior/drawer_box.png");
         _cabinetInteriorTex ??= GD.Load<Texture2D>("res://assets/art/interior/cabinet_interior.png");
         // v3.84：柜门 / 画心裁片直接取同一张背景贴图，不新增美术资产
@@ -1120,8 +1125,18 @@ public partial class InteriorForeground : Control
             float w = IntactSpec.TryGetValue(it.Kind, out var sp) ? sp.w : 44f;
             int rows = Mathf.CeilToInt(total / 2f);
             float spread = total <= 1 ? 0f : Mathf.Max(20f, w * 0.58f);
+            // v3.99 挂画：暗格改为画框中心一个盒子大小的洞（见 DrawPictureNiche），
+            // 落点必须同步到「新洞中心」且收窄横向错位，否则物品会越出洞口右侧（用户反馈）。
+            if (!IsBurnt && f.Type == FurnitureType.PictureFrame
+                && FrontSrc.TryGetValue((_room.Type, FurnitureType.PictureFrame), out var psrc))
+            {
+                var frameDst = BgRect(psrc);
+                rc = new Vector2(frameDst.Position.X + frameDst.Size.X * 0.5f,
+                                 frameDst.Position.Y + frameDst.Size.Y * 0.5f);
+                spread = total <= 1 ? 0f : Mathf.Min(16f, frameDst.Size.X * 0.14f);
+            }
             Vector2 p = rc + new Vector2((k % 2 == 0 ? -spread : spread),
-                                         (k / 2 - (rows - 1) * 0.5f) * 30f);
+                                         (k / 2 - (rows - 1) * 0.5f) * 26f);
             // 柜子：物品落底层（隔板以下），不顶第二层底
             if (!IsBurnt && f.Type == FurnitureType.Cabinet)
             {
@@ -1317,6 +1332,34 @@ public partial class InteriorForeground : Control
             ? new Rect2(45f, 210f, 65f, 250f)
             : new Rect2(90f, 150f, 80f, 320f);
 
+    /// <summary>v4.00：卷起挂画后，用「画框紧邻的真实墙」1:1 采样覆盖背景里画死的静止画。
+    /// 旧做法 WallPatchSrc 取 65×250 / 80×320 小块「拉伸」铺满整框，纹理密度被放大、又乘 0.95 压暗，
+    /// 与四周墙形成明显色差的长方格（用户 img4）。改为从框外同高墙带 1:1 平铺（不缩放不压暗），
+    /// 上下边缘羽化，读作同一面墙的延续、无色差方格边。</summary>
+    private void DrawWallCover(Rect2 dst, Rect2 frameSrc)
+    {
+        if (_roomTex == null || dst.Size.X <= 1f || dst.Size.Y <= 1f) return;
+        // 采样带：画框紧邻的干净真墙，高度与画框等高 ⇒ 纵向 1:1（不拉伸、不变纹理密度）。
+        // 住家框 src.x=190 宽140 → 取左侧 x44..140；据点框 src.x=100 宽220 → 取左侧 x2..98。
+        // 横向不够宽则多片平铺；源带不压暗（1.0f），与四周墙同色温，杜绝色差方格。
+        float sw = 96f;
+        Rect2 band = _room.Type == RoomType.CommOutpost
+            ? new Rect2(2f, 120f, sw, frameSrc.Size.Y)
+            : new Rect2(44f, 60f, sw, frameSrc.Size.Y);
+        float tileW = sw * InteriorRoom.BgScale;          // 每片覆盖的画布宽
+        int nx = Mathf.Max(1, Mathf.CeilToInt(dst.Size.X / tileW));
+        for (int ix = 0; ix < nx; ix++)
+        {
+            float cx = dst.Position.X + ix * tileW;
+            float cw = Mathf.Min(tileW, dst.Position.X + dst.Size.X - cx);
+            if (cw <= 0f) break;
+            float srcW = sw * (cw / tileW);               // 源宽按目标比例裁，保持 1:1 纹理密度
+            var srcRect = new Rect2(band.Position.X, band.Position.Y, srcW, band.Size.Y);
+            var dstRect = new Rect2(cx, dst.Position.Y, cw, dst.Size.Y);
+            DrawTextureRectRegion(_roomTex, dstRect, srcRect, new Color(1f, 1f, 1f, 1f));
+        }
+    }
+
     /// <summary>桌子「抽屉」拉出量：把自身桌裙纹理向下平移的距离。
     /// DrawFurnitureFront 与 DrawContainerItems 共用，避免两处公式漂移导致物品落点错位。</summary>
     private float DeskPullH(Furniture f, Rect2 dd)
@@ -1345,30 +1388,49 @@ public partial class InteriorForeground : Control
         return new Rect2(x, top, boxW, boxHeight);
     }
 
-    /// <summary>v3.98：挂画后的壁龛 = 真实手绘贴图 wall_niche（互动卷起后显现，不再是程序化平涂方块）。
-    /// 用户拍板 B 方案：贴图铺在整幅画框背后、边缘渐隐融入手绘墙，龛口正对藏物落点。
-    /// 暗格藏 ≥2 件时在龛内叠一张缩小的 cabinet_interior 双格内衬 = 「里面有多样物品不止一样」。</summary>
+    /// <summary>v3.99：挂画后的暗格 = 墙上凿出的「一个盒子大小」的洞，不再是铺满画框的竖长深井。
+    /// 用户 2026-11-15：暗格空间不用那么长那么大、约一个中性盒子的长度即可、宽度没问题。
+    /// 暗格藏 ≥2 件时在洞内叠一张缩小的 cabinet_interior 双格内衬 = 「里面有多样物品不止一样」。</summary>
     private void DrawPictureNiche(Furniture f, Rect2 r, float a)
     {
-        // 龛贴图铺在「整个画框」背后：wall_niche 自带墙面 + 凹龛，边缘已渐隐，
-        // 既能盖掉背景贴图里画死的静止画，又与四周手绘墙同笔触（用户：纯色 vs 手绘格格不入）。
         if (FrontSrc.TryGetValue((_room.Type, FurnitureType.PictureFrame), out var psrc))
         {
             var frameDst = BgRect(psrc);
-            if (_wallNicheTex != null)
-                DrawTextureRect(_wallNicheTex, frameDst, false, new Color(1f, 1f, 1f, a));
+            // 宽度沿用整个画框宽（用户：宽度没问题）；高度收到「一个盒子长度」= 宽×1.32，
+            // 以画框中心定位 ⇒ 挂画放下时能被完整遮住、卷起时正对藏物落点。
+            // 不再把 793×1137 的贴图铺满 140×460 的画框（那会把洞口拉成 3.5:1 的深井）。
+            float boxW = frameDst.Size.X;
+            float boxH = boxW * 1.32f;
+            var box = new Rect2(frameDst.Position.X,
+                                frameDst.Position.Y + (frameDst.Size.Y - boxH) * 0.5f,
+                                boxW, boxH);
+            // v4.00：改用「纯洞体」贴图 —— wall_niche 原图自带一整圈浅米墙底纸，整张铺上去
+            // 等于在暖黄墙上贴了块浅米方格（用户 img4：长方格颜色跟墙明显不同、格格不入）。
+            // wall_niche_hole 已离线抠掉纸底、只留墙上凿出的洞；外围露出的墙由 wallDst 1:1 采样
+            // 相邻真墙补齐 ⇒ 洞与墙一体，无方格边。box 比贴图 bbox 略放大以贴合洞口实际占比。
+            if (_wallHoleTex != null)
+            {
+                // 贴图洞体 bbox 约为整张 x[149..688]/793, y[314..1031]/1137 → 居中裁掉透明边再铺进 box
+                var holeSrc = new Rect2(149f, 314f, 688f - 149f, 1031f - 314f);
+                DrawTextureRectRegion(_wallHoleTex, box, holeSrc, new Color(1f, 1f, 1f, a));
+            }
+            else if (_wallNicheTex != null)
+                DrawTextureRect(_wallNicheTex, box, false, new Color(1f, 1f, 1f, a));
             else
-                DrawTexRecess(frameDst, WallPatchSrc(), 0.5f, a); // 贴图缺失兜底
-        }
-        // 多物品语义：暗格藏 ≥2 件 → 龛内叠缩小的双格柜内贴图，读作「多格、多样物品」。
-        int cnt = 0;
-        foreach (var it in _room.Items)
-            if (it.Mode == RoomItemMode.Container && it.ContainerId == f.Id) cnt++;
-        if (cnt >= 2 && _cabinetInteriorTex != null && _wallNicheTex != null)
-        {
-            var inner = new Rect2(r.Position.X + r.Size.X * 0.10f, r.Position.Y + r.Size.Y * 0.08f,
-                                  r.Size.X * 0.80f, r.Size.Y * 0.84f);
-            DrawTextureRect(_cabinetInteriorTex, inner, false, new Color(1f, 1f, 1f, 0.92f * a));
+                DrawTexRecess(box, WallPatchSrc(), 0.5f, a); // 贴图缺失兜底
+
+            // 多物品语义：暗格藏 ≥2 件 → 洞内叠缩小的双格柜内贴图，读作「多格、多样物品」。
+            // 内衬落在盒子中央、比盒子小一圈，不再用画框中心的 r（那是另一个坐标系的小矩形）。
+            int cnt = 0;
+            foreach (var it in _room.Items)
+                if (it.Mode == RoomItemMode.Container && it.ContainerId == f.Id) cnt++;
+            if (cnt >= 2 && _cabinetInteriorTex != null && _wallNicheTex != null)
+            {
+                var inner = new Rect2(box.Position.X + box.Size.X * 0.14f,
+                                      box.Position.Y + box.Size.Y * 0.14f,
+                                      box.Size.X * 0.72f, box.Size.Y * 0.64f);
+                DrawTextureRect(_cabinetInteriorTex, inner, false, new Color(1f, 1f, 1f, 0.90f * a));
+            }
         }
     }
 
@@ -1391,12 +1453,12 @@ public partial class InteriorForeground : Control
             if (FrontSrc.TryGetValue((_room.Type, f.Type), out var psrc))
             {
                 var pdst = BgRect(psrc);
-                float visibleH = pdst.Size.Y * (1f - f.OpenT);
-                var wallDst = new Rect2(pdst.Position.X, pdst.Position.Y + visibleH,
-                                        pdst.Size.X, pdst.Size.Y - visibleH);
-                // v3.96：卷起后露出的墙用「手绘墙纹理」覆盖（而非平涂墙色），彻底盖掉背景里那幅静止的画，
-                // 且与周围墙同质感（用户：纯色块与手绘墙格格不入）
-                DrawTexRecess(wallDst, WallPatchSrc(), 0.95f, 1f);
+                // v4.00：卷起后露出的墙 = 画框下方那段（框顶到卷轴下缘之下）。
+                // 旧做法从 80×320 小块「拉伸+0.95压暗」铺满 ⇒ 与四周墙色差明显（用户 img4 长方格）。
+                // 改为整框范围用相邻真墙 1:1 平铺、不压暗；上方会被卷起的卷轴盖住，只露出墙的部分无色差。
+                var wallDst = new Rect2(pdst.Position.X, pdst.Position.Y,
+                                        pdst.Size.X, pdst.Size.Y);
+                DrawWallCover(wallDst, psrc);
             }
             // v3.98：画后壁龛改用真实手绘贴图 wall_niche（互动卷起后随 OpenT 显现、边缘渐隐融入墙）；
             // 暗格藏 ≥2 件时在龛内叠 cabinet_interior 双格内衬，表示「里面有多样物品不止一样」。
@@ -1478,33 +1540,19 @@ public partial class InteriorForeground : Control
 
         if (f.Type == FurnitureType.PictureFrame)
         {
-            // v3.92 挂画「往上卷」：画心自底部向上卷入，底部卷口（横向卷轴）随卷起上升；
-            // ot→1 时整幅卷起、卷轴停在框顶，只留暗格（暗格由 DrawFurnitureBody 已画在底层）。
-            // 用户 2026-11-13：「挂画掀开是拨开的意思或者将画往上卷才会看到暗格」。
+            // v4.00 挂画物理卷轴模型（用户 2026-11-15 img1/2/3 反馈）：
+            // 用户原话「天杆和地杆是黏在一起了吧，因为挂画的画部分是卷起来的状态」。
+            // 真实挂轴上卷 = 整幅画(天杆+画心+地杆)从下往上收拢，最终卷成「一根卷轴」挂在天杆处；
+            // 卷起态画面 = 细天杆 + 紧贴其下的一卷压缩画(内含地杆圆轴头)，只有一组、无第二根杆。
+            // 实现：整张 src 等比压缩到"剩余高度"里 —— ot=0 满幅 H，ot=1 压到一卷厚度 rollH。
+            // 这样天杆/画心/地杆随压缩自然挤到一起，地杆圆轴头始终在卷底，零拼缝、零程序化纯色。
             if (mirror) DrawSetTransformMatrix(mirrorM);
-            float visibleH = dst.Size.Y * (1f - ot);
-            float rollH = Mathf.Min(dst.Size.Y * 0.11f, 16f);
-            if (visibleH > 1f)
-            {
-                var dDst = new Rect2(dst.Position.X, dst.Position.Y, dst.Size.X, visibleH);
-                var dSrc = new Rect2(src.Position.X, src.Position.Y, src.Size.X, src.Size.Y * (1f - ot));
-                DrawTextureRectRegion(_roomTex, dDst, dSrc, new Color(1f, 1f, 1f, 1f));
-                // 卷口：在仍可见画心的下缘画一截横向卷轴（矩形+两端圆角），读作「往上卷」
-                float cy = dst.Position.Y + visibleH;
-                DrawRect(new Rect2(dst.Position.X, cy - rollH * 0.5f, dst.Size.X, rollH),
-                         new Color(0.42f, 0.32f, 0.22f, 0.95f));
-                DrawCircle(new Vector2(dst.Position.X, cy), rollH * 0.5f, new Color(0.42f, 0.32f, 0.22f, 0.95f));
-                DrawCircle(new Vector2(dst.Position.X + dst.Size.X, cy), rollH * 0.5f, new Color(0.42f, 0.32f, 0.22f, 0.95f));
-            }
-            else
-            {
-                // 完全卷起：卷轴停在框顶，框内只剩暗格（仍读作「画已卷上去」）
-                float cy = dst.Position.Y + rollH * 0.5f;
-                DrawRect(new Rect2(dst.Position.X, cy - rollH * 0.5f, dst.Size.X, rollH),
-                         new Color(0.42f, 0.32f, 0.22f, 0.95f));
-                DrawCircle(new Vector2(dst.Position.X, cy), rollH * 0.5f, new Color(0.42f, 0.32f, 0.22f, 0.95f));
-                DrawCircle(new Vector2(dst.Position.X + dst.Size.X, cy), rollH * 0.5f, new Color(0.42f, 0.32f, 0.22f, 0.95f));
-            }
+            float H = dst.Size.Y, W = dst.Size.X, top = dst.Position.Y, left = dst.Position.X;
+            float rollH = H * 0.16f;                       // 全开时一卷的厚度(含天杆与地杆轴头)
+            float shownH = Mathf.Lerp(H, rollH, ot);       // 可见画幅：满幅 → 一卷
+            var shownDst = new Rect2(left, top, W, shownH);
+            // 源整幅等比压到 shownH：源始终取全幅，故天杆在上、画心居中、地杆轴头在下都保留。
+            DrawTextureRectRegion(_roomTex, shownDst, src, new Color(1f, 1f, 1f, 1f));
             if (mirror) DrawSetTransformMatrix(Transform2D.Identity);
             return;
         }
